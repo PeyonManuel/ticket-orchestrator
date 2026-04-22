@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { PanelLeftClose, PanelLeftOpen, Search, Plus } from "lucide-react";
+import { useBoardContext } from "@/BoardContext";
 
 interface TopbarProps {
   onToggleSidebar: () => void;
@@ -16,6 +17,19 @@ export default function Topbar({
   onToggleSidebar,
   isSidebarOpen,
 }: TopbarProps) {
+  const { openCreateTicket, openSearch } = useBoardContext();
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        openSearch();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openSearch]);
+
   return (
     <header className="h-16 border-b border-zinc-800 bg-zinc-950 flex items-center px-4 shrink-0">
       {/* Left Section: Logo & Toggle */}
@@ -44,19 +58,22 @@ export default function Topbar({
 
       {/* Middle Section: Search + Create (Centered) */}
       <div className="flex-1 flex justify-center items-center gap-3">
-        <div className="relative w-full max-w-md group">
+        <button
+          onClick={openSearch}
+          className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-300 hover:border-indigo-500/50 hover:text-zinc-100"
+        >
           <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-indigo-400 transition-colors"
-            size={16}
+            className="text-zinc-500"
+            size={15}
           />
-          <input
-            type="text"
-            placeholder="Search tickets, agents, or commands..."
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-full py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all placeholder:text-zinc-600"
-          />
-        </div>
+          <span>Search</span>
+          <span className="text-xs text-zinc-500">Ctrl+K</span>
+        </button>
 
-        <button className="flex items-center gap-2 bg-zinc-100 text-zinc-950 px-4 py-2 rounded-full text-sm font-semibold hover:bg-zinc-300 transition-all shrink-0">
+        <button
+          onClick={openCreateTicket}
+          className="flex items-center gap-2 bg-indigo-300 text-zinc-950 px-4 py-2 rounded-full text-sm font-semibold hover:bg-indigo-200 transition-all shrink-0"
+        >
           <Plus size={16} />
           <span>Create</span>
         </button>
