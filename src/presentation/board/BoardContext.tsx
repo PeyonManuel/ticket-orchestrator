@@ -1,30 +1,38 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useMachine } from "@xstate/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   analystSelectors,
   analystWorkspaceMachine,
+  type ActiveModal,
   type AiOrchestratorEvent,
-} from "@/analyst.machine";
-import type {
-  AnalystMachineContext,
-  Board,
-  BoardColumn,
-  CreateTicketInput,
-  ReleaseVersion,
-  Ticket,
-  UserRole,
-} from "@/analyst.types";
+  type Board,
+  type BoardColumn,
+  type CreateTicketInput,
+  type ReleaseVersion,
+  type Ticket,
+  type UserRole,
+} from "@/domain/analyst";
+import {
+  loadWorkspaceSnapshot,
+  saveWorkspaceSnapshot,
+} from "@/infrastructure/persistence/workspaceStorage";
 
-interface BoardViewModel {
+export interface BoardViewModel {
   boards: Board[];
   boardColumns: BoardColumn[];
   activeBoardId: string | null;
   activeBoardTicketsByColumn: Array<{ column: BoardColumn; tickets: Ticket[] }>;
   selectedTicket: Ticket | null;
-  activeModal: "none" | "ticket" | "createTicket" | "orchestrator" | "search" | "createVersion";
+  activeModal: ActiveModal;
   workflowStateOptions: string[];
   globalWorkflowStateOptions: string[];
   workflowChoicesOrdered: Array<{
@@ -40,6 +48,8 @@ interface BoardViewModel {
   orchestratorOpen: boolean;
   createModalOpen: boolean;
   createVersionModalOpen: boolean;
+  labels: string[];
+
   selectBoard: (boardId: string) => void;
   openTicket: (ticketId: string) => void;
   closeModal: () => void;
@@ -47,9 +57,11 @@ interface BoardViewModel {
   openCreateTicketLinkedTo: (ticketId: string) => void;
   openSearch: () => void;
   openCreateVersion: () => void;
+  openOrchestrator: () => void;
   addBoardColumn: (boardId: string, columnName: string, states: string[]) => void;
   updateColumnState: (columnId: string, states: string[]) => void;
   updateColumnColor: (columnId: string, color: string) => void;
+  renameColumn: (columnId: string, name: string) => void;
   moveTicketToColumn: (ticketId: string, columnId: string) => void;
   updateTicketField: (
     ticketId: string,
@@ -65,31 +77,15 @@ interface BoardViewModel {
   unlinkTickets: (ticketId: string, targetTicketId: string) => void;
   createVersion: (name: string, releaseDate: string, applyToTicketId?: string) => void;
   createTicket: (payload: CreateTicketInput) => void;
-  openOrchestrator: () => void;
+  addLabel: (label: string) => void;
   dispatchOrchestratorEvent: (event: AiOrchestratorEvent) => void;
   getTicketShareUrl: (ticketId: string) => string;
-  labels: string[];
-  renameColumn: (columnId: string, name: string) => void;
-  addLabel: (label: string) => void;
 }
 
 const BoardContext = createContext<BoardViewModel | null>(null);
 
-const STORAGE_KEY = "orion-workspace-v1";
-
-function loadPersisted(): Partial<AnalystMachineContext> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Partial<AnalystMachineContext>;
-  } catch {
-    return {};
-  }
-}
-
 export function BoardProvider({ children }: { children: React.ReactNode }) {
-  const [persistedInput] = useState(loadPersisted);
+  const [persistedInput] = useState(loadWorkspaceSnapshot);
   const [state, send] = useMachine(analystWorkspaceMachine, { input: persistedInput });
   const pathname = usePathname();
   const router = useRouter();
@@ -109,6 +105,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   };
 
+  // URL <-> machine sync for deep links
   useEffect(() => {
     const modal = searchParams.get("modal");
     const ticketNumber = searchParams.get("ticket");
@@ -123,7 +120,6 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       send({ type: "OPEN_ORCHESTRATOR" });
       return;
     }
-
     if (modal === "create" && state.context.activeModal !== "createTicket") {
       send({ type: "OPEN_CREATE_TICKET" });
       return;
@@ -140,30 +136,24 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     if (!ticketNumber && !modal && state.context.activeModal !== "none") {
       send({ type: "CLOSE_MODAL" });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, send, state.context.activeModal, state.context.selectedTicketId]);
 
+  // Persist snapshot whenever domain context changes
   useEffect(() => {
-    const { boards, boardColumns, tickets, activeBoardId, releaseVersions, currentUserRole, labels } =
-      state.context;
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ boards, boardColumns, tickets, activeBoardId, releaseVersions, currentUserRole, labels }),
-      );
-    } catch {
-      // ignore storage errors
-    }
+    saveWorkspaceSnapshot(state.context);
   }, [state.context]);
 
   const value = useMemo<BoardViewModel>(() => {
     const context = state.context;
+    const selectedTicket = analystSelectors.selectedTicket(context);
     return {
       boards: context.boards,
       allTickets: context.tickets,
       boardColumns: analystSelectors.activeBoardColumns(context),
       activeBoardId: context.activeBoardId,
       activeBoardTicketsByColumn: analystSelectors.activeBoardTicketsByColumn(context),
-      selectedTicket: analystSelectors.selectedTicket(context),
+      selectedTicket,
       activeModal: context.activeModal,
       workflowStateOptions: analystSelectors.workflowStatesForTicket(
         context,
@@ -171,13 +161,11 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       ),
       globalWorkflowStateOptions: analystSelectors.allWorkflowStates(context),
       workflowChoicesOrdered: analystSelectors.workflowChoicesOrdered(context),
-      linkedTickets: (() => {
-        const selectedTicket = analystSelectors.selectedTicket(context);
-        if (!selectedTicket) return [];
-        return context.tickets.filter((ticket: Ticket) =>
-          selectedTicket.linkedTicketIds.includes(ticket.id),
-        );
-      })(),
+      linkedTickets: selectedTicket
+        ? context.tickets.filter((ticket) =>
+            selectedTicket.linkedTicketIds.includes(ticket.id),
+          )
+        : [],
       currentUserRole: context.currentUserRole,
       releaseVersions: context.releaseVersions,
       orchestratorOpen:
@@ -186,10 +174,12 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         (state as any).matches({ orchestratorPanel: "opened" }),
       createModalOpen: context.activeModal === "createTicket",
       createVersionModalOpen: context.activeModal === "createVersion",
+      labels: analystSelectors.allLabels(context),
+
       selectBoard: (boardId) => send({ type: "SELECT_BOARD", boardId }),
       openTicket: (ticketId) => {
         send({ type: "OPEN_TICKET", ticketId });
-        const ticket = context.tickets.find((item: Ticket) => item.id === ticketId);
+        const ticket = context.tickets.find((item) => item.id === ticketId);
         updateUrlParams({ ticketId: ticket?.ticketNumber ?? null, modal: "ticket" });
       },
       closeModal: () => {
@@ -212,12 +202,17 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         send({ type: "OPEN_CREATE_VERSION" });
         updateUrlParams({ modal: "create-version" });
       },
+      openOrchestrator: () => {
+        send({ type: "OPEN_ORCHESTRATOR" });
+        updateUrlParams({ ticketId: null, modal: "orchestrator" });
+      },
       addBoardColumn: (boardId, columnName, states) =>
         send({ type: "ADD_BOARD_COLUMN", boardId, columnName, states }),
       updateColumnState: (columnId, states) =>
         send({ type: "UPDATE_COLUMN_STATE", columnId, states }),
       updateColumnColor: (columnId, color) =>
         send({ type: "UPDATE_COLUMN_COLOR", columnId, color }),
+      renameColumn: (columnId, name) => send({ type: "RENAME_COLUMN", columnId, name }),
       moveTicketToColumn: (ticketId, columnId) =>
         send({ type: "MOVE_TICKET_TO_COLUMN", ticketId, columnId }),
       updateTicketField: (ticketId, field, value) =>
@@ -233,21 +228,16 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       createVersion: (name, releaseDate, applyToTicketId) =>
         send({ type: "CREATE_VERSION", name, releaseDate, applyToTicketId }),
       createTicket: (payload) => send({ type: "CREATE_TICKET", payload }),
-      openOrchestrator: () => {
-        send({ type: "OPEN_ORCHESTRATOR" });
-        updateUrlParams({ ticketId: null, modal: "orchestrator" });
-      },
+      addLabel: (label) => send({ type: "ADD_LABEL", label }),
       dispatchOrchestratorEvent: (event) => send({ type: "AI_EVENT", event }),
       getTicketShareUrl: (ticketId) => {
         if (typeof window === "undefined") return "";
-        const ticket = context.tickets.find((item: Ticket) => item.id === ticketId);
+        const ticket = context.tickets.find((item) => item.id === ticketId);
         if (!ticket) return "";
         return `${window.location.origin}${pathname}?modal=ticket&ticket=${ticket.ticketNumber}`;
       },
-      labels: analystSelectors.allLabels(context),
-      renameColumn: (columnId, name) => send({ type: "RENAME_COLUMN", columnId, name }),
-      addLabel: (label) => send({ type: "ADD_LABEL", label }),
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, searchParams, send, state]);
 
   return <BoardContext.Provider value={value}>{children}</BoardContext.Provider>;

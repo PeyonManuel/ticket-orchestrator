@@ -2,7 +2,7 @@
 
 import React, { useEffect } from "react";
 import { PanelLeftClose, PanelLeftOpen, Search, Plus } from "lucide-react";
-import { useBoardContext } from "@/BoardContext";
+import { useBoardContext } from "@/presentation/board/BoardContext";
 
 interface TopbarProps {
   onToggleSidebar: () => void;
@@ -10,13 +10,9 @@ interface TopbarProps {
 }
 
 /**
- * Topbar Component
- * @description Handles logo, sidebar toggle, and the centered Search + Create group.
+ * Global topbar: brand, sidebar toggle, centered search + create.
  */
-export default function Topbar({
-  onToggleSidebar,
-  isSidebarOpen,
-}: TopbarProps) {
+export default function Topbar({ onToggleSidebar, isSidebarOpen }: TopbarProps) {
   const { openCreateTicket, openSearch } = useBoardContext();
 
   useEffect(() => {
@@ -32,15 +28,12 @@ export default function Topbar({
 
   return (
     <header className="h-16 border-b border-zinc-800 bg-zinc-950 flex items-center px-4 shrink-0">
-      {/* Left Section: Logo & Toggle */}
       <div className="flex items-center gap-4 w-1/4">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-indigo-600 rounded-sm flex items-center justify-center font-bold text-lg italic shadow-[0_0_15px_rgba(79,70,229,0.4)]">
             O
           </div>
-          <span className="font-bold tracking-tighter text-xl hidden md:block">
-            ORION
-          </span>
+          <span className="font-bold tracking-tighter text-xl hidden md:block">ORION</span>
         </div>
 
         <button
@@ -48,24 +41,16 @@ export default function Topbar({
           className="p-2 hover:bg-zinc-900 rounded-md transition-colors text-zinc-400 hover:text-zinc-100"
           title={isSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
         >
-          {isSidebarOpen ? (
-            <PanelLeftClose size={20} />
-          ) : (
-            <PanelLeftOpen size={20} />
-          )}
+          {isSidebarOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
         </button>
       </div>
 
-      {/* Middle Section: Search + Create (Centered) */}
       <div className="flex-1 flex justify-center items-center gap-3">
         <button
           onClick={openSearch}
           className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-300 hover:border-indigo-500/50 hover:text-zinc-100"
         >
-          <Search
-            className="text-zinc-500"
-            size={15}
-          />
+          <Search className="text-zinc-500" size={15} />
           <span>Search</span>
           <span className="text-xs text-zinc-500">Ctrl+K</span>
         </button>
@@ -79,7 +64,6 @@ export default function Topbar({
         </button>
       </div>
 
-      {/* Right Section: Placeholder for User/Settings */}
       <div className="w-1/4 flex justify-end">
         <div className="w-8 h-8 rounded-full border border-zinc-800 bg-zinc-900 flex items-center justify-center text-[10px] text-zinc-500">
           N/A
