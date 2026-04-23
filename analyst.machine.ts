@@ -11,7 +11,7 @@ import type {
   Ticket,
   TicketId,
 } from "@/analyst.types";
-import { seedAnalystData } from "@/analyst.types";
+import { seedAnalystData, DEFAULT_LABELS } from "@/analyst.types";
 
 export type AiOrchestratorEvent =
   | { type: "START_ANALYSIS"; requirement: string }
@@ -168,6 +168,8 @@ export type AnalystEvent =
   | { type: "UNLINK_TICKETS"; ticketId: TicketId; targetTicketId: TicketId }
   | { type: "CREATE_VERSION"; name: string; releaseDate: string; applyToTicketId?: TicketId }
   | { type: "CREATE_TICKET"; payload: CreateTicketInput }
+  | { type: "RENAME_COLUMN"; columnId: ColumnId; name: string }
+  | { type: "ADD_LABEL"; label: string }
   | { type: "AI_EVENT"; event: AiOrchestratorEvent };
 
 const getTicketsForBoard = (
@@ -190,10 +192,17 @@ const getNextTicketNumber = (tickets: Ticket[]): string => {
   return `OR-${max + 1}`;
 };
 
+const DEFAULT_RELEASE_VERSIONS: ReleaseVersion[] = [
+  { id: "version-1", name: "v1.1.0", releaseDate: "2026-06-15" },
+  { id: "version-2", name: "v1.2.0", releaseDate: "2026-07-31" },
+  { id: "version-3", name: "v1.3.0", releaseDate: "2026-09-10" },
+];
+
 export const analystWorkspaceMachine = setup({
   types: {
     context: {} as AnalystMachineContext,
     events: {} as AnalystEvent,
+    input: {} as Partial<AnalystMachineContext>,
   },
   actions: {
     setActiveBoard: assign({
@@ -478,7 +487,6 @@ export const analystWorkspaceMachine = setup({
           ticket.id === event.applyToTicketId ? { ...ticket, fixVersion: event.name.trim() } : ticket,
         );
       },
-      activeModal: () => "ticket",
     }),
     createTicket: assign({
       tickets: ({
@@ -526,6 +534,36 @@ export const analystWorkspaceMachine = setup({
     forwardAiEvent: sendTo("aiOrchestratorActor", ({ event }: { event: AnalystEvent }) =>
       event.type === "AI_EVENT" ? event.event : { type: "RETRY" },
     ),
+    renameColumn: assign({
+      boardColumns: ({
+        context,
+        event,
+      }: {
+        context: AnalystMachineContext;
+        event: AnalystEvent;
+      }) => {
+        if (event.type !== "RENAME_COLUMN") return context.boardColumns;
+        const trimmedName = event.name.trim();
+        if (!trimmedName) return context.boardColumns;
+        return context.boardColumns.map((column) =>
+          column.id === event.columnId ? { ...column, name: trimmedName } : column,
+        );
+      },
+    }),
+    addLabel: assign({
+      labels: ({
+        context,
+        event,
+      }: {
+        context: AnalystMachineContext;
+        event: AnalystEvent;
+      }) => {
+        if (event.type !== "ADD_LABEL") return context.labels;
+        const trimmed = event.label.trim().toLowerCase();
+        if (!trimmed || context.labels.includes(trimmed)) return context.labels;
+        return [...context.labels, trimmed];
+      },
+    }),
   },
   guards: {
     hasBoardSelected: ({ context }: { context: AnalystMachineContext }) =>
@@ -534,21 +572,18 @@ export const analystWorkspaceMachine = setup({
 }).createMachine({
   id: "analystWorkspace",
   type: "parallel",
-  context: {
-    boards: seedAnalystData.boards,
-    boardColumns: seedAnalystData.boardColumns,
-    tickets: seedAnalystData.tickets,
-    activeBoardId: seedAnalystData.boards[0]?.id ?? null,
+  context: ({ input }: { input: Partial<AnalystMachineContext> }) => ({
+    boards: input.boards ?? seedAnalystData.boards,
+    boardColumns: input.boardColumns ?? seedAnalystData.boardColumns,
+    tickets: input.tickets ?? seedAnalystData.tickets,
+    activeBoardId: input.activeBoardId ?? (seedAnalystData.boards[0]?.id ?? null),
     selectedTicketId: null,
-    activeModal: "none",
+    activeModal: "none" as AnalystMachineContext["activeModal"],
     createTicketLinkSourceId: null,
-    releaseVersions: [
-      { id: "version-1", name: "v1.1.0", releaseDate: "2026-06-15" },
-      { id: "version-2", name: "v1.2.0", releaseDate: "2026-07-31" },
-      { id: "version-3", name: "v1.3.0", releaseDate: "2026-09-10" },
-    ],
-    currentUserRole: "member",
-  },
+    releaseVersions: input.releaseVersions ?? DEFAULT_RELEASE_VERSIONS,
+    currentUserRole: input.currentUserRole ?? "member",
+    labels: input.labels ?? DEFAULT_LABELS,
+  }),
   states: {
     workspace: {
       initial: "boardInactive",
@@ -623,6 +658,12 @@ export const analystWorkspaceMachine = setup({
             CREATE_TICKET: {
               actions: "createTicket",
             },
+            RENAME_COLUMN: {
+              actions: "renameColumn",
+            },
+            ADD_LABEL: {
+              actions: "addLabel",
+            },
           },
         },
       },
@@ -684,14 +725,23 @@ export const analystSelectors = {
     return column?.states ?? [];
   },
   allWorkflowStates: (context: AnalystMachineContext) =>
-    Array.from(new Set(context.boardColumns.flatMap((column) => column.states))),
+    Array.from(
+      new Set(
+        context.boardColumns
+          .filter((column) => column.boardId === context.activeBoardId)
+          .flatMap((column) => column.states),
+      ),
+    ),
+  allLabels: (context: AnalystMachineContext) => context.labels,
   workflowChoicesOrdered: (context: AnalystMachineContext) =>
-    context.boardColumns.map((column) => ({
-      columnId: column.id,
-      columnName: column.name,
-      color: column.color,
-      states: column.states,
-    })),
+    context.boardColumns
+      .filter((column) => column.boardId === context.activeBoardId)
+      .map((column) => ({
+        columnId: column.id,
+        columnName: column.name,
+        color: column.color,
+        states: column.states,
+      })),
   ticketByNumber: (context: AnalystMachineContext, ticketNumber: string | null) => {
     if (!ticketNumber) return null;
     return (

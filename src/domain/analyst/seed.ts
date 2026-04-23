@@ -1,116 +1,11 @@
-export type BoardId = string;
-export type TicketId = string;
-export type ColumnId = string;
+import type {
+  AnalystSeedData,
+  BoardColumn,
+  BoardId,
+} from "./types";
+import { DEFAULT_COLUMN_DEFINITIONS } from "./types";
 
-export type TicketHierarchyType = "epic" | "story" | "task";
-export type UserRole = "member" | "admin";
-
-export interface BoardColumn {
-  id: ColumnId;
-  boardId: BoardId;
-  name: string;
-  states: string[];
-  color: string;
-}
-
-export interface Board {
-  id: BoardId;
-  name: string;
-  type: "scrum" | "kanban" | "task";
-}
-
-export interface Ticket {
-  id: TicketId;
-  ticketNumber: string;
-  boardId: BoardId;
-  columnId: ColumnId;
-  hierarchyType: TicketHierarchyType;
-  parentTicketId: TicketId | null;
-  title: string;
-  description: string;
-  label: string;
-  fixVersion: string;
-  storyPoints: 1 | 2 | 3 | 5 | 8 | 13;
-  workflowState: string;
-  priority: "low" | "medium" | "high";
-  linkedTicketIds: TicketId[];
-}
-
-export interface CreateTicketInput {
-  boardId: BoardId;
-  columnId: ColumnId;
-  hierarchyType: TicketHierarchyType;
-  parentTicketId: TicketId | null;
-  title: string;
-  description: string;
-  label: string;
-  fixVersion: string;
-  workflowState: string;
-  priority: "low" | "medium" | "high";
-  storyPoints: 1 | 2 | 3 | 5 | 8 | 13;
-}
-
-export interface ReleaseVersion {
-  id: string;
-  name: string;
-  releaseDate: string;
-}
-
-export interface OrchestratorSuggestion {
-  id: string;
-  summary: string;
-  riskLevel: "low" | "medium" | "high";
-  suggestedAction: "accept" | "revise" | "deScope";
-}
-
-export interface AnalystMachineContext {
-  boards: Board[];
-  boardColumns: BoardColumn[];
-  tickets: Ticket[];
-  activeBoardId: BoardId | null;
-  selectedTicketId: TicketId | null;
-  activeModal:
-    | "none"
-    | "ticket"
-    | "createTicket"
-    | "orchestrator"
-    | "search"
-    | "createVersion";
-  createTicketLinkSourceId: TicketId | null;
-  releaseVersions: ReleaseVersion[];
-  currentUserRole: UserRole;
-  labels: string[];
-}
-
-export interface AiOrchestratorContext {
-  requirement: string;
-  refinementDraft: string | null;
-  planDraft: string | null;
-  controllerAlert: string | null;
-  suggestion: OrchestratorSuggestion | null;
-  rejectionReason: string | null;
-}
-
-export interface AnalystSeedData {
-  boards: Board[];
-  boardColumns: BoardColumn[];
-  tickets: Ticket[];
-}
-
-export const DEFAULT_LABELS: string[] = [
-  "backend", "frontend", "security", "infra", "ux", "qa", "devops", "api",
-  "ai", "planning", "coordination", "analysis", "observability", "mlops",
-];
-
-export const DEFAULT_COLUMN_DEFINITIONS: Array<Pick<BoardColumn, "name" | "states">> =
-  [
-    { name: "Backlog", states: ["backlog"] },
-    { name: "To Do", states: ["todo"] },
-    { name: "In Progress", states: ["inProgress"] },
-    { name: "In Review", states: ["inReview"] },
-    { name: "In QA", states: ["inQa"] },
-    { name: "Ready", states: ["ready"] },
-  ];
+const COLUMN_PALETTE = ["#64748b", "#4f46e5", "#0ea5e9", "#f59e0b", "#ef4444", "#22c55e"];
 
 const createColumnsForBoard = (boardId: BoardId): BoardColumn[] =>
   DEFAULT_COLUMN_DEFINITIONS.map((definition, index) => ({
@@ -118,7 +13,7 @@ const createColumnsForBoard = (boardId: BoardId): BoardColumn[] =>
     boardId,
     name: definition.name,
     states: definition.states,
-    color: ["#64748b", "#4f46e5", "#0ea5e9", "#f59e0b", "#ef4444", "#22c55e"][index] ?? "#64748b",
+    color: COLUMN_PALETTE[index] ?? "#64748b",
   }));
 
 const engineeringColumns = createColumnsForBoard("board-engineering");

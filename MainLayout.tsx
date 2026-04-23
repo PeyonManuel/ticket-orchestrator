@@ -5,7 +5,7 @@ import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import { AnimatePresence, motion } from "framer-motion";
 import { BoardProvider, useBoardContext } from "@/BoardContext";
-import { Check, Link2, Plus, Search, X } from "lucide-react";
+import { Check, ChevronDown, Link2, Plus, Search, X } from "lucide-react";
 import type { TicketHierarchyType } from "@/analyst.types";
 
 const fuzzyScore = (query: string, target: string): number => {
@@ -24,6 +24,280 @@ const fuzzyScore = (query: string, target: string): number => {
   return score;
 };
 
+function SimpleDropdown({
+  value,
+  options,
+  onChange,
+  placeholder = "Select...",
+  className = "",
+}: {
+  value: string;
+  options: Array<{ label: string; value: string; dot?: string; meta?: string }>;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [open]);
+
+  const selected = options.find((opt) => opt.value === value);
+
+  return (
+    <div ref={containerRef} className={`relative ${className}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-2 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:border-zinc-500"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          {selected?.dot && (
+            <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: selected.dot }} />
+          )}
+          <span className="truncate">{selected?.label ?? placeholder}</span>
+          {selected?.meta && (
+            <span className="shrink-0 text-[11px] text-zinc-500">{selected.meta}</span>
+          )}
+        </span>
+        <ChevronDown
+          size={13}
+          className={`shrink-0 text-zinc-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-52 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-950 p-1 shadow-xl">
+          {options.map((opt) => {
+            const isActive = opt.value === value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => { onChange(opt.value); setOpen(false); }}
+                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-semibold transition-colors ${
+                  isActive ? "bg-zinc-800 text-zinc-50" : "text-zinc-300 hover:bg-zinc-800/60 hover:text-zinc-50"
+                }`}
+              >
+                {opt.dot && (
+                  <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: opt.dot }} />
+                )}
+                <span className="flex-1">{opt.label}</span>
+                {opt.meta && <span className="text-[10px] text-zinc-500">{opt.meta}</span>}
+                {isActive && <Check size={11} className="shrink-0 text-zinc-400" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LabelDropdown({
+  value,
+  labels,
+  onChange,
+  onAddLabel,
+}: {
+  value: string;
+  labels: string[];
+  onChange: (value: string) => void;
+  onAddLabel: (label: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) { setSearch(""); return; }
+    const handleOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [open]);
+
+  const filtered = search.trim()
+    ? labels.filter((l) => l.toLowerCase().includes(search.trim().toLowerCase()))
+    : labels;
+  const hasExactMatch = labels.some((l) => l.toLowerCase() === search.trim().toLowerCase());
+  const canCreate = search.trim().length > 0 && !hasExactMatch;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-2 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:border-zinc-500"
+      >
+        <span className="truncate">{value || "Select label"}</span>
+        <ChevronDown
+          size={13}
+          className={`shrink-0 text-zinc-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 rounded-md border border-zinc-700 bg-zinc-950 shadow-xl">
+          <div className="border-b border-zinc-800 p-1.5">
+            <input
+              ref={inputRef}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search labels..."
+              className="w-full rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-100 outline-none placeholder:text-zinc-500"
+            />
+          </div>
+          <div className="max-h-44 overflow-y-auto p-1">
+            {filtered.map((label) => {
+              const isActive = label === value;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => { onChange(label); setOpen(false); }}
+                  className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-semibold transition-colors ${
+                    isActive ? "bg-zinc-800 text-zinc-50" : "text-zinc-300 hover:bg-zinc-800/60 hover:text-zinc-50"
+                  }`}
+                >
+                  <span className="flex-1">{label}</span>
+                  {isActive && <Check size={11} className="shrink-0 text-zinc-400" />}
+                </button>
+              );
+            })}
+            {!filtered.length && !canCreate && (
+              <p className="px-2 py-2 text-xs text-zinc-500">No labels found.</p>
+            )}
+            {canCreate && (
+              <button
+                type="button"
+                onClick={() => {
+                  const newLabel = search.trim().toLowerCase();
+                  onAddLabel(newLabel);
+                  onChange(newLabel);
+                  setOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-semibold text-indigo-300 transition-colors hover:bg-indigo-500/10"
+              >
+                <Plus size={11} />
+                Create &quot;{search.trim()}&quot;
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkflowDropdown({
+  selectedState,
+  choices,
+  onSelect,
+}: {
+  selectedState: string;
+  choices: Array<{ columnId: string; columnName: string; color: string; states: string[] }>;
+  onSelect: (state: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [open]);
+
+  const activeEntry = choices.find((entry) => entry.states.includes(selectedState));
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-2 rounded-md border border-indigo-400/40 bg-zinc-950 px-3 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:border-indigo-400/70"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span
+            className="inline-block h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: activeEntry?.color ?? "#64748b" }}
+          />
+          <span className="truncate">{selectedState}</span>
+        </span>
+        <ChevronDown
+          size={13}
+          className={`shrink-0 text-zinc-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-52 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-950 shadow-xl">
+          <div className="p-1">
+            {choices.map((entry) => (
+              <div key={entry.columnId} className="mb-1 last:mb-0">
+                <p
+                  className="px-2 pb-0.5 pt-1.5 text-[10px] font-bold uppercase tracking-widest"
+                  style={{ color: entry.color }}
+                >
+                  {entry.columnName}
+                </p>
+                {entry.states.map((stateName) => {
+                  const isActive = stateName === selectedState;
+                  return (
+                    <button
+                      key={`${entry.columnId}-${stateName}`}
+                      type="button"
+                      onClick={() => {
+                        onSelect(stateName);
+                        setOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-semibold transition-colors ${
+                        isActive
+                          ? "text-zinc-50"
+                          : "text-zinc-300 hover:bg-zinc-800/60 hover:text-zinc-50"
+                      }`}
+                      style={{
+                        backgroundColor: isActive ? `${entry.color}33` : undefined,
+                      }}
+                    >
+                      <span
+                        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: entry.color }}
+                      />
+                      <span className="flex-1">{stateName}</span>
+                      {isActive && <Check size={11} className="shrink-0 text-zinc-400" />}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TicketModalOverlay() {
   const {
     selectedTicket,
@@ -37,19 +311,17 @@ function TicketModalOverlay() {
     linkTickets,
     unlinkTickets,
     openCreateTicketLinkedTo,
-    openCreateVersion,
     workflowChoicesOrdered,
     releaseVersions,
     getTicketShareUrl,
+    labels,
+    addLabel,
   } = useBoardContext();
-  const [editingField, setEditingField] = useState<
-    "title" | "description" | "label" | null
-  >(null);
+  const [editingField, setEditingField] = useState<"title" | "description" | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [linkTargetId, setLinkTargetId] = useState("");
   const [showLinkComposer, setShowLinkComposer] = useState(false);
   const [hoverLinkedTicketId, setHoverLinkedTicketId] = useState<string | null>(null);
-  const [workflowMenuOpen, setWorkflowMenuOpen] = useState(false);
 
   useEffect(() => {
     setLinkTargetId("");
@@ -70,12 +342,12 @@ function TicketModalOverlay() {
   };
 
   const renderEditableField = (
-    field: "title" | "description" | "label",
+    field: "title" | "description",
     className: string,
   ) => {
     const value = selectedTicket[field];
     if (editingField !== field) {
-      const Tag = field === "title" ? "h1" : field === "description" ? "p" : "span";
+      const Tag = field === "title" ? "h1" : "p";
       return (
         <Tag
           onClick={() => setEditingField(field)}
@@ -155,8 +427,13 @@ function TicketModalOverlay() {
           </div>
           <aside className="grid gap-3">
             <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
-              <p className="text-[10px] uppercase tracking-wide text-zinc-500 font-semibold">Label</p>
-              {renderEditableField("label", "mt-1 text-sm text-zinc-200")}
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500 font-semibold">Label</p>
+              <LabelDropdown
+                value={selectedTicket.label}
+                labels={labels}
+                onChange={(newLabel) => updateTicketField(selectedTicket.id, "label", newLabel)}
+                onAddLabel={addLabel}
+              />
             </div>
             <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
               <p className="text-[10px] uppercase tracking-wide text-zinc-500 font-semibold">Priority</p>
@@ -177,83 +454,37 @@ function TicketModalOverlay() {
             </div>
             <div className="grid gap-1 text-xs text-zinc-400 font-semibold">
               Workflow
-              <button
-                onClick={() => setWorkflowMenuOpen((prev) => !prev)}
-                className="rounded-md border border-indigo-400/40 bg-zinc-950 px-3 py-2 text-left text-sm font-semibold text-zinc-100"
-              >
-                {selectedTicket.workflowState}
-              </button>
-              {workflowMenuOpen && (
-                <div className="max-h-44 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-950 p-1">
-                  {workflowChoicesOrdered.flatMap((entry) =>
-                    entry.states.map((stateName) => (
-                      <button
-                        key={`${entry.columnId}-${stateName}`}
-                        onClick={() => {
-                          updateTicketWorkflowState(selectedTicket.id, stateName);
-                          setWorkflowMenuOpen(false);
-                        }}
-                        className="mb-1 flex w-full items-center rounded px-2 py-1 text-left text-xs font-semibold text-zinc-100"
-                        style={{
-                          backgroundColor: `${entry.color}33`,
-                          borderLeft: `3px solid ${entry.color}`,
-                        }}
-                      >
-                        {stateName}
-                      </button>
-                    )),
-                  )}
-                </div>
-              )}
+              <WorkflowDropdown
+                selectedState={selectedTicket.workflowState}
+                choices={workflowChoicesOrdered}
+                onSelect={(state) => updateTicketWorkflowState(selectedTicket.id, state)}
+              />
               <p className="text-[11px] text-zinc-500">
                 Selecting a state automatically moves the ticket to its mapped column.
               </p>
             </div>
-            <label className="grid gap-1 text-xs text-zinc-400 font-semibold">
+            <div className="grid gap-1 text-xs text-zinc-400 font-semibold">
               Story Points
-              <select
-                value={selectedTicket.storyPoints}
-                onChange={(event) =>
-                  updateTicketStoryPoints(
-                    selectedTicket.id,
-                    Number(event.target.value) as 1 | 2 | 3 | 5 | 8 | 13,
-                  )
+              <SimpleDropdown
+                value={String(selectedTicket.storyPoints)}
+                options={[1, 2, 3, 5, 8, 13].map((p) => ({ label: `${p} SP`, value: String(p) }))}
+                onChange={(v) =>
+                  updateTicketStoryPoints(selectedTicket.id, Number(v) as 1 | 2 | 3 | 5 | 8 | 13)
                 }
-                className="rounded-md border border-indigo-400/40 bg-zinc-950 px-3 py-2 text-sm font-semibold text-zinc-100"
-              >
-                {[1, 2, 3, 5, 8, 13].map((points) => (
-                  <option key={points} value={points}>
-                    {points}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1 text-xs text-zinc-400 font-semibold">
+              />
+            </div>
+            <div className="grid gap-1 text-xs text-zinc-400 font-semibold">
               Fix Version
-              <div className="flex gap-2">
-                <select
-                  value={selectedTicket.fixVersion}
-                  onChange={(event) =>
-                    updateTicketField(selectedTicket.id, "fixVersion", event.target.value)
-                  }
-                  className="flex-1 rounded-md border border-indigo-400/40 bg-zinc-950 px-3 py-2 text-sm font-semibold text-zinc-100"
-                >
-                  {releaseVersions.map((version) => (
-                    <option key={version.id} value={version.name}>
-                      {version.name} · {version.releaseDate}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={openCreateVersion}
-                  className="rounded-md border border-indigo-400/40 px-2 py-2 text-indigo-200"
-                  title="Create fix version"
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
-            </label>
+              <SimpleDropdown
+                value={selectedTicket.fixVersion}
+                options={releaseVersions.map((v) => ({
+                  label: v.name,
+                  value: v.name,
+                  meta: v.releaseDate,
+                }))}
+                onChange={(v) => updateTicketField(selectedTicket.id, "fixVersion", v)}
+              />
+            </div>
           </aside>
         </div>
         <section className="mt-4 rounded-md border border-zinc-800 bg-zinc-950/50 p-3">
@@ -338,10 +569,11 @@ function CreateTicketModal() {
     activeBoardId,
     boardColumns,
     releaseVersions,
-    openCreateVersion,
     createModalOpen,
     createTicket,
     closeModal,
+    labels,
+    addLabel,
   } =
     useBoardContext();
   const columnsForBoard = useMemo(
@@ -424,93 +656,64 @@ function CreateTicketModal() {
             className="min-h-24 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
           />
           <div className="grid gap-3 md:grid-cols-2">
-            <input
+            <LabelDropdown
               value={form.label}
-              onChange={(event) => setForm((prev) => ({ ...prev, label: event.target.value }))}
-              placeholder="Label"
-              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+              labels={labels}
+              onChange={(v) => setForm((prev) => ({ ...prev, label: v }))}
+              onAddLabel={addLabel}
             />
-            <div className="flex gap-2">
-              <select
-                value={form.fixVersion}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, fixVersion: event.target.value }))
-                }
-                className="flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-              >
-                {releaseVersions.map((version) => (
-                  <option key={version.id} value={version.name}>
-                    {version.name} · {version.releaseDate}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={openCreateVersion}
-                className="rounded-md border border-indigo-400/40 px-2 py-2 text-indigo-200"
-              >
-                <Plus size={14} />
-              </button>
-            </div>
+            <SimpleDropdown
+              value={form.fixVersion}
+              options={releaseVersions.map((v) => ({
+                label: v.name,
+                value: v.name,
+                meta: v.releaseDate,
+              }))}
+              onChange={(v) => setForm((prev) => ({ ...prev, fixVersion: v }))}
+            />
           </div>
           <div className="grid gap-3 md:grid-cols-4">
-            <select
+            <SimpleDropdown
               value={form.hierarchyType}
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  hierarchyType: event.target.value as "epic" | "story" | "task",
-                }))
+              options={[
+                { label: "Epic", value: "epic" },
+                { label: "Story", value: "story" },
+                { label: "Task", value: "task" },
+              ]}
+              onChange={(v) =>
+                setForm((prev) => ({ ...prev, hierarchyType: v as "epic" | "story" | "task" }))
               }
-              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-            >
-              <option value="epic">Epic</option>
-              <option value="story">Story</option>
-              <option value="task">Task</option>
-            </select>
-            <select
+            />
+            <SimpleDropdown
               value={form.priority}
-              onChange={(event) =>
+              options={[
+                { label: "Low", value: "low", dot: "#22c55e" },
+                { label: "Medium", value: "medium", dot: "#f59e0b" },
+                { label: "High", value: "high", dot: "#ef4444" },
+              ]}
+              onChange={(v) =>
+                setForm((prev) => ({ ...prev, priority: v as "low" | "medium" | "high" }))
+              }
+            />
+            <SimpleDropdown
+              value={String(form.storyPoints)}
+              options={[1, 2, 3, 5, 8, 13].map((p) => ({ label: `${p} SP`, value: String(p) }))}
+              onChange={(v) =>
                 setForm((prev) => ({
                   ...prev,
-                  priority: event.target.value as "low" | "medium" | "high",
+                  storyPoints: Number(v) as 1 | 2 | 3 | 5 | 8 | 13,
                 }))
               }
-              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-            >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
-            <select
-              value={form.storyPoints}
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  storyPoints: Number(event.target.value) as 1 | 2 | 3 | 5 | 8 | 13,
-                }))
-              }
-              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-            >
-              {[1, 2, 3, 5, 8, 13].map((points) => (
-                <option key={points} value={points}>
-                  {points} SP
-                </option>
-              ))}
-            </select>
-            <select
+            />
+            <SimpleDropdown
               value={form.columnId}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, columnId: event.target.value }))
-              }
-              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-            >
-              {columnsForBoard.map((column) => (
-                <option key={column.id} value={column.id}>
-                  {column.name}
-                </option>
-              ))}
-            </select>
+              options={columnsForBoard.map((col) => ({
+                label: col.name,
+                value: col.id,
+                dot: col.color,
+              }))}
+              onChange={(v) => setForm((prev) => ({ ...prev, columnId: v }))}
+            />
           </div>
           <div className="flex justify-end gap-2">
             <button
@@ -525,63 +728,6 @@ function CreateTicketModal() {
               className="rounded-md bg-indigo-400 px-4 py-2 text-xs font-semibold text-zinc-950"
             >
               Create
-            </button>
-          </div>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function CreateVersionModal() {
-  const { createVersionModalOpen, closeModal, createVersion, selectedTicket } = useBoardContext();
-  const [name, setName] = useState("");
-  const [releaseDate, setReleaseDate] = useState("");
-
-  if (!createVersionModalOpen) return null;
-
-  return (
-    <div
-      onClick={closeModal}
-      className="absolute inset-0 z-30 flex items-center justify-center bg-zinc-950/70 backdrop-blur-sm p-6"
-    >
-      <form
-        onClick={(event) => event.stopPropagation()}
-        onSubmit={(event) => {
-          event.preventDefault();
-          createVersion(name, releaseDate, selectedTicket?.id);
-          setName("");
-          setReleaseDate("");
-        }}
-        className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl"
-      >
-        <h2 className="text-lg font-semibold text-zinc-100">Create Fix Version</h2>
-        <div className="mt-4 grid gap-3">
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Version (e.g. v1.4.0)"
-            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-          />
-          <input
-            type="date"
-            value={releaseDate}
-            onChange={(event) => setReleaseDate(event.target.value)}
-            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={closeModal}
-              className="rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-300"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="rounded-md bg-indigo-400 px-4 py-2 text-xs font-semibold text-zinc-950"
-            >
-              Save
             </button>
           </div>
         </div>
@@ -746,7 +892,6 @@ export default function MainLayout({
             {children}
             <TicketModalOverlay />
             <CreateTicketModal />
-            <CreateVersionModal />
             <OrchestratorModal />
             <SearchModal />
           </motion.main>

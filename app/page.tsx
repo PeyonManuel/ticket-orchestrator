@@ -1,6 +1,6 @@
 import React from "react";
-import MainLayout from "@/MainLayout";
-import BoardWorkspaceView from "@/BoardWorkspaceView";
+import MainLayout from "@/presentation/board/layout/MainLayout";
+import BoardWorkspaceView from "@/presentation/board/workspace/BoardWorkspaceView";
 
 export default function HomePage() {
   return (
