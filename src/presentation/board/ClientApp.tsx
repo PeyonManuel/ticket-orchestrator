@@ -2,21 +2,10 @@
 
 import dynamic from "next/dynamic";
 
-// `ssr: false` requires a Client Component boundary — board uses localStorage.
-const MainLayout = dynamic(
-  () => import("@/presentation/board/layout/MainLayout"),
-  { ssr: false },
-);
-
-const BoardWorkspaceView = dynamic(
-  () => import("@/presentation/board/workspace/BoardWorkspaceView"),
-  { ssr: false },
-);
+// Single dynamic import avoids a loading waterfall. `ssr: false` is required
+// because the board hydrates state from localStorage.
+const BoardApp = dynamic(() => import("./BoardApp"), { ssr: false });
 
 export default function ClientApp() {
-  return (
-    <MainLayout>
-      <BoardWorkspaceView />
-    </MainLayout>
-  );
+  return <BoardApp />;
 }
