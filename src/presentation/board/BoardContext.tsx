@@ -62,6 +62,8 @@ export interface BoardViewModel {
   updateColumnState: (columnId: string, states: string[]) => void;
   updateColumnColor: (columnId: string, color: string) => void;
   renameColumn: (columnId: string, name: string) => void;
+  deleteColumn: (columnId: string) => void;
+  reorderColumns: (boardId: string, orderedColumnIds: string[]) => void;
   moveTicketToColumn: (ticketId: string, columnId: string) => void;
   updateTicketField: (
     ticketId: string,
@@ -76,6 +78,7 @@ export interface BoardViewModel {
   linkTickets: (ticketId: string, targetTicketId: string) => void;
   unlinkTickets: (ticketId: string, targetTicketId: string) => void;
   createVersion: (name: string, releaseDate: string, applyToTicketId?: string) => void;
+  deleteVersion: (versionId: string) => void;
   createTicket: (payload: CreateTicketInput) => void;
   addLabel: (label: string) => void;
   dispatchOrchestratorEvent: (event: AiOrchestratorEvent) => void;
@@ -137,7 +140,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       send({ type: "CLOSE_MODAL" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, send, state.context.activeModal, state.context.selectedTicketId]);
+  }, [searchParams]);
 
   // Persist snapshot whenever domain context changes
   useEffect(() => {
@@ -213,6 +216,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       updateColumnColor: (columnId, color) =>
         send({ type: "UPDATE_COLUMN_COLOR", columnId, color }),
       renameColumn: (columnId, name) => send({ type: "RENAME_COLUMN", columnId, name }),
+      deleteColumn: (columnId) => send({ type: "DELETE_COLUMN", columnId }),
+      reorderColumns: (boardId, orderedColumnIds) =>
+        send({ type: "REORDER_COLUMNS", boardId, orderedColumnIds }),
       moveTicketToColumn: (ticketId, columnId) =>
         send({ type: "MOVE_TICKET_TO_COLUMN", ticketId, columnId }),
       updateTicketField: (ticketId, field, value) =>
@@ -227,6 +233,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         send({ type: "UNLINK_TICKETS", ticketId, targetTicketId }),
       createVersion: (name, releaseDate, applyToTicketId) =>
         send({ type: "CREATE_VERSION", name, releaseDate, applyToTicketId }),
+      deleteVersion: (versionId) => send({ type: "DELETE_VERSION", versionId }),
       createTicket: (payload) => send({ type: "CREATE_TICKET", payload }),
       addLabel: (label) => send({ type: "ADD_LABEL", label }),
       dispatchOrchestratorEvent: (event) => send({ type: "AI_EVENT", event }),

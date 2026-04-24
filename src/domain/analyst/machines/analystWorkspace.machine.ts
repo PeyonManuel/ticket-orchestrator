@@ -45,7 +45,10 @@ export type AnalystEvent =
   | { type: "CREATE_VERSION"; name: string; releaseDate: string; applyToTicketId?: TicketId }
   | { type: "CREATE_TICKET"; payload: CreateTicketInput }
   | { type: "RENAME_COLUMN"; columnId: ColumnId; name: string }
+  | { type: "DELETE_COLUMN"; columnId: ColumnId }
   | { type: "ADD_LABEL"; label: string }
+  | { type: "DELETE_VERSION"; versionId: string }
+  | { type: "REORDER_COLUMNS"; boardId: BoardId; orderedColumnIds: ColumnId[] }
   | { type: "AI_EVENT"; event: AiOrchestratorEvent };
 
 const normalizeColumnSlug = (columnName: string): string =>
@@ -307,6 +310,53 @@ export const analystWorkspaceMachine = setup({
         return [...context.labels, trimmed];
       },
     }),
+    deleteColumn: assign({
+      boardColumns: ({ context, event }: ActionArgs) => {
+        if (event.type !== "DELETE_COLUMN") return context.boardColumns;
+        return context.boardColumns.filter((column) => column.id !== event.columnId);
+      },
+      // Move tickets that were in the deleted column to unassigned (keep them, just clear columnId slot)
+      tickets: ({ context, event }: ActionArgs) => {
+        if (event.type !== "DELETE_COLUMN") return context.tickets;
+        const deletedColumn = context.boardColumns.find((c) => c.id === event.columnId);
+        if (!deletedColumn) return context.tickets;
+        const sibling = context.boardColumns.find(
+          (c) => c.boardId === deletedColumn.boardId && c.id !== event.columnId,
+        );
+        return context.tickets.map((ticket) =>
+          ticket.columnId !== event.columnId
+            ? ticket
+            : {
+                ...ticket,
+                columnId: sibling?.id ?? ticket.columnId,
+                workflowState: sibling?.states[0] ?? ticket.workflowState,
+              },
+        );
+      },
+    }),
+    deleteVersion: assign({
+      releaseVersions: ({ context, event }: ActionArgs) => {
+        if (event.type !== "DELETE_VERSION") return context.releaseVersions;
+        return context.releaseVersions.filter((v) => v.id !== event.versionId);
+      },
+    }),
+    reorderColumns: assign({
+      boardColumns: ({ context, event }: ActionArgs) => {
+        if (event.type !== "REORDER_COLUMNS") return context.boardColumns;
+        const { boardId, orderedColumnIds } = event;
+        const positionOf = Object.fromEntries(
+          orderedColumnIds.map((id, index) => [id, index]),
+        );
+        const activeCols = context.boardColumns.filter((c) => c.boardId === boardId);
+        const otherCols = context.boardColumns.filter((c) => c.boardId !== boardId);
+        const sortedActiveCols = [...activeCols].sort((a, b) => {
+          const pa = positionOf[a.id] ?? Infinity;
+          const pb = positionOf[b.id] ?? Infinity;
+          return pa - pb;
+        });
+        return [...sortedActiveCols, ...otherCols];
+      },
+    }),
     forwardAiEvent: sendTo("aiOrchestratorActor", ({ event }: { event: AnalystEvent }) =>
       event.type === "AI_EVENT" ? event.event : { type: "RETRY" },
     ),
@@ -362,6 +412,9 @@ export const analystWorkspaceMachine = setup({
             CREATE_VERSION: { actions: "createVersion" },
             CREATE_TICKET: { actions: "createTicket" },
             ADD_LABEL: { actions: "addLabel" },
+            DELETE_COLUMN: { actions: "deleteColumn" },
+            DELETE_VERSION: { actions: "deleteVersion" },
+            REORDER_COLUMNS: { actions: "reorderColumns" },
           },
         },
       },
