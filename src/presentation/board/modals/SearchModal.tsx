@@ -50,8 +50,11 @@ export function SearchModal() {
               <button
                 key={ticket.id}
                 onClick={() => {
-                  openTicket(ticket.id);
                   setQuery("");
+                  // closeModal clears the URL ?modal=search param first so the URL
+                  // sync effect doesn't race and re-open the search overlay.
+                  closeModal();
+                  openTicket(ticket.id);
                 }}
                 className="w-full rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-2 text-left hover:border-indigo-400/40"
               >
