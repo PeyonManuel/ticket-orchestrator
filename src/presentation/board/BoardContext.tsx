@@ -2,13 +2,16 @@
 
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useMachine } from "@xstate/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import type { StateFrom } from "xstate";
 import {
   analystSelectors,
   analystWorkspaceMachine,
@@ -26,7 +29,9 @@ import {
   saveWorkspaceSnapshot,
 } from "@/infrastructure/persistence/workspaceStorage";
 
-export interface BoardViewModel {
+// ── View-model shapes ────────────────────────────────────────────────
+
+export interface BoardData {
   boards: Board[];
   boardColumns: BoardColumn[];
   activeBoardId: string | null;
@@ -49,7 +54,9 @@ export interface BoardViewModel {
   createModalOpen: boolean;
   createVersionModalOpen: boolean;
   labels: string[];
+}
 
+export interface BoardActions {
   selectBoard: (boardId: string) => void;
   openTicket: (ticketId: string) => void;
   closeModal: () => void;
@@ -85,7 +92,18 @@ export interface BoardViewModel {
   getTicketShareUrl: (ticketId: string) => string;
 }
 
-const BoardContext = createContext<BoardViewModel | null>(null);
+/** Combined shape for components that need both. */
+export type BoardViewModel = BoardData & BoardActions;
+
+// ── Contexts ─────────────────────────────────────────────────────────
+
+const BoardDataContext = createContext<BoardData | null>(null);
+const BoardActionsContext = createContext<BoardActions | null>(null);
+
+type AnalystState = StateFrom<typeof analystWorkspaceMachine>;
+
+// Persistence debouncer — coalesce rapid-fire transitions (e.g. drag).
+const PERSIST_DEBOUNCE_MS = 250;
 
 export function BoardProvider({ children }: { children: React.ReactNode }) {
   const [persistedInput] = useState(loadWorkspaceSnapshot);
@@ -94,21 +112,41 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const updateUrlParams = (next: { modal?: string | null; ticketId?: string | null }) => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (typeof next.modal !== "undefined") {
-      if (next.modal) params.set("modal", next.modal);
-      else params.delete("modal");
-    }
-    if (typeof next.ticketId !== "undefined") {
-      if (next.ticketId) params.set("ticket", next.ticketId);
-      else params.delete("ticket");
-    }
-    const query = params.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-  };
+  // Stable refs so action callbacks don't need to re-bind every render.
+  const sendRef = useRef(send);
+  const routerRef = useRef(router);
+  const pathnameRef = useRef(pathname);
+  const searchParamsRef = useRef(searchParams);
+  const contextRef = useRef(state.context);
+  useEffect(() => {
+    sendRef.current = send;
+    routerRef.current = router;
+    pathnameRef.current = pathname;
+    searchParamsRef.current = searchParams;
+    contextRef.current = state.context;
+  });
 
-  // URL <-> machine sync for deep links
+  const updateUrlParams = useCallback(
+    (next: { modal?: string | null; ticketId?: string | null }) => {
+      const params = new URLSearchParams(searchParamsRef.current.toString());
+      if (typeof next.modal !== "undefined") {
+        if (next.modal) params.set("modal", next.modal);
+        else params.delete("modal");
+      }
+      if (typeof next.ticketId !== "undefined") {
+        if (next.ticketId) params.set("ticket", next.ticketId);
+        else params.delete("ticket");
+      }
+      const query = params.toString();
+      routerRef.current.replace(
+        query ? `${pathnameRef.current}?${query}` : pathnameRef.current,
+        { scroll: false },
+      );
+    },
+    [],
+  );
+
+  // URL -> machine sync for deep links
   useEffect(() => {
     const modal = searchParams.get("modal");
     const ticketNumber = searchParams.get("ticket");
@@ -118,7 +156,6 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       send({ type: "OPEN_TICKET", ticketId: ticketFromUrl.id });
       return;
     }
-
     if (modal === "orchestrator" && state.context.activeModal !== "orchestrator") {
       send({ type: "OPEN_ORCHESTRATOR" });
       return;
@@ -135,125 +172,203 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       send({ type: "OPEN_CREATE_VERSION" });
       return;
     }
-
     if (!ticketNumber && !modal && state.context.activeModal !== "none") {
       send({ type: "CLOSE_MODAL" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  // Persist snapshot whenever domain context changes
+  // Debounced persistence
   useEffect(() => {
-    saveWorkspaceSnapshot(state.context);
+    const id = setTimeout(
+      () => saveWorkspaceSnapshot(state.context),
+      PERSIST_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(id);
   }, [state.context]);
 
-  const value = useMemo<BoardViewModel>(() => {
-    const context = state.context;
-    const selectedTicket = analystSelectors.selectedTicket(context);
+  // ── Actions: identity stable for the lifetime of the provider ────
+  const actions = useMemo<BoardActions>(() => {
+    const s = (event: Parameters<typeof send>[0]) => sendRef.current(event);
     return {
-      boards: context.boards,
-      allTickets: context.tickets,
-      boardColumns: analystSelectors.activeBoardColumns(context),
-      activeBoardId: context.activeBoardId,
-      activeBoardTicketsByColumn: analystSelectors.activeBoardTicketsByColumn(context),
-      selectedTicket,
-      activeModal: context.activeModal,
-      workflowStateOptions: analystSelectors.workflowStatesForTicket(
-        context,
-        context.selectedTicketId,
-      ),
-      globalWorkflowStateOptions: analystSelectors.allWorkflowStates(context),
-      workflowChoicesOrdered: analystSelectors.workflowChoicesOrdered(context),
-      linkedTickets: selectedTicket
-        ? context.tickets.filter((ticket) =>
-            selectedTicket.linkedTicketIds.includes(ticket.id),
-          )
-        : [],
-      currentUserRole: context.currentUserRole,
-      releaseVersions: context.releaseVersions,
-      orchestratorOpen:
-        context.activeModal === "orchestrator" &&
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (state as any).matches({ orchestratorPanel: "opened" }),
-      createModalOpen: context.activeModal === "createTicket",
-      createVersionModalOpen: context.activeModal === "createVersion",
-      labels: analystSelectors.allLabels(context),
-
-      selectBoard: (boardId) => send({ type: "SELECT_BOARD", boardId }),
+      selectBoard: (boardId) => s({ type: "SELECT_BOARD", boardId }),
       openTicket: (ticketId) => {
-        send({ type: "OPEN_TICKET", ticketId });
-        const ticket = context.tickets.find((item) => item.id === ticketId);
+        s({ type: "OPEN_TICKET", ticketId });
+        const ticket = contextRef.current.tickets.find((item) => item.id === ticketId);
         updateUrlParams({ ticketId: ticket?.ticketNumber ?? null, modal: "ticket" });
       },
       closeModal: () => {
-        send({ type: "CLOSE_MODAL" });
+        s({ type: "CLOSE_MODAL" });
         updateUrlParams({ ticketId: null, modal: null });
       },
       openCreateTicket: () => {
-        send({ type: "OPEN_CREATE_TICKET" });
+        s({ type: "OPEN_CREATE_TICKET" });
         updateUrlParams({ ticketId: null, modal: "create" });
       },
       openCreateTicketLinkedTo: (ticketId) => {
-        send({ type: "OPEN_CREATE_TICKET", linkSourceTicketId: ticketId });
+        s({ type: "OPEN_CREATE_TICKET", linkSourceTicketId: ticketId });
         updateUrlParams({ ticketId: null, modal: "create" });
       },
       openSearch: () => {
-        send({ type: "OPEN_SEARCH" });
+        s({ type: "OPEN_SEARCH" });
         updateUrlParams({ ticketId: null, modal: "search" });
       },
       openCreateVersion: () => {
-        send({ type: "OPEN_CREATE_VERSION" });
+        s({ type: "OPEN_CREATE_VERSION" });
         updateUrlParams({ modal: "create-version" });
       },
       openOrchestrator: () => {
-        send({ type: "OPEN_ORCHESTRATOR" });
+        s({ type: "OPEN_ORCHESTRATOR" });
         updateUrlParams({ ticketId: null, modal: "orchestrator" });
       },
       addBoardColumn: (boardId, columnName, states) =>
-        send({ type: "ADD_BOARD_COLUMN", boardId, columnName, states }),
-      updateColumnState: (columnId, states) =>
-        send({ type: "UPDATE_COLUMN_STATE", columnId, states }),
-      updateColumnColor: (columnId, color) =>
-        send({ type: "UPDATE_COLUMN_COLOR", columnId, color }),
-      renameColumn: (columnId, name) => send({ type: "RENAME_COLUMN", columnId, name }),
-      deleteColumn: (columnId) => send({ type: "DELETE_COLUMN", columnId }),
+        s({ type: "ADD_BOARD_COLUMN", boardId, columnName, states }),
+      updateColumnState: (columnId, states) => s({ type: "UPDATE_COLUMN_STATE", columnId, states }),
+      updateColumnColor: (columnId, color) => s({ type: "UPDATE_COLUMN_COLOR", columnId, color }),
+      renameColumn: (columnId, name) => s({ type: "RENAME_COLUMN", columnId, name }),
+      deleteColumn: (columnId) => s({ type: "DELETE_COLUMN", columnId }),
       reorderColumns: (boardId, orderedColumnIds) =>
-        send({ type: "REORDER_COLUMNS", boardId, orderedColumnIds }),
+        s({ type: "REORDER_COLUMNS", boardId, orderedColumnIds }),
       moveTicketToColumn: (ticketId, columnId) =>
-        send({ type: "MOVE_TICKET_TO_COLUMN", ticketId, columnId }),
+        s({ type: "MOVE_TICKET_TO_COLUMN", ticketId, columnId }),
       updateTicketField: (ticketId, field, value) =>
-        send({ type: "UPDATE_TICKET_FIELD", ticketId, field, value }),
+        s({ type: "UPDATE_TICKET_FIELD", ticketId, field, value }),
       updateTicketWorkflowState: (ticketId, workflowState) =>
-        send({ type: "UPDATE_TICKET_WORKFLOW_STATE", ticketId, workflowState }),
+        s({ type: "UPDATE_TICKET_WORKFLOW_STATE", ticketId, workflowState }),
       updateTicketStoryPoints: (ticketId, storyPoints) =>
-        send({ type: "UPDATE_TICKET_STORY_POINTS", ticketId, storyPoints }),
+        s({ type: "UPDATE_TICKET_STORY_POINTS", ticketId, storyPoints }),
       linkTickets: (ticketId, targetTicketId) =>
-        send({ type: "LINK_TICKETS", ticketId, targetTicketId }),
+        s({ type: "LINK_TICKETS", ticketId, targetTicketId }),
       unlinkTickets: (ticketId, targetTicketId) =>
-        send({ type: "UNLINK_TICKETS", ticketId, targetTicketId }),
+        s({ type: "UNLINK_TICKETS", ticketId, targetTicketId }),
       createVersion: (name, releaseDate, applyToTicketId) =>
-        send({ type: "CREATE_VERSION", name, releaseDate, applyToTicketId }),
-      deleteVersion: (versionId) => send({ type: "DELETE_VERSION", versionId }),
-      createTicket: (payload) => send({ type: "CREATE_TICKET", payload }),
-      addLabel: (label) => send({ type: "ADD_LABEL", label }),
-      dispatchOrchestratorEvent: (event) => send({ type: "AI_EVENT", event }),
+        s({ type: "CREATE_VERSION", name, releaseDate, applyToTicketId }),
+      deleteVersion: (versionId) => s({ type: "DELETE_VERSION", versionId }),
+      createTicket: (payload) => s({ type: "CREATE_TICKET", payload }),
+      addLabel: (label) => s({ type: "ADD_LABEL", label }),
+      dispatchOrchestratorEvent: (event) => s({ type: "AI_EVENT", event }),
       getTicketShareUrl: (ticketId) => {
         if (typeof window === "undefined") return "";
-        const ticket = context.tickets.find((item) => item.id === ticketId);
+        const ticket = contextRef.current.tickets.find((item) => item.id === ticketId);
         if (!ticket) return "";
-        return `${window.location.origin}${pathname}?modal=ticket&ticket=${ticket.ticketNumber}`;
+        return `${window.location.origin}${pathnameRef.current}?modal=ticket&ticket=${ticket.ticketNumber}`;
       },
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, searchParams, send, state]);
+  }, [updateUrlParams]);
 
-  return <BoardContext.Provider value={value}>{children}</BoardContext.Provider>;
+  // ── Data: each slice memoized on its own narrow deps ─────────────
+  // We intentionally depend on individual context slices (not the full `ctx`
+  // object) to avoid re-running heavy selectors when unrelated fields change.
+  const ctx = state.context;
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  const boardColumnsForActive = useMemo(
+    () => analystSelectors.activeBoardColumns(ctx),
+    [ctx.boardColumns, ctx.activeBoardId],
+  );
+
+  const activeBoardTicketsByColumn = useMemo(
+    () => analystSelectors.activeBoardTicketsByColumn(ctx),
+    [ctx.boardColumns, ctx.tickets, ctx.activeBoardId],
+  );
+
+  const selectedTicket = useMemo(
+    () => analystSelectors.selectedTicket(ctx),
+    [ctx.tickets, ctx.selectedTicketId],
+  );
+
+  const workflowStateOptions = useMemo(
+    () => analystSelectors.workflowStatesForTicket(ctx, ctx.selectedTicketId),
+    [ctx.tickets, ctx.boardColumns, ctx.selectedTicketId],
+  );
+
+  const globalWorkflowStateOptions = useMemo(
+    () => analystSelectors.allWorkflowStates(ctx),
+    [ctx.boardColumns, ctx.activeBoardId],
+  );
+
+  const workflowChoicesOrdered = useMemo(
+    () => analystSelectors.workflowChoicesOrdered(ctx),
+    [ctx.boardColumns, ctx.activeBoardId],
+  );
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  const linkedTickets = useMemo(
+    () =>
+      selectedTicket
+        ? ctx.tickets.filter((t) => selectedTicket.linkedTicketIds.includes(t.id))
+        : [],
+    [selectedTicket, ctx.tickets],
+  );
+
+  const orchestratorOpen =
+    ctx.activeModal === "orchestrator" &&
+    (state as AnalystState).matches({ orchestratorPanel: "opened" });
+
+  const data = useMemo<BoardData>(
+    () => ({
+      boards: ctx.boards,
+      allTickets: ctx.tickets,
+      boardColumns: boardColumnsForActive,
+      activeBoardId: ctx.activeBoardId,
+      activeBoardTicketsByColumn,
+      selectedTicket,
+      activeModal: ctx.activeModal,
+      workflowStateOptions,
+      globalWorkflowStateOptions,
+      workflowChoicesOrdered,
+      linkedTickets,
+      currentUserRole: ctx.currentUserRole,
+      releaseVersions: ctx.releaseVersions,
+      orchestratorOpen,
+      createModalOpen: ctx.activeModal === "createTicket",
+      createVersionModalOpen: ctx.activeModal === "createVersion",
+      labels: ctx.labels,
+    }),
+    [
+      ctx.boards,
+      ctx.tickets,
+      boardColumnsForActive,
+      ctx.activeBoardId,
+      activeBoardTicketsByColumn,
+      selectedTicket,
+      ctx.activeModal,
+      workflowStateOptions,
+      globalWorkflowStateOptions,
+      workflowChoicesOrdered,
+      linkedTickets,
+      ctx.currentUserRole,
+      ctx.releaseVersions,
+      orchestratorOpen,
+      ctx.labels,
+    ],
+  );
+
+  return (
+    <BoardActionsContext.Provider value={actions}>
+      <BoardDataContext.Provider value={data}>{children}</BoardDataContext.Provider>
+    </BoardActionsContext.Provider>
+  );
 }
 
+// ── Hooks ────────────────────────────────────────────────────────────
+
+export function useBoardData(): BoardData {
+  const ctx = useContext(BoardDataContext);
+  if (!ctx) throw new Error("useBoardData must be used within a BoardProvider");
+  return ctx;
+}
+
+export function useBoardActions(): BoardActions {
+  const ctx = useContext(BoardActionsContext);
+  if (!ctx) throw new Error("useBoardActions must be used within a BoardProvider");
+  return ctx;
+}
+
+/**
+ * Combined view-model hook (kept for existing consumers).
+ * Prefer `useBoardData` or `useBoardActions` for fine-grained subscriptions.
+ */
 export function useBoardContext(): BoardViewModel {
-  const context = useContext(BoardContext);
-  if (!context) {
-    throw new Error("useBoardContext must be used within a BoardProvider");
-  }
-  return context;
+  return { ...useBoardData(), ...useBoardActions() };
 }
