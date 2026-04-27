@@ -22,7 +22,7 @@ function VersionPanelImpl({ releaseVersions, onCreateVersion, onDeleteVersion }:
         <button
           type="button"
           onClick={() => setOpen((p) => !p)}
-          className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-300 hover:border-zinc-500"
+          className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:border-zinc-500"
         >
           {open ? "Close Version Manager" : "Manage Versions"}
         </button>
@@ -39,16 +39,16 @@ function VersionPanelImpl({ releaseVersions, onCreateVersion, onDeleteVersion }:
               {releaseVersions.map((v) => (
                 <div
                   key={v.id}
-                  className="group relative rounded-md border border-zinc-700 bg-zinc-900/60 px-2.5 py-1.5"
+                  className="group relative rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-2.5 py-1.5"
                 >
                   <button
                     type="button"
                     onClick={() => onDeleteVersion(v.id)}
-                    className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-red-400 group-hover:flex"
+                    className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-red-500 dark:hover:text-red-400 group-hover:flex"
                   >
                     <X size={9} />
                   </button>
-                  <p className="text-xs font-semibold text-zinc-100">{v.name}</p>
+                  <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{v.name}</p>
                   <p className="text-[10px] text-zinc-500">{v.releaseDate}</p>
                 </div>
               ))}
@@ -59,7 +59,7 @@ function VersionPanelImpl({ releaseVersions, onCreateVersion, onDeleteVersion }:
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Version name (e.g. v1.4.0)"
-              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-200"
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-200"
             />
             <div className="relative">
               <input
@@ -67,7 +67,7 @@ function VersionPanelImpl({ releaseVersions, onCreateVersion, onDeleteVersion }:
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="h-full w-40 cursor-pointer rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-200 [color-scheme:dark]"
+                className="h-full w-40 cursor-pointer rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-200"
               />
               <button
                 type="button"
@@ -85,7 +85,7 @@ function VersionPanelImpl({ releaseVersions, onCreateVersion, onDeleteVersion }:
                 setName("");
                 setDate("");
               }}
-              className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-300 hover:border-zinc-500"
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:border-zinc-500"
             >
               Add Version
             </button>

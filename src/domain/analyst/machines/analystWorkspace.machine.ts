@@ -335,7 +335,7 @@ export const analystWorkspaceMachine = setup({
       },
     }),
     deleteVersion: assign({
-      releaseVersions: ({ context, event }: ActionArgs) => {
+      releaseVersions: ({ context, event }: ActionArgs) => { 
         if (event.type !== "DELETE_VERSION") return context.releaseVersions;
         return context.releaseVersions.filter((v) => v.id !== event.versionId);
       },

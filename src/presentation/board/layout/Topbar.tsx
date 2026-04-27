@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { PanelLeftClose, PanelLeftOpen, Search, Plus } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Search, Plus, Sun, Moon } from "lucide-react";
+import { UserButton } from "@clerk/nextjs";
 import { useBoardContext } from "@/presentation/board/BoardContext";
+import { useTheme } from "@/presentation/shared/ThemeProvider";
 
 interface TopbarProps {
   onToggleSidebar: () => void;
@@ -14,6 +16,7 @@ interface TopbarProps {
  */
 export default function Topbar({ onToggleSidebar, isSidebarOpen }: TopbarProps) {
   const { openCreateTicket, openSearch } = useBoardContext();
+  const { theme, toggle } = useTheme();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -27,7 +30,7 @@ export default function Topbar({ onToggleSidebar, isSidebarOpen }: TopbarProps) 
   }, [openSearch]);
 
   return (
-    <header className="h-16 border-b border-zinc-800 bg-zinc-950 flex items-center px-4 shrink-0">
+    <header className="h-16 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex items-center px-4 shrink-0">
       <div className="flex items-center gap-4 w-1/4">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-indigo-600 rounded-sm flex items-center justify-center font-bold text-lg italic shadow-[0_0_15px_rgba(79,70,229,0.4)]">
@@ -38,7 +41,7 @@ export default function Topbar({ onToggleSidebar, isSidebarOpen }: TopbarProps) 
 
         <button
           onClick={onToggleSidebar}
-          className="p-2 hover:bg-zinc-900 rounded-md transition-colors text-zinc-400 hover:text-zinc-100"
+          className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-md transition-colors text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
           title={isSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
         >
           {isSidebarOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
@@ -48,7 +51,7 @@ export default function Topbar({ onToggleSidebar, isSidebarOpen }: TopbarProps) 
       <div className="flex-1 flex justify-center items-center gap-3">
         <button
           onClick={openSearch}
-          className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-300 hover:border-indigo-500/50 hover:text-zinc-100"
+          className="inline-flex items-center gap-2 rounded-full border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-600 dark:text-zinc-300 hover:border-indigo-500/50 hover:text-zinc-900 dark:hover:text-zinc-100"
         >
           <Search className="text-zinc-500" size={15} />
           <span>Search</span>
@@ -64,10 +67,22 @@ export default function Topbar({ onToggleSidebar, isSidebarOpen }: TopbarProps) 
         </button>
       </div>
 
-      <div className="w-1/4 flex justify-end">
-        <div className="w-8 h-8 rounded-full border border-zinc-800 bg-zinc-900 flex items-center justify-center text-[10px] text-zinc-500">
-          N/A
-        </div>
+      <div className="w-1/4 flex justify-end items-center gap-3">
+        <button
+          onClick={toggle}
+          className="p-2 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+        {/* Clerk's pre-built avatar — opens a dropdown with sign-out, profile, etc. */}
+        <UserButton
+          appearance={{
+            elements: {
+              avatarBox: "w-8 h-8",
+            },
+          }}
+        />
       </div>
     </header>
   );

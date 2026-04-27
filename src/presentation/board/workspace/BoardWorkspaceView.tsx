@@ -2,12 +2,14 @@
 
 import React, { useCallback, useMemo, useState } from "react";
 import { useBoardActions, useBoardData } from "@/presentation/board/BoardContext";
+import { useIsAdmin } from "@/presentation/shared/hooks/useIsAdmin";
 import { ColumnCard } from "./ColumnCard";
 import { ColumnForm } from "./ColumnForm";
 import { VersionPanel } from "./VersionPanel";
 import { useBoardDrag } from "./useBoardDrag";
 
 export default function BoardWorkspaceView() {
+  const isAdmin = useIsAdmin();
   const {
     activeBoardId,
     boards,
@@ -83,37 +85,43 @@ export default function BoardWorkspaceView() {
 
   return (
     <div className="flex w-full flex-col gap-4">
-      <section className="rounded-xl border border-indigo-500/20 bg-zinc-900/80 p-4 shadow-[0_0_0_1px_rgba(99,102,241,0.08)]">
+      <section className="rounded-xl border border-indigo-500/20 bg-white dark:bg-zinc-900/80 p-4 shadow-sm dark:shadow-[0_0_0_1px_rgba(99,102,241,0.08)]">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[11px] uppercase tracking-wider text-zinc-500">Active Board</p>
-            <h2 className="text-xl font-semibold text-zinc-100">
+            <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
               {activeBoard?.name ?? "No board selected"}
             </h2>
           </div>
-          <button
-            onClick={openOrchestrator}
-            className="rounded-full border border-zinc-700 px-4 py-2 text-xs font-semibold text-zinc-200 hover:border-indigo-400 hover:text-indigo-300"
-          >
-            Open AI Orchestrator
-          </button>
+          {isAdmin && (
+            <button
+              onClick={openOrchestrator}
+              className="rounded-full border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-200 hover:border-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300"
+            >
+              Open AI Orchestrator
+            </button>
+          )}
         </div>
 
-        <ColumnForm
-          activeBoardId={activeBoardId}
-          boardColumns={boardColumns}
-          columnCount={boardColumns.length}
-          onAddColumn={addBoardColumn}
-        />
+        {isAdmin && (
+          <ColumnForm
+            activeBoardId={activeBoardId}
+            boardColumns={boardColumns}
+            columnCount={boardColumns.length}
+            onAddColumn={addBoardColumn}
+          />
+        )}
 
-        <VersionPanel
-          releaseVersions={releaseVersions}
-          onCreateVersion={createVersion}
-          onDeleteVersion={deleteVersion}
-        />
+        {isAdmin && (
+          <VersionPanel
+            releaseVersions={releaseVersions}
+            onCreateVersion={createVersion}
+            onDeleteVersion={deleteVersion}
+          />
+        )}
       </section>
 
-      <section className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
+      <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-4">
         <p className="mb-3 text-[11px] uppercase tracking-wider text-zinc-500">Tickets by Column</p>
         <div className="flex gap-4 overflow-x-auto pb-2">
           {activeBoardTicketsByColumn.map(({ column, tickets }) => (
@@ -155,6 +163,7 @@ export default function BoardWorkspaceView() {
               onStateDragLeave={drag.onStateDragLeave}
               onStateDrop={drag.onStateDrop}
               allowColumnDrag={!drag.isTicketDragging}
+              isAdmin={isAdmin}
             />
           ))}
 
@@ -172,7 +181,7 @@ export default function BoardWorkspaceView() {
           )}
 
           {activeBoardTicketsByColumn.length === 0 && (
-            <div className="rounded-md border border-dashed border-zinc-700 p-4 text-sm text-zinc-500">
+            <div className="rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 p-4 text-sm text-zinc-500">
               This board has no columns yet.
             </div>
           )}
