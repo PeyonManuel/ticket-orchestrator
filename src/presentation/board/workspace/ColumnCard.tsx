@@ -66,6 +66,7 @@ interface ColumnCardProps {
   onStateDrop: (state: string, event: React.DragEvent<HTMLDivElement>) => void;
 
   allowColumnDrag: boolean;
+  isAdmin: boolean;
 }
 
 function ColumnCardImpl(props: ColumnCardProps) {
@@ -102,13 +103,14 @@ function ColumnCardImpl(props: ColumnCardProps) {
     onStateDragLeave,
     onStateDrop,
     allowColumnDrag,
+    isAdmin,
   } = props;
 
   const showStateZones = isTicketDropTarget && column.states.length > 0;
 
   return (
     <div
-      draggable={allowColumnDrag}
+      draggable={allowColumnDrag && isAdmin}
       onDragStart={(e) => onColumnDragStart(column.id, e)}
       onDragEnd={onColumnDragEnd}
       onDragOver={(e) => onColumnDragOver(column.id, e)}
@@ -121,7 +123,7 @@ function ColumnCardImpl(props: ColumnCardProps) {
           ? "border-indigo-400 bg-indigo-500/5"
           : isBeingDragged
           ? "border-zinc-600 opacity-40"
-          : "border-zinc-800 bg-zinc-950/70"
+          : "border-zinc-300 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900"
       }`}
     >
       {/* Header */}
@@ -130,7 +132,9 @@ function ColumnCardImpl(props: ColumnCardProps) {
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             <GripVertical
               size={13}
-              className="shrink-0 cursor-grab text-zinc-600 active:cursor-grabbing"
+              className={`shrink-0 text-zinc-400 dark:text-zinc-600 active:cursor-grabbing ${
+                isAdmin ? "cursor-grab" : "cursor-default opacity-30"
+              }`}
             />
             {isRenaming ? (
               <input
@@ -142,25 +146,30 @@ function ColumnCardImpl(props: ColumnCardProps) {
                   if (e.key === "Enter") onCommitRename();
                   if (e.key === "Escape") onCancelRename();
                 }}
-                className="w-full rounded bg-zinc-800 px-1.5 py-0.5 text-sm font-semibold text-zinc-100 outline-none ring-1 ring-indigo-500/50"
+                className="w-full rounded bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100 outline-none ring-1 ring-indigo-500/50"
               />
             ) : (
               <button
                 type="button"
-                onClick={() => onBeginRename(column.id, column.name)}
-                className="group flex items-center gap-1 truncate text-sm font-semibold text-zinc-100 hover:text-indigo-200"
-                title="Click to rename"
+                onClick={() => isAdmin && onBeginRename(column.id, column.name)}
+                className={`group flex items-center gap-1 truncate text-sm font-semibold text-zinc-800 dark:text-zinc-100 ${
+                  isAdmin ? "hover:text-indigo-600 dark:hover:text-indigo-200" : "cursor-default"
+                }`}
+                title={isAdmin ? "Click to rename" : undefined}
               >
                 <span className="truncate">{column.name}</span>
                 <Pencil
                   size={11}
-                  className="shrink-0 text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100"
+                  className={`shrink-0 text-zinc-600 opacity-0 transition-opacity ${
+                    isAdmin ? "group-hover:opacity-100" : ""
+                  }`}
                 />
               </button>
             )}
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
+            {isAdmin && (
             <button
               type="button"
               onClick={() => onToggleStatesEditor(column.id)}
@@ -168,12 +177,14 @@ function ColumnCardImpl(props: ColumnCardProps) {
               className={`flex h-5 w-5 items-center justify-center rounded transition-colors ${
                 isStatesEditorOpen
                   ? "bg-indigo-500/20 text-indigo-300"
-                  : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300"
+                  : "text-zinc-500 dark:text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-300"
               }`}
             >
               <SlidersHorizontal size={11} />
             </button>
+            )}
 
+            {isAdmin && (
             <div className="relative">
               <button
                 onClick={() => onToggleColorPicker(column.id)}
@@ -182,7 +193,7 @@ function ColumnCardImpl(props: ColumnCardProps) {
                 title="Column color"
               />
               {isColorPickerOpen && (
-                <div className="absolute right-0 top-7 z-20 flex gap-1 rounded-md border border-zinc-700 bg-zinc-950 p-1.5">
+                <div className="absolute right-0 top-7 z-20 flex gap-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 p-1.5">
                   {COLUMN_COLOR_PRESETS.map((color) => (
                     <button
                       key={color}
@@ -194,15 +205,26 @@ function ColumnCardImpl(props: ColumnCardProps) {
                 </div>
               )}
             </div>
+            )}
 
+            {!isAdmin && (
+              <div
+                className="h-5 w-7 rounded border border-zinc-300 dark:border-zinc-700"
+                style={{ backgroundColor: column.color }}
+                title="Column color"
+              />
+            )}
+
+            {isAdmin && (
             <button
               type="button"
               onClick={() => onDeleteColumn(column.id)}
               title="Delete column"
-              className="flex h-5 w-5 items-center justify-center rounded text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-red-400"
+              className="flex h-5 w-5 items-center justify-center rounded text-zinc-500 dark:text-zinc-600 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-red-500 dark:hover:text-red-400"
             >
               <X size={12} />
             </button>
+            )}
           </div>
         </div>
 
@@ -257,7 +279,7 @@ function ColumnCardImpl(props: ColumnCardProps) {
               />
             ))}
             {tickets.length === 0 && (
-              <p className="rounded-md border border-dashed border-zinc-800 p-3 text-xs text-zinc-500">
+              <p className="rounded-md border border-dashed border-zinc-300 dark:border-zinc-800 p-3 text-xs text-zinc-400 dark:text-zinc-500">
                 No tickets in this column.
               </p>
             )}

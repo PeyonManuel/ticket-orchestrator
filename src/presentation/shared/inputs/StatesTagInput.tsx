@@ -43,12 +43,12 @@ export function StatesTagInput({ value, onChange, placeholder = "Type a state an
   return (
     <div
       onClick={() => inputRef.current?.focus()}
-      className="flex min-h-[34px] w-full flex-wrap items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 cursor-text transition-colors focus-within:border-indigo-500/60"
+      className="flex min-h-[34px] w-full flex-wrap items-center gap-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-200 cursor-text transition-colors focus-within:border-indigo-500/60"
     >
       {value.map((state) => (
         <span
           key={state}
-          className="flex items-center gap-1 rounded bg-zinc-800 pl-2 pr-1 py-0.5 font-medium text-zinc-200"
+          className="flex items-center gap-1 rounded bg-zinc-100 dark:bg-zinc-800 pl-2 pr-1 py-0.5 font-medium text-zinc-700 dark:text-zinc-200"
         >
           {state}
           <button

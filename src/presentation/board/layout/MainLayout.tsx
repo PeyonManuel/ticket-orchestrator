@@ -19,7 +19,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <BoardProvider>
-      <div className="flex h-screen w-full bg-zinc-950 text-zinc-100 selection:bg-indigo-500/30">
+      <div className="flex h-screen w-full bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 selection:bg-indigo-500/30">
         <AnimatePresence mode="wait">
           {isSidebarOpen && <Sidebar key="sidebar" />}
         </AnimatePresence>
@@ -30,7 +30,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             isSidebarOpen={isSidebarOpen}
           />
 
-          <motion.main layout className="flex-1 overflow-y-auto bg-zinc-900/50 p-6 relative">
+          <motion.main layout className="flex-1 overflow-y-auto bg-zinc-100 dark:bg-zinc-900/50 p-6 relative">
             {children}
             <TicketModal />
             <CreateTicketModal />
