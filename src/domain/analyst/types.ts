@@ -7,20 +7,24 @@ export type UserRole = "member" | "admin";
 
 export interface BoardColumn {
   id: ColumnId;
+  orgId: string;
   boardId: BoardId;
   name: string;
   states: string[];
   color: string;
+  order: number;
 }
 
 export interface Board {
   id: BoardId;
+  orgId: string;
   name: string;
   type: "scrum" | "kanban" | "task";
 }
 
 export interface Ticket {
   id: TicketId;
+  orgId: string;
   ticketNumber: string;
   boardId: BoardId;
   columnId: ColumnId;
@@ -34,6 +38,8 @@ export interface Ticket {
   workflowState: string;
   priority: "low" | "medium" | "high";
   linkedTicketIds: TicketId[];
+  assigneeIds: string[];
+  version: number;
 }
 
 export interface CreateTicketInput {
@@ -48,10 +54,56 @@ export interface CreateTicketInput {
   workflowState: string;
   priority: "low" | "medium" | "high";
   storyPoints: 1 | 2 | 3 | 5 | 8 | 13;
+  assigneeIds?: string[];
+}
+
+export interface BoardMember {
+  orgId: string;
+  boardId: BoardId;
+  userId: string;
+  role: UserRole;
+  addedAt: string;
+}
+
+export interface Comment {
+  id: string;
+  orgId: string;
+  ticketId: TicketId;
+  authorId: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type HistoryEntryKind =
+  | "created"
+  | "updated"
+  | "assignee_added"
+  | "assignee_removed"
+  | "commented"
+  | "comment_edited"
+  | "comment_deleted";
+
+export interface HistoryFieldChange {
+  field: string;
+  from: string | null;
+  to: string | null;
+}
+
+export interface TicketHistoryEntry {
+  id: string;
+  orgId: string;
+  ticketId: TicketId;
+  actorId: string;
+  timestamp: string;
+  kind: HistoryEntryKind;
+  changes: HistoryFieldChange[];
 }
 
 export interface ReleaseVersion {
   id: string;
+  orgId: string;
+  boardId: string;
   name: string;
   releaseDate: string;
 }
@@ -93,10 +145,14 @@ export interface AiOrchestratorContext {
   rejectionReason: string | null;
 }
 
+export type SeedBoard = Omit<Board, "orgId">;
+export type SeedBoardColumn = Omit<BoardColumn, "orgId" | "order">;
+export type SeedTicket = Omit<Ticket, "orgId" | "version" | "assigneeIds">;
+
 export interface AnalystSeedData {
-  boards: Board[];
-  boardColumns: BoardColumn[];
-  tickets: Ticket[];
+  boards: SeedBoard[];
+  boardColumns: SeedBoardColumn[];
+  tickets: SeedTicket[];
 }
 
 export const DEFAULT_LABELS: string[] = [
@@ -116,7 +172,7 @@ export const DEFAULT_LABELS: string[] = [
   "mlops",
 ];
 
-export const DEFAULT_RELEASE_VERSIONS: ReleaseVersion[] = [
+export const DEFAULT_RELEASE_VERSIONS: Array<Pick<ReleaseVersion, "id" | "name" | "releaseDate">> = [
   { id: "version-1", name: "v1.1.0", releaseDate: "2026-06-15" },
   { id: "version-2", name: "v1.2.0", releaseDate: "2026-07-31" },
   { id: "version-3", name: "v1.3.0", releaseDate: "2026-09-10" },

@@ -1,13 +1,13 @@
 import type {
   AnalystSeedData,
-  BoardColumn,
   BoardId,
+  SeedBoardColumn,
 } from "./types";
 import { DEFAULT_COLUMN_DEFINITIONS } from "./types";
 
 const COLUMN_PALETTE = ["#64748b", "#4f46e5", "#0ea5e9", "#f59e0b", "#ef4444", "#22c55e"];
 
-const createColumnsForBoard = (boardId: BoardId): BoardColumn[] =>
+const createColumnsForBoard = (boardId: BoardId): SeedBoardColumn[] =>
   DEFAULT_COLUMN_DEFINITIONS.map((definition, index) => ({
     id: `${boardId}-${definition.name.toLowerCase().replace(/\s+/g, "-")}`,
     boardId,

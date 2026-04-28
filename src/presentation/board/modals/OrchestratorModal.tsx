@@ -15,10 +15,10 @@ export function OrchestratorModal() {
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-2xl rounded-xl border border-indigo-500/30 bg-zinc-900 p-6"
+        className="w-full max-w-2xl rounded-xl border border-indigo-500/30 bg-white dark:bg-zinc-900 p-6"
       >
-        <h2 className="text-xl font-semibold text-zinc-100">AI Orchestrator</h2>
-        <p className="mt-2 text-sm text-zinc-400">
+        <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">AI Orchestrator</h2>
+        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
           Quick simulation controls while we prepare LangGraph integration.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -29,7 +29,7 @@ export function OrchestratorModal() {
                 requirement: "Split quarterly roadmap into executable slices.",
               })
             }
-            className="rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-200"
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
           >
             Start Analysis
           </button>
@@ -47,7 +47,7 @@ export function OrchestratorModal() {
                 },
               })
             }
-            className="rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-200"
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
           >
             Complete Analysis
           </button>

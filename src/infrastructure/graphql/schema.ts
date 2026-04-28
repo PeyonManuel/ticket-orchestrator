@@ -1,0 +1,202 @@
+export const typeDefs = /* GraphQL */ `
+  enum BoardType { scrum kanban task }
+  enum HierarchyType { epic story task }
+  enum Priority { low medium high }
+  enum BoardRole { member admin }
+  enum HistoryEntryKind {
+    created
+    updated
+    assignee_added
+    assignee_removed
+    commented
+    comment_edited
+    comment_deleted
+  }
+
+  type Board {
+    id: ID!
+    orgId: ID!
+    name: String!
+    type: BoardType!
+  }
+
+  type BoardColumn {
+    id: ID!
+    orgId: ID!
+    boardId: ID!
+    name: String!
+    states: [String!]!
+    color: String!
+    order: Int!
+  }
+
+  type BoardMember {
+    orgId: ID!
+    boardId: ID!
+    userId: ID!
+    role: BoardRole!
+    addedAt: String!
+  }
+
+  type Ticket {
+    id: ID!
+    orgId: ID!
+    ticketNumber: String!
+    boardId: ID!
+    columnId: ID!
+    hierarchyType: HierarchyType!
+    parentTicketId: ID
+    title: String!
+    description: String!
+    label: String!
+    fixVersion: String!
+    storyPoints: Int!
+    workflowState: String!
+    priority: Priority!
+    linkedTicketIds: [ID!]!
+    assigneeIds: [ID!]!
+    version: Int!
+    """Comments resolved via DataLoader (no N+1)."""
+    comments: [Comment!]!
+    """Audit trail of every change. Newest first."""
+    history: [TicketHistoryEntry!]!
+  }
+
+  type Comment {
+    id: ID!
+    orgId: ID!
+    ticketId: ID!
+    authorId: ID!
+    body: String!
+    createdAt: String!
+    updatedAt: String!
+  }
+
+  type HistoryFieldChange {
+    field: String!
+    from: String
+    to: String
+  }
+
+  type TicketHistoryEntry {
+    id: ID!
+    orgId: ID!
+    ticketId: ID!
+    actorId: ID!
+    timestamp: String!
+    kind: HistoryEntryKind!
+    changes: [HistoryFieldChange!]!
+  }
+
+  type ReleaseVersion {
+    id: ID!
+    orgId: ID!
+    boardId: ID!
+    name: String!
+    releaseDate: String!
+  }
+
+  # ── Cursor pagination for tickets ────────────────────────────────────
+  # Stable, concurrent-write-safe (unlike offset pagination).
+  type PageInfo {
+    endCursor: String
+    hasNextPage: Boolean!
+  }
+
+  type TicketEdge {
+    cursor: String!
+    node: Ticket!
+  }
+
+  type TicketConnection {
+    edges: [TicketEdge!]!
+    pageInfo: PageInfo!
+  }
+
+  # ── Conflict result for optimistic concurrency ───────────────────────
+  type ConflictError {
+    """Server's current truth — render a PR-style diff against the user's edits."""
+    currentState: Ticket!
+    """Field names that diverge from the user's submission."""
+    conflictedFields: [String!]!
+    message: String!
+  }
+
+  union UpdateTicketResult = Ticket | ConflictError
+
+  type Query {
+    boards: [Board!]!
+    boardColumns(boardId: ID!): [BoardColumn!]!
+    tickets(boardId: ID!, first: Int = 50, after: String): TicketConnection!
+    ticket(id: ID!): Ticket
+    ticketHistory(ticketId: ID!): [TicketHistoryEntry!]!
+    releaseVersions(boardId: ID!): [ReleaseVersion!]!
+    boardMembers(boardId: ID!): [BoardMember!]!
+  }
+
+  input CreateBoardInput { name: String!, type: BoardType! }
+
+  input CreateColumnInput {
+    boardId: ID!
+    name: String!
+    states: [String!]!
+    color: String!
+  }
+
+  input UpdateColumnInput {
+    name: String
+    states: [String!]
+    color: String
+  }
+
+  input CreateTicketInput {
+    boardId: ID!
+    columnId: ID!
+    hierarchyType: HierarchyType!
+    parentTicketId: ID
+    title: String!
+    description: String!
+    label: String!
+    fixVersion: String!
+    workflowState: String!
+    priority: Priority!
+    storyPoints: Int!
+    assigneeIds: [ID!]
+  }
+
+  input UpdateTicketInput {
+    columnId: ID
+    workflowState: String
+    title: String
+    description: String
+    label: String
+    fixVersion: String
+    priority: Priority
+    storyPoints: Int
+    linkedTicketIds: [ID!]
+    assigneeIds: [ID!]
+    """The version the client last observed. Required for optimistic concurrency."""
+    expectedVersion: Int!
+  }
+
+  type Mutation {
+    createBoard(input: CreateBoardInput!): Board!
+    createColumn(input: CreateColumnInput!): BoardColumn!
+    updateColumn(id: ID!, input: UpdateColumnInput!): BoardColumn
+    deleteColumn(id: ID!): Boolean!
+    reorderColumns(boardId: ID!, orderedIds: [ID!]!): Boolean!
+
+    createTicket(input: CreateTicketInput!): Ticket!
+    updateTicket(id: ID!, input: UpdateTicketInput!): UpdateTicketResult!
+
+    addComment(ticketId: ID!, body: String!): Comment!
+    editComment(commentId: ID!, body: String!): Comment
+    deleteComment(commentId: ID!): Boolean!
+
+    addBoardMember(boardId: ID!, userId: ID!, role: BoardRole!): BoardMember!
+    removeBoardMember(boardId: ID!, userId: ID!): Boolean!
+
+    createVersion(boardId: ID!, name: String!, releaseDate: String!): ReleaseVersion!
+    deleteVersion(id: ID!): Boolean!
+  }
+`;

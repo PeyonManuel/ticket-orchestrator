@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { SignIn } from "@clerk/nextjs";
+import { dark } from "@clerk/themes";
 import { AuthRedirect } from "../AuthRedirect";
 
 export default function LoginPage() {
@@ -18,12 +19,13 @@ export default function LoginPage() {
           <SignIn
             forceRedirectUrl="/"
             appearance={{
+              baseTheme: dark,
               variables: {
                 colorBackground: "#1c1c22",
-                colorInputBackground: "#2c2c32",
-                colorInputText: "#ffffff",
-                colorText: "#ffffff",
-                colorTextSecondary: "#e4e4e7",
+                colorInputBackground: "#09090b",
+                colorInputText: "#f4f4f5",
+                colorText: "#f4f4f5",
+                colorTextSecondary: "#a1a1aa",
                 colorTextOnPrimaryBackground: "#ffffff",
                 colorPrimary: "#818cf8",
                 colorDanger: "#f87171",

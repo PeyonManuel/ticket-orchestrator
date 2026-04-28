@@ -121,10 +121,12 @@ export const analystWorkspaceMachine = setup({
         if (alreadyExists) return context.boardColumns;
         const nextColumn: BoardColumn = {
           id: `${event.boardId}-${normalizeColumnSlug(trimmedName)}`,
+          orgId: "",
           boardId: event.boardId,
           name: trimmedName,
           states: event.states.length ? event.states : [normalizeColumnSlug(trimmedName)],
           color: "#64748b",
+          order: boardColumnCount,
         };
         return [...context.boardColumns, nextColumn];
       },
@@ -255,6 +257,8 @@ export const analystWorkspaceMachine = setup({
         if (exists) return context.releaseVersions;
         const newVersion: ReleaseVersion = {
           id: `version-${crypto.randomUUID().slice(0, 8)}`,
+          orgId: "",
+          boardId: context.activeBoardId ?? "",
           name: event.name.trim(),
           releaseDate: event.releaseDate,
         };
@@ -274,9 +278,12 @@ export const analystWorkspaceMachine = setup({
         if (event.type !== "CREATE_TICKET") return context.tickets;
         const newTicket: Ticket = {
           id: `ticket-${crypto.randomUUID().slice(0, 8)}`,
+          orgId: "",
           ticketNumber: getNextTicketNumber(context.tickets),
           ...event.payload,
           linkedTicketIds: [],
+          assigneeIds: [],
+          version: 0,
         };
         const withNew = [newTicket, ...context.tickets];
         if (!context.createTicketLinkSourceId) return withNew;
@@ -369,14 +376,20 @@ export const analystWorkspaceMachine = setup({
   id: "analystWorkspace",
   type: "parallel",
   context: ({ input }: { input: Partial<AnalystMachineContext> }) => ({
-    boards: input.boards ?? seedAnalystData.boards,
-    boardColumns: input.boardColumns ?? seedAnalystData.boardColumns,
-    tickets: input.tickets ?? seedAnalystData.tickets,
+    boards: input.boards ?? seedAnalystData.boards.map((b) => ({ ...b, orgId: "" })),
+    boardColumns:
+      input.boardColumns ??
+      seedAnalystData.boardColumns.map((c, i) => ({ ...c, orgId: "", order: i })),
+    tickets:
+      input.tickets ??
+      seedAnalystData.tickets.map((t) => ({ ...t, orgId: "", version: 0, assigneeIds: [] })),
     activeBoardId: input.activeBoardId ?? (seedAnalystData.boards[0]?.id ?? null),
     selectedTicketId: null,
     activeModal: "none" as const,
     createTicketLinkSourceId: null,
-    releaseVersions: input.releaseVersions ?? DEFAULT_RELEASE_VERSIONS,
+    releaseVersions:
+      input.releaseVersions ??
+      DEFAULT_RELEASE_VERSIONS.map((v) => ({ ...v, orgId: "", boardId: "" })),
     currentUserRole: input.currentUserRole ?? "member",
     labels: input.labels ?? DEFAULT_LABELS,
   }),

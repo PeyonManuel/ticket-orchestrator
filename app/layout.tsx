@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { dark } from "@clerk/themes";
 import { ThemeProvider } from "@/presentation/shared/ThemeProvider";
+import { ApolloClientProvider } from "@/infrastructure/graphql/ApolloClientProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,14 +27,29 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      appearance={{
+        baseTheme: dark,
+        variables: {
+          colorBackground: "#18181b",
+          colorInputBackground: "#09090b",
+          colorText: "#f4f4f5",
+          colorTextSecondary: "#a1a1aa",
+          colorPrimary: "#6366f1",
+          colorInputText: "#f4f4f5",
+          colorNeutral: "#e4e4e7",
+        },
+      }}
+    >
       <html
         lang="en"
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
         suppressHydrationWarning
       >
         <body className="min-h-full flex flex-col">
-          <ThemeProvider>{children}</ThemeProvider>
+          <ApolloClientProvider>
+            <ThemeProvider>{children}</ThemeProvider>
+          </ApolloClientProvider>
         </body>
       </html>
     </ClerkProvider>
