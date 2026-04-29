@@ -11,7 +11,7 @@ export function OrchestratorModal() {
   return (
     <div
       onClick={closeModal}
-      className="absolute inset-0 z-30 flex items-center justify-center bg-zinc-950/70 backdrop-blur-sm p-6"
+      className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 dark:bg-zinc-950/70 backdrop-blur-sm p-6"
     >
       <div
         onClick={(event) => event.stopPropagation()}

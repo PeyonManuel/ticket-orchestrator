@@ -60,7 +60,7 @@ export function CreateTicketModal() {
   return (
     <div
       onClick={closeModal}
-      className="absolute inset-0 z-30 flex items-center justify-center bg-zinc-950/70 backdrop-blur-sm p-6"
+      className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 dark:bg-zinc-950/70 backdrop-blur-sm p-6"
     >
       <form
         onClick={(event) => event.stopPropagation()}
@@ -82,15 +82,15 @@ export function CreateTicketModal() {
           });
           setForm((prev) => ({ ...prev, title: "", description: "" }));
         }}
-        className="w-full max-w-xl rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl"
+        className="w-full max-w-xl rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-2xl"
       >
-        <h2 className="text-lg font-semibold text-zinc-100">Create ticket</h2>
+        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Create ticket</h2>
         <div className="mt-4 grid gap-3">
           <input
             value={form.title}
             onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
             placeholder="Title"
-            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600"
           />
           <textarea
             value={form.description}
@@ -98,7 +98,7 @@ export function CreateTicketModal() {
               setForm((prev) => ({ ...prev, description: event.target.value }))
             }
             placeholder="Description"
-            className="min-h-24 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+            className="min-h-24 rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600"
           />
           <div className="grid gap-3 md:grid-cols-2">
             <LabelDropdown
@@ -170,7 +170,7 @@ export function CreateTicketModal() {
             <button
               type="button"
               onClick={closeModal}
-              className="rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-300"
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
               Cancel
             </button>

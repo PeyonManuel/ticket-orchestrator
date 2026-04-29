@@ -33,7 +33,7 @@ export function WorkflowDropdown({ selectedState, choices, onSelect }: WorkflowD
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="flex w-full items-center justify-between gap-2 rounded-md border border-indigo-400/40 bg-zinc-950 px-3 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:border-indigo-400/70"
+        className="flex w-full items-center justify-between gap-2 rounded-md border border-indigo-400/40 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-colors hover:border-indigo-400/70 dark:bg-zinc-950 dark:text-zinc-100"
       >
         <span className="flex min-w-0 items-center gap-2">
           <span
@@ -44,11 +44,11 @@ export function WorkflowDropdown({ selectedState, choices, onSelect }: WorkflowD
         </span>
         <ChevronDown
           size={13}
-          className={`shrink-0 text-zinc-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+          className={`shrink-0 text-zinc-500 transition-transform duration-150 dark:text-zinc-400 ${open ? "rotate-180" : ""}`}
         />
       </button>
       {open && (
-        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-52 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-950 shadow-xl">
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-52 overflow-y-auto rounded-md border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-950">
           <div className="p-1">
             {choices.map((entry) => (
               <div key={entry.columnId} className="mb-1 last:mb-0">
@@ -70,8 +70,8 @@ export function WorkflowDropdown({ selectedState, choices, onSelect }: WorkflowD
                       }}
                       className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-semibold transition-colors ${
                         isActive
-                          ? "text-zinc-50"
-                          : "text-zinc-300 hover:bg-zinc-800/60 hover:text-zinc-50"
+                          ? "text-zinc-900 dark:text-zinc-50"
+                          : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-50"
                       }`}
                       style={{
                         backgroundColor: isActive ? `${entry.color}33` : undefined,
@@ -82,7 +82,7 @@ export function WorkflowDropdown({ selectedState, choices, onSelect }: WorkflowD
                         style={{ backgroundColor: entry.color }}
                       />
                       <span className="flex-1">{stateName}</span>
-                      {isActive && <Check size={11} className="shrink-0 text-zinc-400" />}
+                      {isActive && <Check size={11} className="shrink-0 text-zinc-500 dark:text-zinc-400" />}
                     </button>
                   );
                 })}

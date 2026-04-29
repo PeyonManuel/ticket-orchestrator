@@ -1,11 +1,20 @@
 "use client";
 
-import React, { useState } from "react";
-import { Check, Link2, Plus, X } from "lucide-react";
+import React, { useState, useRef } from "react";
+import { Check, Clock, Link2, MessageSquare, Plus, User, X } from "lucide-react";
+import { useUser } from "@clerk/nextjs";
 import { useBoardContext } from "@/presentation/board/BoardContext";
 import { LabelDropdown } from "@/presentation/shared/dropdowns/LabelDropdown";
 import { SimpleDropdown } from "@/presentation/shared/dropdowns/SimpleDropdown";
 import { WorkflowDropdown } from "@/presentation/shared/dropdowns/WorkflowDropdown";
+
+interface LocalComment {
+  id: string;
+  authorId: string;
+  authorName: string;
+  body: string;
+  createdAt: Date;
+}
 
 export function TicketModal() {
   const {
@@ -26,12 +35,18 @@ export function TicketModal() {
     labels,
     addLabel,
   } = useBoardContext();
+  const { user } = useUser();
+
   const [editingField, setEditingField] = useState<"title" | "description" | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [linkTargetId, setLinkTargetId] = useState("");
   const [showLinkComposer, setShowLinkComposer] = useState(false);
   const [hoverLinkedTicketId, setHoverLinkedTicketId] = useState<string | null>(null);
   const [lastTicketId, setLastTicketId] = useState(selectedTicket?.id);
+  const [activityTab, setActivityTab] = useState<"comments" | "history">("comments");
+  const [comments, setComments] = useState<LocalComment[]>([]);
+  const [commentDraft, setCommentDraft] = useState("");
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Reset local UI state when ticket changes (React "adjust during render" pattern)
   if (selectedTicket?.id !== lastTicketId) {
@@ -39,9 +54,29 @@ export function TicketModal() {
     setLinkTargetId("");
     setEditingField(null);
     setShowLinkComposer(false);
+    setComments([]);
+    setCommentDraft("");
+    setActivityTab("comments");
   }
 
   if (!selectedTicket) return null;
+
+  const submitComment = () => {
+    const body = commentDraft.trim();
+    if (!body) return;
+    setComments((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        authorId: user?.id ?? "unknown",
+        authorName: user?.fullName ?? user?.username ?? "You",
+        body,
+        createdAt: new Date(),
+      },
+    ]);
+    setCommentDraft("");
+    commentInputRef.current?.focus();
+  };
 
   const copyShareLink = async () => {
     const url = getTicketShareUrl(selectedTicket.id);
@@ -58,7 +93,7 @@ export function TicketModal() {
       return (
         <Tag
           onClick={() => setEditingField(field)}
-          className={`${className} cursor-text hover:text-zinc-100`}
+          className={`${className} cursor-text hover:text-zinc-700 dark:hover:text-zinc-100`}
         >
           {value || "Click to edit"}
         </Tag>
@@ -73,7 +108,7 @@ export function TicketModal() {
             updateTicketField(selectedTicket.id, field, event.target.value)
           }
           onBlur={() => setEditingField(null)}
-          className="min-h-24 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200"
+          className="min-h-24 w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-200"
         />
       );
     }
@@ -83,7 +118,7 @@ export function TicketModal() {
         value={value}
         onChange={(event) => updateTicketField(selectedTicket.id, field, event.target.value)}
         onBlur={() => setEditingField(null)}
-        className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200"
+        className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-200"
       />
     );
   };
@@ -91,19 +126,20 @@ export function TicketModal() {
   return (
     <div
       onClick={closeModal}
-      className="absolute inset-0 z-30 flex items-center justify-center bg-zinc-950/70 backdrop-blur-sm p-6"
+      className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 dark:bg-zinc-950/70 backdrop-blur-sm p-6"
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-2xl rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl"
+        className="w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-2xl"
       >
-        <div className="mb-3 flex items-start justify-between gap-4 border-b border-zinc-800 pb-3">
+        {/* Header */}
+        <div className="mb-3 flex items-start justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-3">
           <div>
             <div className="flex items-center gap-2">
-              {renderEditableField("title", "text-2xl font-semibold text-zinc-50")}
+              {renderEditableField("title", "text-2xl font-semibold text-zinc-900 dark:text-zinc-50")}
               <button
                 onClick={copyShareLink}
-                className="rounded-md border border-zinc-700 p-1.5 text-zinc-400 hover:text-zinc-100"
+                className="rounded-md border border-zinc-300 dark:border-zinc-700 p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
                 title="Copy direct link"
               >
                 {linkCopied ? (
@@ -119,19 +155,23 @@ export function TicketModal() {
           </div>
           <button
             onClick={closeModal}
-            className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-1 text-xs text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
           >
             Close
           </button>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-          <div className="rounded-md border border-zinc-800 bg-zinc-950/50 p-4">
-            {renderEditableField("description", "text-sm leading-relaxed text-zinc-300")}
+        {/* 3-col body: description | metadata | assignee */}
+        <div className="grid gap-4 lg:grid-cols-[1fr_0.75fr_0.6fr]">
+          {/* Description */}
+          <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 p-4">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Description</p>
+            {renderEditableField("description", "text-sm leading-relaxed text-zinc-700 dark:text-zinc-300")}
           </div>
 
-          <aside className="grid gap-3">
-            <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
+          {/* Metadata */}
+          <aside className="grid gap-3 content-start">
+            <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 p-3">
               <p className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500 font-semibold">Label</p>
               <LabelDropdown
                 value={selectedTicket.label}
@@ -141,37 +181,31 @@ export function TicketModal() {
               />
             </div>
 
-            <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
+            <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 p-3">
               <p className="text-[10px] uppercase tracking-wide text-zinc-500 font-semibold">Priority</p>
               <p
                 className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
                   selectedTicket.priority === "high"
-                    ? "bg-rose-500/20 text-rose-300"
+                    ? "bg-rose-500/20 text-rose-700 dark:text-rose-300"
                     : selectedTicket.priority === "medium"
-                      ? "bg-amber-500/20 text-amber-300"
-                      : "bg-emerald-500/20 text-emerald-300"
+                      ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                      : "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
                 }`}
               >
                 {selectedTicket.priority}
               </p>
-              <p className="mt-1 text-[11px] text-zinc-500">
-                Indicates urgency for planning and sequencing.
-              </p>
             </div>
 
-            <div className="grid gap-1 text-xs text-zinc-400 font-semibold">
+            <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
               Workflow
               <WorkflowDropdown
                 selectedState={selectedTicket.workflowState}
                 choices={workflowChoicesOrdered}
                 onSelect={(state) => updateTicketWorkflowState(selectedTicket.id, state)}
               />
-              <p className="text-[11px] text-zinc-500">
-                Selecting a state automatically moves the ticket to its mapped column.
-              </p>
             </div>
 
-            <div className="grid gap-1 text-xs text-zinc-400 font-semibold">
+            <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
               Story Points
               <SimpleDropdown
                 value={String(selectedTicket.storyPoints)}
@@ -185,7 +219,7 @@ export function TicketModal() {
               />
             </div>
 
-            <div className="grid gap-1 text-xs text-zinc-400 font-semibold">
+            <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
               Fix Version
               <SimpleDropdown
                 value={selectedTicket.fixVersion}
@@ -198,14 +232,49 @@ export function TicketModal() {
               />
             </div>
           </aside>
+
+          {/* Assignees — far right column */}
+          <aside className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 p-3 content-start grid gap-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 flex items-center gap-1">
+                <User size={11} />
+                Assignees
+              </p>
+              {user && (
+                <button
+                  onClick={() => {/* placeholder: wire to updateTicketAssignees */}}
+                  className="rounded border border-zinc-300 dark:border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-500 dark:text-zinc-400 hover:border-indigo-500 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors"
+                  title="Assign to me"
+                >
+                  + Me
+                </button>
+              )}
+            </div>
+
+            {selectedTicket.assigneeIds && selectedTicket.assigneeIds.length > 0 ? (
+              <ul className="flex flex-col gap-1.5">
+                {selectedTicket.assigneeIds.map((id) => (
+                  <li key={id} className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white uppercase">
+                      {id.slice(0, 2)}
+                    </span>
+                    <span className="truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{id}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[11px] text-zinc-500">No assignees yet.</p>
+            )}
+          </aside>
         </div>
 
-        <section className="mt-4 rounded-md border border-zinc-800 bg-zinc-950/50 p-3">
+        {/* Linked tickets */}
+        <section className="mt-4 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 p-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Linked</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Linked</h3>
             <button
               onClick={() => setShowLinkComposer((prev) => !prev)}
-              className="rounded-md border border-indigo-400/40 p-1 text-indigo-200"
+              className="rounded-md border border-indigo-400/40 p-1 text-indigo-600 dark:text-indigo-200"
               title="Add linked ticket"
             >
               <Plus size={14} />
@@ -217,7 +286,7 @@ export function TicketModal() {
                 key={ticket.id}
                 onMouseEnter={() => setHoverLinkedTicketId(ticket.id)}
                 onMouseLeave={() => setHoverLinkedTicketId(null)}
-                className="inline-flex items-center gap-1 rounded-md border border-indigo-400/30 px-2 py-1 text-xs text-indigo-200"
+                className="inline-flex items-center gap-1 rounded-md border border-indigo-400/30 px-2 py-1 text-xs text-indigo-600 dark:text-indigo-200"
               >
                 <button
                   onClick={() => openTicket(ticket.id)}
@@ -228,7 +297,7 @@ export function TicketModal() {
                 {hoverLinkedTicketId === ticket.id && (
                   <button
                     onClick={() => unlinkTickets(selectedTicket.id, ticket.id)}
-                    className="text-zinc-300 hover:text-rose-300"
+                    className="text-zinc-400 dark:text-zinc-300 hover:text-rose-500 dark:hover:text-rose-300"
                     title="Unlink"
                   >
                     <X size={12} />
@@ -266,10 +335,111 @@ export function TicketModal() {
               </button>
               <button
                 onClick={() => openCreateTicketLinkedTo(selectedTicket.id)}
-                className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-200"
+                className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-200"
               >
                 Create linked ticket
               </button>
+            </div>
+          )}
+        </section>
+
+        {/* Activity: Comments | History */}
+        <section className="mt-4 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 p-3">
+          {/* Tab bar */}
+          <div className="mb-3 flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 pb-2">
+            <button
+              onClick={() => setActivityTab("comments")}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
+                activityTab === "comments"
+                  ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+              }`}
+            >
+              <MessageSquare size={12} />
+              Comments {comments.length > 0 && <span className="text-zinc-400">({comments.length})</span>}
+            </button>
+            <button
+              onClick={() => setActivityTab("history")}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
+                activityTab === "history"
+                  ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+              }`}
+            >
+              <Clock size={12} />
+              History
+            </button>
+          </div>
+
+          {/* Comments panel */}
+          {activityTab === "comments" && (
+            <div className="flex flex-col gap-3">
+              {/* Existing comments */}
+              {comments.length > 0 && (
+                <ul className="flex flex-col gap-3">
+                  {comments.map((c) => (
+                    <li key={c.id} className="flex gap-2.5">
+                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white uppercase">
+                        {c.authorName.slice(0, 2)}
+                      </span>
+                      <div className="flex-1">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{c.authorName}</span>
+                          <span className="text-[10px] text-zinc-500">
+                            {c.createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{c.body}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* Composer */}
+              <div className="flex gap-2.5">
+                <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-xs font-bold text-zinc-600 dark:text-zinc-300 uppercase">
+                  {user ? (user.fullName ?? user.username ?? "?").slice(0, 2) : "?"}
+                </span>
+                <div className="flex-1">
+                  <textarea
+                    ref={commentInputRef}
+                    value={commentDraft}
+                    onChange={(e) => setCommentDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitComment();
+                    }}
+                    placeholder="Add a comment… (⌘+Enter to submit)"
+                    rows={2}
+                    className="w-full resize-none rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-200 placeholder-zinc-400 dark:placeholder-zinc-600 focus:border-indigo-500 focus:outline-none"
+                  />
+                  <div className="mt-1 flex justify-end">
+                    <button
+                      onClick={submitComment}
+                      disabled={!commentDraft.trim()}
+                      className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Comment
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* History panel */}
+          {activityTab === "history" && (
+              <div className="flex flex-col gap-2 text-xs text-zinc-500">
+              <div className="flex items-center gap-2 py-1">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-[9px] font-bold text-zinc-600 dark:text-zinc-300 uppercase">
+                  {user ? (user.fullName ?? user.username ?? "?").slice(0, 2) : "?"}
+                </span>
+                <span className="text-zinc-500">Ticket created</span>
+                <span className="ml-auto text-zinc-400 dark:text-zinc-600">today</span>
+              </div>
+              <p className="text-zinc-400 dark:text-zinc-600 text-[11px]">
+                Field changes will appear here once the GraphQL layer is wired.
+              </p>
             </div>
           )}
         </section>

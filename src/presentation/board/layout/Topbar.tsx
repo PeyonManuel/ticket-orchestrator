@@ -83,77 +83,61 @@ export default function Topbar({ onToggleSidebar, isSidebarOpen }: TopbarProps) 
           afterCreateOrganizationUrl="/"
           afterSelectOrganizationUrl="/"
           afterLeaveOrganizationUrl="/"
-          appearance={{
+          appearance={theme === "dark" ? {
             baseTheme: dark,
             variables: {
               colorBackground: "#18181b",
               colorInputBackground: "#09090b",
               colorText: "#f4f4f5",
               colorTextSecondary: "#a1a1aa",
+              colorTextOnPrimaryBackground: "#ffffff",
               colorPrimary: "#6366f1",
+              colorDanger: "#f87171",
               colorInputText: "#f4f4f5",
-              colorNeutral: "#e4e4e7",
+              colorNeutral: "#71717a",
+              borderRadius: "0.5rem",
             },
             elements: {
               organizationSwitcherTrigger:
                 "!bg-transparent !border !border-zinc-700 !rounded-md !px-3 !py-1.5 !text-sm !text-zinc-300 hover:!border-zinc-500 hover:!text-zinc-100 !transition-colors",
               organizationSwitcherPopoverCard:
                 "!bg-zinc-900 !border !border-zinc-700 !shadow-2xl",
-              organizationPreviewTextContainer: "!text-zinc-200",
               organizationPreviewMainIdentifier: "!text-zinc-100",
               organizationPreviewSecondaryIdentifier: "!text-zinc-400",
-              organizationSwitcherPopoverActionButton:
-                "!text-zinc-300 hover:!bg-zinc-800",
-              organizationSwitcherPopoverActionButtonText: "!text-zinc-300",
+              organizationSwitcherPopoverActionButton: "hover:!bg-zinc-800",
+              organizationSwitcherPopoverActionButtonText: "!text-zinc-200",
               organizationSwitcherPopoverActionButtonIcon: "!text-zinc-400",
               organizationSwitcherPreviewButton: "hover:!bg-zinc-800",
-              // Manage org modal
-              modalContent: "!bg-zinc-900 !border !border-zinc-700",
-              modalCloseButton: "!text-zinc-400 hover:!text-zinc-100",
-              organizationProfilePage: "!bg-zinc-900",
-              organizationProfileNavbarItem: "!text-zinc-300 hover:!bg-zinc-800",
-              organizationProfileNavbarItemSelected: "!text-white !bg-zinc-800",
-              organizationProfileNavbarItemIcon: "!text-zinc-400",
-              card: "!bg-zinc-900 !border-zinc-700",
-              navbar: "!bg-zinc-950 !border-zinc-800",
-              navbarMobileMenuButton: "!text-zinc-300",
-              pageScrollBox: "!bg-zinc-900",
-              profilePage: "!bg-zinc-900",
-              // Tables (members list)
-              tableHead: "!text-zinc-400",
-              tableRow: "!border-zinc-800 hover:!bg-zinc-800/50",
-              tableCellText: "!text-zinc-200",
-              // Badges + role selects
-              badge: "!bg-zinc-700 !text-zinc-200",
-              select: "!bg-zinc-800 !border-zinc-600 !text-zinc-100",
-              selectOption: "!bg-zinc-800 !text-zinc-100 hover:!bg-zinc-700",
-              selectButton: "!bg-zinc-800 !border-zinc-600 !text-zinc-100",
-              // Invite / action buttons
-              membersPageInviteButton: "!bg-indigo-600 !text-white hover:!bg-indigo-500",
-              formButtonPrimary: "!bg-indigo-600 !text-white hover:!bg-indigo-500",
-              formButtonReset: "!text-zinc-300 hover:!bg-zinc-800",
-              // Inputs
-              formFieldLabel: "!text-zinc-300",
-              formFieldInput: "!bg-zinc-800 !border-zinc-600 !text-zinc-100 !placeholder-zinc-500",
-              // Section headings
-              headerTitle: "!text-zinc-100",
-              headerSubtitle: "!text-zinc-400",
-              profileSectionTitle: "!text-zinc-100",
-              profileSectionContent: "!text-zinc-300",
-              profileSectionPrimaryButton: "!text-indigo-400 hover:!text-indigo-300",
-              // Destructive
-              formFieldWarningText: "!text-amber-400",
-              formFieldErrorText: "!text-red-400",
-              notificationBadge: "!bg-indigo-600",
-              // Accordion / sections
-              accordionTriggerButton: "!text-zinc-300 hover:!bg-zinc-800",
-              dividerRow: "!border-zinc-700",
+            },
+          } : {
+            variables: {
+              colorBackground: "#ffffff",
+              colorInputBackground: "#f4f4f5",
+              colorText: "#18181b",
+              colorTextSecondary: "#71717a",
+              colorTextOnPrimaryBackground: "#ffffff",
+              colorPrimary: "#6366f1",
+              colorInputText: "#18181b",
+              colorNeutral: "#71717a",
+              borderRadius: "0.5rem",
+            },
+            elements: {
+              organizationSwitcherTrigger:
+                "!bg-transparent !border !border-zinc-300 !rounded-md !px-3 !py-1.5 !text-sm !text-zinc-800 hover:!border-zinc-400 hover:!text-zinc-900 !transition-colors",
+              organizationSwitcherPopoverCard:
+                "!bg-white !border !border-zinc-200 !shadow-xl",
+              organizationPreviewMainIdentifier: "!text-zinc-900",
+              organizationPreviewSecondaryIdentifier: "!text-zinc-500",
+              organizationSwitcherPopoverActionButton: "hover:!bg-zinc-100",
+              organizationSwitcherPopoverActionButtonText: "!text-zinc-800",
+              organizationSwitcherPopoverActionButtonIcon: "!text-zinc-500",
+              organizationSwitcherPreviewButton: "hover:!bg-zinc-100",
             },
           }}
         />
         {/* Clerk's pre-built avatar — opens a dropdown with sign-out, profile, etc. */}
         <UserButton
-          appearance={{
+          appearance={theme === "dark" ? {
             baseTheme: dark,
             variables: {
               colorBackground: "#18181b",
@@ -162,7 +146,7 @@ export default function Topbar({ onToggleSidebar, isSidebarOpen }: TopbarProps) 
               colorTextSecondary: "#a1a1aa",
               colorPrimary: "#6366f1",
               colorInputText: "#f4f4f5",
-              colorNeutral: "#e4e4e7",
+              colorNeutral: "#71717a",
             },
             elements: {
               avatarBox: "w-8 h-8",
@@ -173,6 +157,26 @@ export default function Topbar({ onToggleSidebar, isSidebarOpen }: TopbarProps) 
               userButtonPopoverFooter: "!border-zinc-700",
               userPreviewMainIdentifier: "!text-zinc-100",
               userPreviewSecondaryIdentifier: "!text-zinc-400",
+            },
+          } : {
+            variables: {
+              colorBackground: "#ffffff",
+              colorInputBackground: "#f4f4f5",
+              colorText: "#18181b",
+              colorTextSecondary: "#71717a",
+              colorPrimary: "#6366f1",
+              colorInputText: "#18181b",
+              colorNeutral: "#71717a",
+            },
+            elements: {
+              avatarBox: "w-8 h-8",
+              userButtonPopoverCard: "!bg-white !border !border-zinc-200 !shadow-xl",
+              userButtonPopoverActionButton: "!text-zinc-700 hover:!bg-zinc-100",
+              userButtonPopoverActionButtonText: "!text-zinc-700",
+              userButtonPopoverActionButtonIcon: "!text-zinc-500",
+              userButtonPopoverFooter: "!border-zinc-200",
+              userPreviewMainIdentifier: "!text-zinc-900",
+              userPreviewSecondaryIdentifier: "!text-zinc-500",
             },
           }}
         />

@@ -50,3 +50,341 @@ body {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ─── Clerk modal dark-mode overrides ──────────────────────────────────────
+   Targets every text node inside Clerk modals/popups when the html.dark
+   class is active. The cl-* classes are Clerk's stable BEM class names. */
+
+.dark [class*="cl-"] {
+  --clerk-text: #f4f4f5;
+  --clerk-text-muted: #a1a1aa;
+}
+
+/* Generic text catch-all — picks up any element Clerk renders text in */
+.dark [class*="cl-"] p,
+.dark [class*="cl-"] span:not([class*="cl-avatarBox"]):not([class*="cl-userButtonAvatarBox"]),
+.dark [class*="cl-"] li,
+.dark [class*="cl-"] td,
+.dark [class*="cl-"] th,
+.dark [class*="cl-"] label,
+.dark [class*="cl-"] h1,
+.dark [class*="cl-"] h2,
+.dark [class*="cl-"] h3 {
+  color: #f4f4f5;
+}
+
+/* Muted / secondary text */
+.dark [class*="cl-userPreviewSecondaryIdentifier"],
+.dark [class*="cl-organizationPreviewSecondaryIdentifier"],
+.dark [class*="cl-memberListItemInjectedRole"],
+.dark [class*="cl-formFieldHintText"],
+.dark [class*="cl-formFieldSuccessText"],
+.dark [class*="cl-identityPreviewText"],
+.dark [class*="cl-tagInputContainer"] span {
+  color: #a1a1aa !important;
+}
+
+/* Table cells — members & invitations */
+.dark [class*="cl-table"] td,
+.dark [class*="cl-table"] th {
+  color: #f4f4f5;
+  border-color: #27272a;
+  background: transparent;
+}
+.dark [class*="cl-tableHead"] {
+  background: #09090b;
+}
+.dark [class*="cl-tableRow"] {
+  background: #18181b;
+  border-color: #27272a;
+}
+
+/* Role select */
+.dark [class*="cl-select__role"] *,
+.dark [class*="cl-selectButton"] {
+  color: #f4f4f5 !important;
+  background: #27272a !important;
+  border-color: #3f3f46 !important;
+}
+.dark [class*="cl-selectOptionsContainer"] {
+  background: #18181b !important;
+  border-color: #3f3f46 !important;
+}
+.dark [class*="cl-selectOption"] {
+  color: #f4f4f5 !important;
+}
+.dark [class*="cl-selectOption"]:hover {
+  background: #27272a !important;
+}
+
+/* Action/danger buttons (e.g. Remove member) — dark */
+.dark [class*="cl-formButtonDanger"],
+.dark [class*="cl-formButtonDanger"] * {
+  color: #f87171 !important;
+}
+.dark [class*="cl-formButtonDanger"]:hover {
+  background: rgba(248, 113, 113, 0.12) !important;
+}
+/* Action/danger buttons — light */
+html:not(.dark) [class*="cl-formButtonDanger"],
+html:not(.dark) [class*="cl-formButtonDanger"] * {
+  color: #dc2626 !important;
+}
+html:not(.dark) [class*="cl-formButtonDanger"]:hover {
+  background: rgba(220, 38, 38, 0.08) !important;
+}
+
+/* Joined date text in member rows */
+.dark [class*="cl-memberListItem"] td:nth-child(3),
+.dark [class*="cl-memberListItem"] [class*="cl-tableCell"]:nth-child(3),
+.dark [class*="cl-memberCreatedAt"],
+.dark [class*="cl-memberListItemCreatedAt"] {
+  color: #f4f4f5 !important;
+}
+
+/* Role select trigger — closed state selected-value text */
+.dark [class*="cl-selectButton"] [class*="cl-selectButtonLabel"],
+.dark [class*="cl-selectButton__role"] span,
+.dark [class*="cl-selectButton"] span {
+  color: #f4f4f5 !important;
+}
+
+/* Three-dots / kebab action menu button — dark */
+.dark [class*="cl-menuButton"],
+.dark [class*="cl-actionButton"],
+.dark [class*="cl-tableCell__actions"] button,
+.dark [class*="cl-memberListItemMenuButton"] {
+  color: #f4f4f5 !important;
+}
+.dark [class*="cl-menuButton"] svg,
+.dark [class*="cl-actionButton"] svg,
+.dark [class*="cl-memberListItemMenuButton"] svg {
+  color: #f4f4f5 !important;
+  stroke: #f4f4f5 !important;
+}
+
+/* Three-dots / kebab action menu button — light */
+html:not(.dark) [class*="cl-menuButton"],
+html:not(.dark) [class*="cl-actionButton"],
+html:not(.dark) [class*="cl-tableCell__actions"] button,
+html:not(.dark) [class*="cl-memberListItemMenuButton"] {
+  color: #18181b !important;
+}
+html:not(.dark) [class*="cl-menuButton"] svg,
+html:not(.dark) [class*="cl-actionButton"] svg,
+html:not(.dark) [class*="cl-memberListItemMenuButton"] svg {
+  color: #18181b !important;
+  stroke: #18181b !important;
+}
+
+/* Input fields */
+.dark [class*="cl-formFieldInput"] {
+  background: #09090b !important;
+  border-color: #3f3f46 !important;
+  color: #f4f4f5 !important;
+}
+.dark [class*="cl-formFieldInput"]::placeholder {
+  color: #52525b !important;
+}
+
+/* Badges */
+.dark [class*="cl-badge"] {
+  background: #27272a !important;
+  color: #a1a1aa !important;
+}
+
+/* ─── Clerk light-mode overrides ─────────────────────────────────────────── */
+
+/* Members / Invitations nav tab text — light */
+html:not(.dark) [class*="cl-navbarButton"],
+html:not(.dark) [class*="cl-navbarButton"] *,
+html:not(.dark) [class*="cl-navbarButtonText"],
+html:not(.dark) [class*="cl-profileNavbarButton"],
+html:not(.dark) [class*="cl-profileNavbarButton"] *,
+html:not(.dark) [class*="cl-tabButton"],
+html:not(.dark) [class*="cl-navbar"] button,
+html:not(.dark) [class*="cl-navbar"] button * {
+  color: #18181b !important;
+}
+html:not(.dark) [class*="cl-navbarButton"]:hover *,
+html:not(.dark) [class*="cl-profileNavbarButton"]:hover * {
+  color: #6366f1 !important;
+}
+
+/* Members / Invitations nav tab text — dark */
+.dark [class*="cl-navbarButton"],
+.dark [class*="cl-navbarButton"] *,
+.dark [class*="cl-navbarButtonText"],
+.dark [class*="cl-profileNavbarButton"],
+.dark [class*="cl-profileNavbarButton"] *,
+.dark [class*="cl-tabButton"],
+.dark [class*="cl-navbar"] button,
+.dark [class*="cl-navbar"] button * {
+  color: #f4f4f5 !important;
+}
+
+/* Org switcher popup — create/action button hover text stays readable */
+.dark [class*="cl-organizationSwitcherPopoverActionButton"]:hover *,
+.dark [class*="cl-organizationSwitcherPopoverActionButton"]:hover {
+  color: #f4f4f5 !important;
+}
+html:not(.dark) [class*="cl-organizationSwitcherPopoverActionButton"]:hover *,
+html:not(.dark) [class*="cl-organizationSwitcherPopoverActionButton"]:hover {
+  color: #18181b !important;
+}
+
+/* File upload button in Create Organization — dark */
+.dark [class*="cl-fileDropAreaBox"] {
+  background: #09090b !important;
+  border-color: #3f3f46 !important;
+  color: #f4f4f5 !important;
+}
+.dark [class*="cl-fileDropAreaButton"],
+.dark [class*="cl-avatarImageActionsUpload"] {
+  background: #27272a !important;
+  border-color: #3f3f46 !important;
+  color: #f4f4f5 !important;
+}
+.dark [class*="cl-fileDropAreaButton"] *,
+.dark [class*="cl-avatarImageActionsUpload"] * {
+  color: #f4f4f5 !important;
+}
+.dark [class*="cl-fileDropAreaHint"],
+.dark [class*="cl-fileDropAreaIcon"] {
+  color: #a1a1aa !important;
+}
+html:not(.dark) [class*="cl-fileDropAreaBox"] {
+  background: #f4f4f5 !important;
+  border-color: #d4d4d8 !important;
+  color: #18181b !important;
+}
+html:not(.dark) [class*="cl-fileDropAreaButton"],
+html:not(.dark) [class*="cl-avatarImageActionsUpload"] {
+  background: #ffffff !important;
+  border-color: #d4d4d8 !important;
+  color: #18181b !important;
+}
+html:not(.dark) [class*="cl-fileDropAreaButton"] *,
+html:not(.dark) [class*="cl-avatarImageActionsUpload"] * {
+  color: #18181b !important;
+}
+html:not(.dark) [class*="cl-fileDropAreaHint"],
+html:not(.dark) [class*="cl-fileDropAreaIcon"] {
+  color: #71717a !important;
+}
+
+/* Actions dropdown menu popup — light */
+html:not(.dark) [class*="cl-menuList"],
+html:not(.dark) [class*="cl-dropdownOption"],
+html:not(.dark) [class*="cl-menuItem"] {
+  background: #ffffff !important;
+  color: #18181b !important;
+}
+html:not(.dark) [class*="cl-menuList"] {
+  border-color: #e4e4e7 !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1) !important;
+}
+html:not(.dark) [class*="cl-dropdownOption"]:hover,
+html:not(.dark) [class*="cl-menuItem"]:hover {
+  background: #f4f4f5 !important;
+  color: #18181b !important;
+}
+
+/* Actions dropdown menu popup — dark */
+.dark [class*="cl-menuList"],
+.dark [class*="cl-dropdownOption"],
+.dark [class*="cl-menuItem"] {
+  background: #18181b !important;
+  color: #f4f4f5 !important;
+}
+.dark [class*="cl-menuList"] {
+  border-color: #3f3f46 !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5) !important;
+}
+.dark [class*="cl-dropdownOption"]:hover,
+.dark [class*="cl-menuItem"]:hover {
+  background: #27272a !important;
+  color: #f4f4f5 !important;
+}
+
+/* cl-menuList__member — the specific member actions popup */
+html:not(.dark) [class*="cl-menuList__member"] {
+  background: #ffffff !important;
+  border-color: #e4e4e7 !important;
+}
+html:not(.dark) [class*="cl-menuList__member"] * {
+  color: #18181b !important;
+}
+.dark [class*="cl-menuList__member"] {
+  background: #18181b !important;
+  border-color: #3f3f46 !important;
+}
+.dark [class*="cl-menuList__member"] * {
+  color: #f4f4f5 !important;
+}
+/* Danger items (e.g. Remove member) — dark */
+.dark [class*="cl-dropdownOption__danger"],
+.dark [class*="cl-menuItem__danger"],
+.dark [class*="cl-dropdownOption__danger"] *,
+.dark [class*="cl-menuItem__danger"] * {
+  color: #f87171 !important;
+}
+.dark [class*="cl-dropdownOption__danger"]:hover,
+.dark [class*="cl-menuItem__danger"]:hover {
+  background: rgba(248, 113, 113, 0.12) !important;
+  color: #fca5a5 !important;
+}
+.dark [class*="cl-dropdownOption__danger"]:hover *,
+.dark [class*="cl-menuItem__danger"]:hover * {
+  color: #fca5a5 !important;
+}
+
+/* Danger items — light */
+html:not(.dark) [class*="cl-dropdownOption__danger"],
+html:not(.dark) [class*="cl-menuItem__danger"],
+html:not(.dark) [class*="cl-dropdownOption__danger"] *,
+html:not(.dark) [class*="cl-menuItem__danger"] * {
+  color: #dc2626 !important;
+}
+html:not(.dark) [class*="cl-dropdownOption__danger"]:hover,
+html:not(.dark) [class*="cl-menuItem__danger"]:hover {
+  background: rgba(220, 38, 38, 0.08) !important;
+  color: #b91c1c !important;
+}
+html:not(.dark) [class*="cl-dropdownOption__danger"]:hover *,
+html:not(.dark) [class*="cl-menuItem__danger"]:hover * {
+  color: #b91c1c !important;
+}
+
+/* Close / X button — dark */
+.dark [class*="cl-modalCloseButton"],
+.dark [class*="cl-closeButton"] {
+  color: #f4f4f5 !important;
+}
+.dark [class*="cl-modalCloseButton"] svg,
+.dark [class*="cl-closeButton"] svg {
+  color: #f4f4f5 !important;
+  stroke: #f4f4f5 !important;
+}
+.dark [class*="cl-modalCloseButton"]:hover,
+.dark [class*="cl-closeButton"]:hover {
+  color: #ffffff !important;
+  background: #27272a !important;
+}
+
+html:not(.dark) [class*="cl-select__role"] *,
+html:not(.dark) [class*="cl-selectButton"] {
+  color: #18181b !important;
+  background: #f4f4f5 !important;
+  border-color: #d4d4d8 !important;
+}
+html:not(.dark) [class*="cl-selectOptionsContainer"] {
+  background: #ffffff !important;
+  border-color: #e4e4e7 !important;
+}
+html:not(.dark) [class*="cl-selectOption"] {
+  color: #18181b !important;
+}
+html:not(.dark) [class*="cl-selectOption"]:hover {
+  background: #f4f4f5 !important;
+}

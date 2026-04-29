@@ -24,7 +24,7 @@ export function SearchModal() {
   return (
     <div
       onClick={closeModal}
-      className="absolute inset-0 z-30 flex items-start justify-center bg-zinc-950/25 pt-16"
+      className="fixed inset-0 z-30 flex items-start justify-center bg-black/30 dark:bg-zinc-950/25 pt-16"
     >
       <div
         onClick={(event) => event.stopPropagation()}
