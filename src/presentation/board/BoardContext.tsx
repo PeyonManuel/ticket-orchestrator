@@ -9,27 +9,42 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useMachine } from "@xstate/react";
+import { useQuery, useMutation, useApolloClient } from "@apollo/client/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { StateFrom } from "xstate";
-import {
-  analystSelectors,
-  analystWorkspaceMachine,
-  type ActiveModal,
-  type AiOrchestratorEvent,
-  type Board,
-  type BoardColumn,
-  type CreateTicketInput,
-  type ReleaseVersion,
-  type Ticket,
-  type UserRole,
+import type {
+  Board,
+  BoardColumn,
+  CreateTicketInput,
+  ReleaseVersion,
+  Ticket,
+  UserRole,
 } from "@/domain/analyst";
 import {
-  loadWorkspaceSnapshot,
-  saveWorkspaceSnapshot,
-} from "@/infrastructure/persistence/workspaceStorage";
+  GET_BOARDS,
+  GET_BOARD_COLUMNS,
+  GET_TICKETS,
+  GET_RELEASE_VERSIONS,
+  GET_LABELS,
+  CREATE_COLUMN,
+  UPDATE_COLUMN,
+  DELETE_COLUMN,
+  REORDER_COLUMNS,
+  CREATE_TICKET,
+  UPDATE_TICKET,
+  CREATE_VERSION,
+  DELETE_VERSION,
+  ADD_LABEL,
+} from "@/infrastructure/graphql/operations";
 
-// ── View-model shapes ────────────────────────────────────────────────
+// ── View-model shapes (kept identical to previous public API) ───────
+
+export type ActiveModal =
+  | "none"
+  | "ticket"
+  | "createTicket"
+  | "orchestrator"
+  | "search"
+  | "createVersion";
 
 export interface BoardData {
   boards: Board[];
@@ -54,6 +69,9 @@ export interface BoardData {
   createModalOpen: boolean;
   createVersionModalOpen: boolean;
   labels: string[];
+  /** True while any of the initial data queries are still in flight. */
+  isLoading: boolean;
+  createTicketLinkSourceId: string | null;
 }
 
 export interface BoardActions {
@@ -88,11 +106,9 @@ export interface BoardActions {
   deleteVersion: (versionId: string) => void;
   createTicket: (payload: CreateTicketInput) => void;
   addLabel: (label: string) => void;
-  dispatchOrchestratorEvent: (event: AiOrchestratorEvent) => void;
   getTicketShareUrl: (ticketId: string) => string;
 }
 
-/** Combined shape for components that need both. */
 export type BoardViewModel = BoardData & BoardActions;
 
 // ── Contexts ─────────────────────────────────────────────────────────
@@ -100,35 +116,139 @@ export type BoardViewModel = BoardData & BoardActions;
 const BoardDataContext = createContext<BoardData | null>(null);
 const BoardActionsContext = createContext<BoardActions | null>(null);
 
-type AnalystState = StateFrom<typeof analystWorkspaceMachine>;
+// ── Apollo result types (narrowed locally — keeps generated types optional) ──
 
-// Persistence debouncer — coalesce rapid-fire transitions (e.g. drag).
-const PERSIST_DEBOUNCE_MS = 250;
+interface GetBoardsResult { boards: Board[] }
+interface GetBoardColumnsResult { boardColumns: BoardColumn[] }
+interface GetTicketsResult {
+  tickets: { edges: Array<{ cursor: string; node: Ticket }>; pageInfo: { endCursor: string | null; hasNextPage: boolean } };
+}
+interface GetReleaseVersionsResult { releaseVersions: ReleaseVersion[] }
+interface GetLabelsResult { labels: string[] }
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+const COLUMN_PALETTE = ["#64748b", "#4f46e5", "#0ea5e9", "#f59e0b", "#ef4444", "#22c55e"];
+const SLUG = (s: string) => s.trim().toLowerCase().replace(/\s+/g, "-");
+
+function bucketTicketsByColumn(
+  columns: BoardColumn[],
+  tickets: Ticket[],
+): Array<{ column: BoardColumn; tickets: Ticket[] }> {
+  const byColumn = new Map<string, Ticket[]>();
+  for (const c of columns) byColumn.set(c.id, []);
+  for (const t of tickets) {
+    const list = byColumn.get(t.columnId);
+    if (list) list.push(t);
+  }
+  return columns
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((c) => ({ column: c, tickets: byColumn.get(c.id) ?? [] }));
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Provider
+// ─────────────────────────────────────────────────────────────────────
 
 export function BoardProvider({ children }: { children: React.ReactNode }) {
-  const [persistedInput] = useState(loadWorkspaceSnapshot);
-  const [state, send] = useMachine(analystWorkspaceMachine, { input: persistedInput });
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const apollo = useApolloClient();
 
-  // Stable refs so action callbacks don't need to re-bind every render.
-  const sendRef = useRef(send);
-  const routerRef = useRef(router);
-  const pathnameRef = useRef(pathname);
-  const searchParamsRef = useRef(searchParams);
-  const contextRef = useRef(state.context);
+  // ── UI state (was XState; now plain useState) ────────────────────
+  const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [activeModal, setActiveModal] = useState<ActiveModal>("none");
+  const [createTicketLinkSourceId, setCreateTicketLinkSourceId] = useState<string | null>(null);
+
+  // ── Queries ──────────────────────────────────────────────────────
+  const { data: boardsData, loading: boardsLoading } =
+    useQuery<GetBoardsResult>(GET_BOARDS);
+  const boards = boardsData?.boards ?? [];
+
+  // Auto-select a board once boards load.
+  // Priority: ?board=X URL param (deep-link) > first available board.
   useEffect(() => {
-    sendRef.current = send;
-    routerRef.current = router;
-    pathnameRef.current = pathname;
-    searchParamsRef.current = searchParams;
-    contextRef.current = state.context;
+    if (activeBoardId || boards.length === 0) return;
+    const fromUrl = searchParams.get("board");
+    const matched = fromUrl ? boards.find((b) => b.id === fromUrl) : null;
+    setActiveBoardId(matched?.id ?? boards[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boards]);
+
+  const { data: columnsData, loading: columnsLoading } = useQuery<GetBoardColumnsResult>(
+    GET_BOARD_COLUMNS,
+    { variables: { boardId: activeBoardId }, skip: !activeBoardId },
+  );
+  const boardColumns = useMemo<BoardColumn[]>(
+    () => columnsData?.boardColumns ?? [],
+    [columnsData],
+  );
+
+  const { data: ticketsData, loading: ticketsLoading } = useQuery<GetTicketsResult>(
+    GET_TICKETS,
+    {
+      variables: { boardId: activeBoardId, first: 200 },
+      skip: !activeBoardId,
+    },
+  );
+  const allTickets = useMemo<Ticket[]>(
+    () => ticketsData?.tickets.edges.map((e) => e.node) ?? [],
+    [ticketsData],
+  );
+
+  const { data: versionsData } = useQuery<GetReleaseVersionsResult>(GET_RELEASE_VERSIONS, {
+    variables: { boardId: activeBoardId },
+    skip: !activeBoardId,
+  });
+  const releaseVersions = versionsData?.releaseVersions ?? [];
+
+  const { data: labelsData } = useQuery<GetLabelsResult>(GET_LABELS);
+  const labels = labelsData?.labels ?? [];
+
+  const isLoading = boardsLoading || (!!activeBoardId && (columnsLoading || ticketsLoading));
+
+  // ── Mutations ────────────────────────────────────────────────────
+  const [createColumnMutation] = useMutation(CREATE_COLUMN);
+  const [updateColumnMutation] = useMutation(UPDATE_COLUMN);
+  const [deleteColumnMutation] = useMutation(DELETE_COLUMN);
+  const [reorderColumnsMutation] = useMutation(REORDER_COLUMNS);
+  const [createTicketMutation] = useMutation(CREATE_TICKET);
+  const [updateTicketMutation] = useMutation(UPDATE_TICKET);
+  const [createVersionMutation] = useMutation(CREATE_VERSION);
+  const [deleteVersionMutation] = useMutation(DELETE_VERSION);
+  const [addLabelMutation] = useMutation(ADD_LABEL);
+
+  // Stable refs so action callbacks don't re-bind every render
+  const stateRef = useRef({
+    boards,
+    boardColumns,
+    allTickets,
+    activeBoardId,
+    createTicketLinkSourceId,
+    pathname,
+    searchParams,
+    router,
+  });
+  useEffect(() => {
+    stateRef.current = {
+      boards,
+      boardColumns,
+      allTickets,
+      activeBoardId,
+      createTicketLinkSourceId,
+      pathname,
+      searchParams,
+      router,
+    };
   });
 
+  // ── URL <-> UI sync (deep links) ─────────────────────────────────
   const updateUrlParams = useCallback(
     (next: { modal?: string | null; ticketId?: string | null }) => {
-      const params = new URLSearchParams(searchParamsRef.current.toString());
+      const params = new URLSearchParams(stateRef.current.searchParams.toString());
       if (typeof next.modal !== "undefined") {
         if (next.modal) params.set("modal", next.modal);
         else params.delete("modal");
@@ -138,209 +258,446 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         else params.delete("ticket");
       }
       const query = params.toString();
-      routerRef.current.replace(
-        query ? `${pathnameRef.current}?${query}` : pathnameRef.current,
+      stateRef.current.router.replace(
+        query ? `${stateRef.current.pathname}?${query}` : stateRef.current.pathname,
         { scroll: false },
       );
     },
     [],
   );
 
-  // URL -> machine sync for deep links
+  // URL → UI: open modals/tickets when query params change
   useEffect(() => {
     const modal = searchParams.get("modal");
     const ticketNumber = searchParams.get("ticket");
-    const ticketFromUrl = analystSelectors.ticketByNumber(state.context, ticketNumber);
 
-    if (ticketFromUrl && state.context.selectedTicketId !== ticketFromUrl.id) {
-      send({ type: "OPEN_TICKET", ticketId: ticketFromUrl.id });
+    if (ticketNumber) {
+      const ticket = allTickets.find(
+        (t) => t.ticketNumber.toLowerCase() === ticketNumber.toLowerCase(),
+      );
+      if (ticket && selectedTicketId !== ticket.id) {
+        setSelectedTicketId(ticket.id);
+        setActiveModal("ticket");
+        return;
+      }
+    }
+    if (modal === "orchestrator" && activeModal !== "orchestrator") {
+      setActiveModal("orchestrator");
       return;
     }
-    if (modal === "orchestrator" && state.context.activeModal !== "orchestrator") {
-      send({ type: "OPEN_ORCHESTRATOR" });
+    if (modal === "create" && activeModal !== "createTicket") {
+      setActiveModal("createTicket");
       return;
     }
-    if (modal === "create" && state.context.activeModal !== "createTicket") {
-      send({ type: "OPEN_CREATE_TICKET" });
+    if (modal === "search" && activeModal !== "search") {
+      setActiveModal("search");
       return;
     }
-    if (modal === "search" && state.context.activeModal !== "search") {
-      send({ type: "OPEN_SEARCH" });
+    if (modal === "create-version" && activeModal !== "createVersion") {
+      setActiveModal("createVersion");
       return;
     }
-    if (modal === "create-version" && state.context.activeModal !== "createVersion") {
-      send({ type: "OPEN_CREATE_VERSION" });
-      return;
-    }
-    if (!ticketNumber && !modal && state.context.activeModal !== "none") {
-      send({ type: "CLOSE_MODAL" });
+    if (!ticketNumber && !modal && activeModal !== "none") {
+      setActiveModal("none");
+      setSelectedTicketId(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, allTickets]);
 
-  // Debounced persistence
-  useEffect(() => {
-    const id = setTimeout(
-      () => saveWorkspaceSnapshot(state.context),
-      PERSIST_DEBOUNCE_MS,
-    );
-    return () => clearTimeout(id);
-  }, [state.context]);
-
-  // ── Actions: identity stable for the lifetime of the provider ────
-  const actions = useMemo<BoardActions>(() => {
-    const s = (event: Parameters<typeof send>[0]) => sendRef.current(event);
-    return {
-      selectBoard: (boardId) => s({ type: "SELECT_BOARD", boardId }),
-      openTicket: (ticketId) => {
-        s({ type: "OPEN_TICKET", ticketId });
-        const ticket = contextRef.current.tickets.find((item) => item.id === ticketId);
-        updateUrlParams({ ticketId: ticket?.ticketNumber ?? null, modal: "ticket" });
-      },
-      closeModal: () => {
-        s({ type: "CLOSE_MODAL" });
-        updateUrlParams({ ticketId: null, modal: null });
-      },
-      openCreateTicket: () => {
-        s({ type: "OPEN_CREATE_TICKET" });
-        updateUrlParams({ ticketId: null, modal: "create" });
-      },
-      openCreateTicketLinkedTo: (ticketId) => {
-        s({ type: "OPEN_CREATE_TICKET", linkSourceTicketId: ticketId });
-        updateUrlParams({ ticketId: null, modal: "create" });
-      },
-      openSearch: () => {
-        s({ type: "OPEN_SEARCH" });
-        updateUrlParams({ ticketId: null, modal: "search" });
-      },
-      openCreateVersion: () => {
-        s({ type: "OPEN_CREATE_VERSION" });
-        updateUrlParams({ modal: "create-version" });
-      },
-      openOrchestrator: () => {
-        s({ type: "OPEN_ORCHESTRATOR" });
-        updateUrlParams({ ticketId: null, modal: "orchestrator" });
-      },
-      addBoardColumn: (boardId, columnName, states) =>
-        s({ type: "ADD_BOARD_COLUMN", boardId, columnName, states }),
-      updateColumnState: (columnId, states) => s({ type: "UPDATE_COLUMN_STATE", columnId, states }),
-      updateColumnColor: (columnId, color) => s({ type: "UPDATE_COLUMN_COLOR", columnId, color }),
-      renameColumn: (columnId, name) => s({ type: "RENAME_COLUMN", columnId, name }),
-      deleteColumn: (columnId) => s({ type: "DELETE_COLUMN", columnId }),
-      reorderColumns: (boardId, orderedColumnIds) =>
-        s({ type: "REORDER_COLUMNS", boardId, orderedColumnIds }),
-      moveTicketToColumn: (ticketId, columnId) =>
-        s({ type: "MOVE_TICKET_TO_COLUMN", ticketId, columnId }),
-      updateTicketField: (ticketId, field, value) =>
-        s({ type: "UPDATE_TICKET_FIELD", ticketId, field, value }),
-      updateTicketWorkflowState: (ticketId, workflowState) =>
-        s({ type: "UPDATE_TICKET_WORKFLOW_STATE", ticketId, workflowState }),
-      updateTicketStoryPoints: (ticketId, storyPoints) =>
-        s({ type: "UPDATE_TICKET_STORY_POINTS", ticketId, storyPoints }),
-      linkTickets: (ticketId, targetTicketId) =>
-        s({ type: "LINK_TICKETS", ticketId, targetTicketId }),
-      unlinkTickets: (ticketId, targetTicketId) =>
-        s({ type: "UNLINK_TICKETS", ticketId, targetTicketId }),
-      createVersion: (name, releaseDate, applyToTicketId) =>
-        s({ type: "CREATE_VERSION", name, releaseDate, applyToTicketId }),
-      deleteVersion: (versionId) => s({ type: "DELETE_VERSION", versionId }),
-      createTicket: (payload) => s({ type: "CREATE_TICKET", payload }),
-      addLabel: (label) => s({ type: "ADD_LABEL", label }),
-      dispatchOrchestratorEvent: (event) => s({ type: "AI_EVENT", event }),
-      getTicketShareUrl: (ticketId) => {
-        if (typeof window === "undefined") return "";
-        const ticket = contextRef.current.tickets.find((item) => item.id === ticketId);
-        if (!ticket) return "";
-        return `${window.location.origin}${pathnameRef.current}?modal=ticket&ticket=${ticket.ticketNumber}`;
-      },
-    };
-  }, [updateUrlParams]);
-
-  // ── Data: each slice memoized on its own narrow deps ─────────────
-  // We intentionally depend on individual context slices (not the full `ctx`
-  // object) to avoid re-running heavy selectors when unrelated fields change.
-  const ctx = state.context;
-
-  /* eslint-disable react-hooks/exhaustive-deps */
-  const boardColumnsForActive = useMemo(
-    () => analystSelectors.activeBoardColumns(ctx),
-    [ctx.boardColumns, ctx.activeBoardId],
-  );
-
+  // ── Selectors / derived data ─────────────────────────────────────
   const activeBoardTicketsByColumn = useMemo(
-    () => analystSelectors.activeBoardTicketsByColumn(ctx),
-    [ctx.boardColumns, ctx.tickets, ctx.activeBoardId],
+    () => bucketTicketsByColumn(boardColumns, allTickets),
+    [boardColumns, allTickets],
   );
 
   const selectedTicket = useMemo(
-    () => analystSelectors.selectedTicket(ctx),
-    [ctx.tickets, ctx.selectedTicketId],
+    () => allTickets.find((t) => t.id === selectedTicketId) ?? null,
+    [allTickets, selectedTicketId],
   );
 
-  const workflowStateOptions = useMemo(
-    () => analystSelectors.workflowStatesForTicket(ctx, ctx.selectedTicketId),
-    [ctx.tickets, ctx.boardColumns, ctx.selectedTicketId],
-  );
+  const workflowStateOptions = useMemo(() => {
+    if (!selectedTicket) return [] as string[];
+    return boardColumns.find((c) => c.id === selectedTicket.columnId)?.states ?? [];
+  }, [boardColumns, selectedTicket]);
 
-  const globalWorkflowStateOptions = useMemo(
-    () => analystSelectors.allWorkflowStates(ctx),
-    [ctx.boardColumns, ctx.activeBoardId],
-  );
+  const globalWorkflowStateOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of boardColumns) for (const s of c.states) set.add(s);
+    return Array.from(set);
+  }, [boardColumns]);
 
   const workflowChoicesOrdered = useMemo(
-    () => analystSelectors.workflowChoicesOrdered(ctx),
-    [ctx.boardColumns, ctx.activeBoardId],
-  );
-  /* eslint-enable react-hooks/exhaustive-deps */
-
-  const linkedTickets = useMemo(
     () =>
-      selectedTicket
-        ? ctx.tickets.filter((t) => selectedTicket.linkedTicketIds.includes(t.id))
-        : [],
-    [selectedTicket, ctx.tickets],
+      boardColumns
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((c) => ({
+          columnId: c.id,
+          columnName: c.name,
+          color: c.color,
+          states: c.states,
+        })),
+    [boardColumns],
   );
 
-  const orchestratorOpen =
-    ctx.activeModal === "orchestrator" &&
-    (state as AnalystState).matches({ orchestratorPanel: "opened" });
+  const linkedTickets = useMemo(() => {
+    if (!selectedTicket) return [] as Ticket[];
+    return allTickets.filter((t) => selectedTicket.linkedTicketIds.includes(t.id));
+  }, [allTickets, selectedTicket]);
 
+  // ─────────────────────────────────────────────────────────────────
+  // Actions
+  // ─────────────────────────────────────────────────────────────────
+  const actions = useMemo<BoardActions>(() => {
+    const findTicket = (id: string) =>
+      stateRef.current.allTickets.find((t) => t.id === id);
+
+    /**
+     * Wraps a partial ticket field patch into the optimistic-concurrency
+     * `UpdateTicketInput` shape (with `expectedVersion`) and dispatches.
+     * On `ConflictError`, currently re-throws — the conflict UI lives in
+     * TicketModal which inspects the mutation result directly.
+     */
+    const dispatchTicketPatch = async (
+      ticketId: string,
+      patch: Record<string, unknown>,
+    ) => {
+      const current = findTicket(ticketId);
+      if (!current) return;
+      await updateTicketMutation({
+        variables: {
+          id: ticketId,
+          input: { ...patch, expectedVersion: current.version },
+        },
+      });
+    };
+
+    return {
+      selectBoard: (boardId) => {
+        setActiveBoardId(boardId);
+        const params = new URLSearchParams(stateRef.current.searchParams.toString());
+        params.set("board", boardId);
+        stateRef.current.router.replace(
+          `${stateRef.current.pathname}?${params.toString()}`,
+          { scroll: false },
+        );
+      },
+
+      openTicket: (ticketId) => {
+        setSelectedTicketId(ticketId);
+        setActiveModal("ticket");
+        const ticket = findTicket(ticketId);
+        updateUrlParams({ ticketId: ticket?.ticketNumber ?? null, modal: "ticket" });
+      },
+
+      closeModal: () => {
+        setSelectedTicketId(null);
+        setActiveModal("none");
+        setCreateTicketLinkSourceId(null);
+        updateUrlParams({ ticketId: null, modal: null });
+      },
+
+      openCreateTicket: () => {
+        setActiveModal("createTicket");
+        setCreateTicketLinkSourceId(null);
+        updateUrlParams({ ticketId: null, modal: "create" });
+      },
+
+      openCreateTicketLinkedTo: (ticketId) => {
+        setActiveModal("createTicket");
+        setCreateTicketLinkSourceId(ticketId);
+        updateUrlParams({ ticketId: null, modal: "create" });
+      },
+
+      openSearch: () => {
+        setActiveModal("search");
+        updateUrlParams({ ticketId: null, modal: "search" });
+      },
+
+      openCreateVersion: () => {
+        setActiveModal("createVersion");
+        updateUrlParams({ modal: "create-version" });
+      },
+
+      openOrchestrator: () => {
+        setActiveModal("orchestrator");
+        updateUrlParams({ ticketId: null, modal: "orchestrator" });
+      },
+
+      addBoardColumn: async (boardId, columnName, states) => {
+        const trimmed = columnName.trim();
+        if (!trimmed) return;
+        const existing = stateRef.current.boardColumns.filter((c) => c.boardId === boardId);
+        if (existing.length >= 6) return;
+        const color = COLUMN_PALETTE[existing.length] ?? "#64748b";
+        await createColumnMutation({
+          variables: {
+            input: {
+              boardId,
+              name: trimmed,
+              states: states.length ? states : [SLUG(trimmed)],
+              color,
+            },
+          },
+          refetchQueries: [{ query: GET_BOARD_COLUMNS, variables: { boardId } }],
+        });
+      },
+
+      updateColumnState: async (columnId, states) => {
+        await updateColumnMutation({
+          variables: { id: columnId, input: { states } },
+        });
+      },
+
+      updateColumnColor: async (columnId, color) => {
+        await updateColumnMutation({
+          variables: { id: columnId, input: { color } },
+        });
+      },
+
+      renameColumn: async (columnId, name) => {
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        await updateColumnMutation({
+          variables: { id: columnId, input: { name: trimmed } },
+        });
+      },
+
+      deleteColumn: async (columnId) => {
+        const boardId = stateRef.current.activeBoardId;
+        if (!boardId) return;
+        await deleteColumnMutation({
+          variables: { id: columnId },
+          refetchQueries: [
+            { query: GET_BOARD_COLUMNS, variables: { boardId } },
+            { query: GET_TICKETS, variables: { boardId, first: 200 } },
+          ],
+        });
+      },
+
+      reorderColumns: async (boardId, orderedColumnIds) => {
+        await reorderColumnsMutation({
+          variables: { boardId, orderedIds: orderedColumnIds },
+          refetchQueries: [{ query: GET_BOARD_COLUMNS, variables: { boardId } }],
+        });
+      },
+
+      moveTicketToColumn: async (ticketId, columnId) => {
+        const target = stateRef.current.boardColumns.find((c) => c.id === columnId);
+        if (!target) return;
+        await dispatchTicketPatch(ticketId, {
+          columnId,
+          workflowState: target.states[0] ?? undefined,
+        });
+      },
+
+      updateTicketField: async (ticketId, field, value) => {
+        await dispatchTicketPatch(ticketId, { [field]: value });
+      },
+
+      updateTicketWorkflowState: async (ticketId, workflowState) => {
+        const target = stateRef.current.boardColumns.find((c) =>
+          c.states.includes(workflowState),
+        );
+        await dispatchTicketPatch(ticketId, {
+          workflowState,
+          columnId: target?.id ?? undefined,
+        });
+      },
+
+      updateTicketStoryPoints: async (ticketId, storyPoints) => {
+        await dispatchTicketPatch(ticketId, { storyPoints });
+      },
+
+      linkTickets: async (ticketId, targetTicketId) => {
+        if (ticketId === targetTicketId) return;
+        const a = findTicket(ticketId);
+        const b = findTicket(targetTicketId);
+        if (!a || !b) return;
+        if (!a.linkedTicketIds.includes(targetTicketId)) {
+          await updateTicketMutation({
+            variables: {
+              id: ticketId,
+              input: {
+                linkedTicketIds: [...a.linkedTicketIds, targetTicketId],
+                expectedVersion: a.version,
+              },
+            },
+          });
+        }
+        if (!b.linkedTicketIds.includes(ticketId)) {
+          await updateTicketMutation({
+            variables: {
+              id: targetTicketId,
+              input: {
+                linkedTicketIds: [...b.linkedTicketIds, ticketId],
+                expectedVersion: b.version,
+              },
+            },
+          });
+        }
+      },
+
+      unlinkTickets: async (ticketId, targetTicketId) => {
+        const a = findTicket(ticketId);
+        const b = findTicket(targetTicketId);
+        if (a && a.linkedTicketIds.includes(targetTicketId)) {
+          await updateTicketMutation({
+            variables: {
+              id: ticketId,
+              input: {
+                linkedTicketIds: a.linkedTicketIds.filter((id) => id !== targetTicketId),
+                expectedVersion: a.version,
+              },
+            },
+          });
+        }
+        if (b && b.linkedTicketIds.includes(ticketId)) {
+          await updateTicketMutation({
+            variables: {
+              id: targetTicketId,
+              input: {
+                linkedTicketIds: b.linkedTicketIds.filter((id) => id !== ticketId),
+                expectedVersion: b.version,
+              },
+            },
+          });
+        }
+      },
+
+      createVersion: async (name, releaseDate, applyToTicketId) => {
+        const boardId = stateRef.current.activeBoardId;
+        if (!boardId) return;
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        await createVersionMutation({
+          variables: { boardId, name: trimmed, releaseDate },
+          refetchQueries: [{ query: GET_RELEASE_VERSIONS, variables: { boardId } }],
+        });
+        if (applyToTicketId) {
+          await dispatchTicketPatch(applyToTicketId, { fixVersion: trimmed });
+        }
+      },
+
+      deleteVersion: async (versionId) => {
+        const boardId = stateRef.current.activeBoardId;
+        await deleteVersionMutation({
+          variables: { id: versionId },
+          refetchQueries: boardId
+            ? [{ query: GET_RELEASE_VERSIONS, variables: { boardId } }]
+            : [],
+        });
+      },
+
+      createTicket: async (payload) => {
+        const boardId = stateRef.current.activeBoardId;
+        if (!boardId) return;
+        const result = await createTicketMutation({
+          variables: { input: payload },
+          refetchQueries: [{ query: GET_TICKETS, variables: { boardId, first: 200 } }],
+        });
+        const created = (result.data as { createTicket?: Ticket } | null | undefined)?.createTicket;
+        // If we opened the create modal from another ticket, link them after creation
+        const linkSource = stateRef.current.createTicketLinkSourceId;
+        if (created && linkSource) {
+          const source = stateRef.current.allTickets.find((t) => t.id === linkSource);
+          if (source) {
+            await updateTicketMutation({
+              variables: {
+                id: linkSource,
+                input: {
+                  linkedTicketIds: [...source.linkedTicketIds, created.id],
+                  expectedVersion: source.version,
+                },
+              },
+            });
+            await updateTicketMutation({
+              variables: {
+                id: created.id,
+                input: {
+                  linkedTicketIds: [linkSource],
+                  expectedVersion: created.version,
+                },
+              },
+            });
+          }
+        }
+        setCreateTicketLinkSourceId(null);
+        setActiveModal("none");
+        updateUrlParams({ modal: null });
+      },
+
+      addLabel: async (label) => {
+        const trimmed = label.trim().toLowerCase();
+        if (!trimmed) return;
+        await addLabelMutation({
+          variables: { label: trimmed },
+          refetchQueries: [{ query: GET_LABELS }],
+        });
+      },
+
+      getTicketShareUrl: (ticketId) => {
+        if (typeof window === "undefined") return "";
+        const ticket = stateRef.current.allTickets.find((t) => t.id === ticketId);
+        if (!ticket) return "";
+        return `${window.location.origin}/tickets/${ticket.ticketNumber}`;
+      },
+    };
+  }, [
+    addLabelMutation,
+    createColumnMutation,
+    createTicketMutation,
+    createVersionMutation,
+    deleteColumnMutation,
+    deleteVersionMutation,
+    reorderColumnsMutation,
+    updateColumnMutation,
+    updateTicketMutation,
+    updateUrlParams,
+  ]);
+
+  // Suppress unused-warning for apollo client (kept for future cache writes)
+  void apollo;
+
+  // ── Data context value ───────────────────────────────────────────
   const data = useMemo<BoardData>(
     () => ({
-      boards: ctx.boards,
-      allTickets: ctx.tickets,
-      boardColumns: boardColumnsForActive,
-      activeBoardId: ctx.activeBoardId,
+      boards,
+      allTickets,
+      boardColumns,
+      activeBoardId,
       activeBoardTicketsByColumn,
       selectedTicket,
-      activeModal: ctx.activeModal,
+      activeModal,
       workflowStateOptions,
       globalWorkflowStateOptions,
       workflowChoicesOrdered,
       linkedTickets,
-      currentUserRole: ctx.currentUserRole,
-      releaseVersions: ctx.releaseVersions,
-      orchestratorOpen,
-      createModalOpen: ctx.activeModal === "createTicket",
-      createVersionModalOpen: ctx.activeModal === "createVersion",
-      labels: ctx.labels,
+      currentUserRole: "member",
+      releaseVersions,
+      orchestratorOpen: activeModal === "orchestrator",
+      createModalOpen: activeModal === "createTicket",
+      createVersionModalOpen: activeModal === "createVersion",
+      labels,
+      isLoading,
+      createTicketLinkSourceId,
     }),
     [
-      ctx.boards,
-      ctx.tickets,
-      boardColumnsForActive,
-      ctx.activeBoardId,
+      boards,
+      allTickets,
+      boardColumns,
+      activeBoardId,
       activeBoardTicketsByColumn,
       selectedTicket,
-      ctx.activeModal,
+      activeModal,
       workflowStateOptions,
       globalWorkflowStateOptions,
       workflowChoicesOrdered,
       linkedTickets,
-      ctx.currentUserRole,
-      ctx.releaseVersions,
-      orchestratorOpen,
-      ctx.labels,
+      releaseVersions,
+      labels,
+      isLoading,
+      createTicketLinkSourceId,
     ],
   );
 

@@ -29,6 +29,7 @@ export async function ensureIndexes(): Promise<void> {
       { unique: true }
     ),
     db.collection("boardMembers").createIndex({ orgId: 1, userId: 1 }),
+    db.collection("labels").createIndex({ orgId: 1, label: 1 }, { unique: true }),
   ]);
 
   indexesEnsured = true;

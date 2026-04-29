@@ -1,3 +1,14 @@
+/**
+ * LEGACY — Preserved for reference only.
+ *
+ * This was the in-memory seed used when the workspace hydrated from localStorage
+ * via the now-removed `analystWorkspaceMachine`. The application now hydrates
+ * via Apollo + GraphQL + MongoDB, so this file is no longer imported anywhere.
+ *
+ * Kept for: regression reference, design documentation, onboarding-time seed
+ * helper if we ever decide to seed first-org-of-org with sample data via
+ * `repository.seedBoardIfEmpty()`.
+ */
 import type {
   AnalystSeedData,
   BoardId,

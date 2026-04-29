@@ -205,6 +205,22 @@ export async function getTicketsByIds(orgId: string, ids: readonly string[]): Pr
   return docs.map(parseTicket);
 }
 
+/**
+ * Look up a ticket by its human-readable ticket number (e.g. "OR-42").
+ * Index-backed by `{ orgId: 1, ticketNumber: 1 }` (unique). O(1).
+ *
+ * Used by the dedicated `/tickets/[ticketNumber]` route so a shared link
+ * resolves directly to the correct ticket without preloading every board.
+ */
+export async function getTicketByNumber(
+  orgId: string,
+  ticketNumber: string
+): Promise<Ticket | null> {
+  const col = await coll<TicketDoc>("tickets");
+  const doc = await col.findOne({ orgId, ticketNumber });
+  return doc ? parseTicket(doc) : null;
+}
+
 export async function createTicket(
   orgId: string,
   actorId: string,
@@ -632,4 +648,42 @@ export async function seedBoardIfEmpty(
       }))
     );
   }
+}
+
+// ─── Labels ──────────────────────────────────────────────────────────────────
+
+interface LabelDoc { _id: string; orgId: string; label: string }
+
+const DEFAULT_LABELS = [
+  "backend", "frontend", "security", "infra", "ux", "qa",
+  "devops", "api", "ai", "planning", "coordination",
+  "analysis", "observability", "mlops",
+];
+
+/**
+ * Returns the union of: default seed labels + any org-created labels.
+ * Sorted alphabetically. De-duplicated.
+ */
+export async function getLabels(orgId: string): Promise<string[]> {
+  const col = await coll<LabelDoc>("labels");
+  const docs = await col.find({ orgId }).toArray();
+  const set = new Set<string>(DEFAULT_LABELS);
+  for (const d of docs) set.add(d.label);
+  return Array.from(set).sort();
+}
+
+/**
+ * Adds a label to the org-scoped vocabulary. Idempotent — upsert by (orgId, label).
+ * Returns the normalized (lowercase, trimmed) label.
+ */
+export async function addLabel(orgId: string, label: string): Promise<string> {
+  const normalized = label.trim().toLowerCase();
+  if (!normalized) throw new Error("Label cannot be empty");
+  const col = await coll<LabelDoc>("labels");
+  await col.updateOne(
+    { orgId, label: normalized },
+    { $setOnInsert: { _id: crypto.randomUUID(), orgId, label: normalized } },
+    { upsert: true }
+  );
+  return normalized;
 }

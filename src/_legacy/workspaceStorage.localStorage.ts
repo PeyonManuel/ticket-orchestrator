@@ -1,3 +1,13 @@
+/**
+ * LEGACY — Preserved for reference only.
+ *
+ * This was the localStorage snapshot layer for the now-removed
+ * `analystWorkspaceMachine`. The application now persists via MongoDB through
+ * GraphQL mutations. No code imports this file anymore.
+ *
+ * Kept for reference if we ever want to add an offline-first cache layer
+ * on top of Apollo (e.g. apollo3-cache-persist).
+ */
 import type { AnalystMachineContext } from "@/domain/analyst";
 
 const STORAGE_KEY = "orion-workspace-v1";

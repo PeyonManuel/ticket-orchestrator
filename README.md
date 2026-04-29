@@ -42,7 +42,7 @@ This is also the correct shard key strategy if the dataset ever warrants horizon
 
 ### 3. Event-Driven Orchestration
 
-An XState machine acts as the single source of truth, coordinating when an agent starts, fails, or requires human intervention. Eliminates `isLoading`/`isError` boolean hell with explicit lifecycle states.
+The board view uses **Apollo Client's normalized cache as the source of truth** for tickets, columns, boards, and versions — refetching, optimistic updates, and cache eviction are handled natively. **XState v5 is reserved for the AI agent flow** (Analyst → Architect → Controller), where multi-step lifecycles with human-in-the-loop approvals genuinely require explicit states (`researching`, `awaitingHumanApproval`, `rejected`, …) — eliminating `isLoading`/`isError` boolean hell exactly where it matters.
 
 ### 4. Collaborative Conflict Resolution
 
@@ -78,7 +78,7 @@ All AI proposals that materially affect scope, timeline, or risk require explici
 |---|---|
 | Framework | Next.js 16 (App Router, Turbopack) |
 | Auth & Orgs | Clerk Organizations |
-| State | XState v5 |
+| State | Apollo Client (board data) + XState v5 (AI flow) |
 | AI Backend | LangGraph |
 | API | GraphQL (graphql-yoga) with DataLoader |
 | Database | MongoDB Atlas (compound indexes, optimistic concurrency) |
@@ -112,3 +112,110 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) to see the app.
 GraphiQL playground available at [http://localhost:3000/api/graphql](http://localhost:3000/api/graphql) in development.
+
+---
+
+## 💡 Future Demo Idea: Local AI Dev Swarm
+
+> **Remind me to set this up before any final portfolio presentation.**
+
+The idea: run a local swarm of AI agents that simulate a real dev team actively using Orion in real time — so any visitor watching the live app sees the board moving, tickets updating, comments appearing, conflicts resolving, and the Orchestrator firing recommendations, all autonomously and continuously.
+
+### What it would look like
+
+- 3–5 local LLM agents (e.g. Ollama with `llama3`, `mistral`, or `qwen2.5-coder`) each playing a different persona: "Backend Dev", "PM", "Designer", "QA", "Tech Lead"
+- Each agent runs in a loop: reads the current board state via the GraphQL API → decides what to do (move a ticket, add a comment, change a workflow state, create a new ticket, edit a description) → fires the mutation → waits a randomised delay → repeats
+- Agents occasionally edit the same ticket simultaneously to trigger the optimistic concurrency conflict path and show the ConflictError UI resolving live
+- A lightweight dashboard overlay shows per-agent activity stats: mutations/min, conflicts triggered, tickets closed — essentially a live traffic monitor
+- The Orion AI Orchestrator agent runs in parallel, consuming the same event stream and emitting scope/risk recommendations to the board
+
+### Hardware feasibility
+
+Your rig (i5-12th gen + RX 9070 XT 16 GB VRAM) is more than sufficient:
+
+| Model | VRAM needed | Speed on 9070 XT |
+|---|---|---|
+| `llama3.2:3b` | ~2 GB | ~80–120 tok/s |
+| `qwen2.5-coder:7b` | ~5 GB | ~40–60 tok/s |
+| `mistral:7b` | ~5 GB | ~40–60 tok/s |
+| `llama3.1:8b` | ~6 GB | ~35–55 tok/s |
+
+You can run 3–4 of the smaller models simultaneously (each in its own Ollama instance or via the same server with model switching), well within 16 GB VRAM. ROCm support for the 9070 XT is available via Ollama's AMD backend.
+
+### Rough implementation plan
+
+1. `scripts/agent-swarm/` — TypeScript scripts, one per persona, each hitting `/api/graphql` with real mutations
+2. Each script uses `ollama.js` or direct REST to generate realistic-sounding ticket titles, comments, and descriptions
+3. A `swarm.ts` orchestrator spawns them with `worker_threads` or just separate `node` processes
+4. Optional: a `/demo-stats` route (or a floating HUD component) that shows live agent activity via a WebSocket or polling query
+5. Seed the board with a realistic project (e.g. a fake SaaS product backlog) before starting the swarm
+
+### Why this works as a portfolio piece
+
+It demonstrates Orion's entire value proposition under real (synthetic) load:
+- Multi-tenant isolation works under concurrent writes
+- Optimistic concurrency conflict resolution triggers and resolves visibly
+- XState machine handles async AI events without broken state
+- The app stays responsive under dozens of mutations/minute
+- Visitors can jump in, create their own org, and interact alongside the bots
+
+### Bot architecture (no LLMs needed)
+
+Bots are pure TypeScript async loops — no AI, no GPU, no cost. Each bot:
+1. Signs in headlessly via Clerk Backend API (`createSignInToken` with `CLERK_SECRET_KEY`) — no browser needed
+2. Exchanges the token for a session JWT via Clerk's frontend API
+3. Runs a weighted random action loop against `/api/graphql`:
+   - 40% move ticket to another column
+   - 30% add a comment (from a bank of ~100 pre-written realistic comments)
+   - 15% edit a ticket description
+   - 10% create a new ticket
+   - 5% change workflow state
+4. Waits 2–8s (randomised), then repeats
+5. Refreshes JWT silently before expiry
+
+A single Node.js process handles 80–100 concurrent bots via the async event loop — no threads needed.
+
+**Sweet spot for a live portfolio demo:** 10–15 bots per org, 3–4 demo orgs. Fast enough to look alive, slow enough that a visitor can actually read what's happening.
+
+### Proving scale cheaply — the $2 Atlas M10 trick
+
+MongoDB Atlas is billed **hourly**. You can upgrade, run your stress test, screenshot the stats, then downgrade — all in one sitting.
+
+| Tier | $/hour | Cost for a full demo day |
+|---|---|---|
+| M0 | Free | Free tier — good for development |
+| M10 | ~$0.08/hr | **~$1.92 for 24h** |
+| M20 | ~$0.20/hr | ~$4.80 for 24h |
+
+**M10 is all you need.** Steps:
+1. Upgrade M0 → M10 in Atlas UI (takes ~5 min to provision, no data loss, same connection string)
+2. Start the bot swarm (`node scripts/agent-swarm/index.ts`)
+3. Let it run for a few hours — board fills with activity, conflicts fire, history accumulates
+4. Open Atlas Charts or Grafana and screenshot: mutations/sec, conflict rate, p99 latency, tenant isolation proof
+5. Downgrade back to M0
+
+Total cost: **under $2**. The screenshots live in the repo/portfolio forever.
+
+### What the stats dashboard should show
+
+For maximum impact, build a protected `/admin` page (or use Atlas Charts) showing:
+
+- Total orgs / active bots running
+- Mutations per minute (last 15 min rolling)
+- Conflict resolution rate (conflicts / total updates)
+- Top 5 most active tickets
+- History entries per org (proves tenant isolation — each org's data is fully separated)
+- p50 / p99 response time from the GraphQL layer
+
+This is all derivable from the `ticketHistory`, `comments`, and `tickets` collections you already have.
+
+---
+
+> **REMINDER: before any final portfolio presentation, do the following in order:**
+> 1. Build `scripts/agent-swarm/` — bot personas, weighted action loop, Clerk headless auth
+> 2. Build `/admin` stats page (or set up Atlas Charts dashboard)
+> 3. Upgrade to Atlas M10 for one day
+> 4. Run the swarm for 2–4 hours, screenshot everything
+> 5. Downgrade back to M0
+> 6. Add the screenshots to the repo's `/docs` or the README
+

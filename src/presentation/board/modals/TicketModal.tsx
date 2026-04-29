@@ -3,17 +3,23 @@
 import React, { useState, useRef } from "react";
 import { Check, Clock, Link2, MessageSquare, Plus, User, X } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
+import { useQuery, useMutation } from "@apollo/client/react";
 import { useBoardContext } from "@/presentation/board/BoardContext";
 import { LabelDropdown } from "@/presentation/shared/dropdowns/LabelDropdown";
 import { SimpleDropdown } from "@/presentation/shared/dropdowns/SimpleDropdown";
 import { WorkflowDropdown } from "@/presentation/shared/dropdowns/WorkflowDropdown";
+import {
+  GET_TICKET_COMMENTS,
+  GET_TICKET_HISTORY,
+  ADD_COMMENT,
+} from "@/infrastructure/graphql/operations";
+import type { Comment, TicketHistoryEntry } from "@/domain/analyst";
 
-interface LocalComment {
-  id: string;
-  authorId: string;
-  authorName: string;
-  body: string;
-  createdAt: Date;
+interface CommentsQueryResult {
+  ticket: { id: string; comments: Comment[] } | null;
+}
+interface HistoryQueryResult {
+  ticketHistory: TicketHistoryEntry[];
 }
 
 export function TicketModal() {
@@ -44,9 +50,28 @@ export function TicketModal() {
   const [hoverLinkedTicketId, setHoverLinkedTicketId] = useState<string | null>(null);
   const [lastTicketId, setLastTicketId] = useState(selectedTicket?.id);
   const [activityTab, setActivityTab] = useState<"comments" | "history">("comments");
-  const [comments, setComments] = useState<LocalComment[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const commentsQuery = useQuery<CommentsQueryResult>(GET_TICKET_COMMENTS, {
+    variables: { ticketId: selectedTicket?.id ?? "" },
+    skip: !selectedTicket,
+  });
+  const historyQuery = useQuery<HistoryQueryResult>(GET_TICKET_HISTORY, {
+    variables: { ticketId: selectedTicket?.id ?? "" },
+    skip: !selectedTicket || activityTab !== "history",
+  });
+  const [addCommentMutation, { loading: addingComment }] = useMutation(ADD_COMMENT, {
+    refetchQueries: [
+      {
+        query: GET_TICKET_COMMENTS,
+        variables: { ticketId: selectedTicket?.id ?? "" },
+      },
+    ],
+  });
+
+  const comments: Comment[] = commentsQuery.data?.ticket?.comments ?? [];
+  const history: TicketHistoryEntry[] = historyQuery.data?.ticketHistory ?? [];
 
   // Reset local UI state when ticket changes (React "adjust during render" pattern)
   if (selectedTicket?.id !== lastTicketId) {
@@ -54,26 +79,18 @@ export function TicketModal() {
     setLinkTargetId("");
     setEditingField(null);
     setShowLinkComposer(false);
-    setComments([]);
     setCommentDraft("");
     setActivityTab("comments");
   }
 
   if (!selectedTicket) return null;
 
-  const submitComment = () => {
+  const submitComment = async () => {
     const body = commentDraft.trim();
-    if (!body) return;
-    setComments((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        authorId: user?.id ?? "unknown",
-        authorName: user?.fullName ?? user?.username ?? "You",
-        body,
-        createdAt: new Date(),
-      },
-    ]);
+    if (!body || addingComment) return;
+    await addCommentMutation({
+      variables: { input: { ticketId: selectedTicket.id, body } },
+    });
     setCommentDraft("");
     commentInputRef.current?.focus();
   };
@@ -375,24 +392,38 @@ export function TicketModal() {
           {activityTab === "comments" && (
             <div className="flex flex-col gap-3">
               {/* Existing comments */}
+              {commentsQuery.loading && comments.length === 0 && (
+                <p className="text-xs text-zinc-500">Loading comments…</p>
+              )}
               {comments.length > 0 && (
                 <ul className="flex flex-col gap-3">
-                  {comments.map((c) => (
-                    <li key={c.id} className="flex gap-2.5">
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white uppercase">
-                        {c.authorName.slice(0, 2)}
-                      </span>
-                      <div className="flex-1">
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{c.authorName}</span>
-                          <span className="text-[10px] text-zinc-500">
-                            {c.createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </span>
+                  {comments.map((c) => {
+                    const isMine = c.authorId === user?.id;
+                    const displayName = isMine
+                      ? (user?.fullName ?? user?.username ?? "You")
+                      : c.authorId.slice(0, 8);
+                    return (
+                      <li key={c.id} className="flex gap-2.5">
+                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white uppercase">
+                          {displayName.slice(0, 2)}
+                        </span>
+                        <div className="flex-1">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{displayName}</span>
+                            <span className="text-[10px] text-zinc-500">
+                              {new Date(c.createdAt).toLocaleString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                day: "2-digit",
+                                month: "short",
+                              })}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{c.body}</p>
                         </div>
-                        <p className="mt-0.5 text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{c.body}</p>
-                      </div>
-                    </li>
-                  ))}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
 
@@ -416,10 +447,10 @@ export function TicketModal() {
                   <div className="mt-1 flex justify-end">
                     <button
                       onClick={submitComment}
-                      disabled={!commentDraft.trim()}
+                      disabled={!commentDraft.trim() || addingComment}
                       className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
-                      Comment
+                      {addingComment ? "Posting…" : "Comment"}
                     </button>
                   </div>
                 </div>
@@ -429,17 +460,51 @@ export function TicketModal() {
 
           {/* History panel */}
           {activityTab === "history" && (
-              <div className="flex flex-col gap-2 text-xs text-zinc-500">
-              <div className="flex items-center gap-2 py-1">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-[9px] font-bold text-zinc-600 dark:text-zinc-300 uppercase">
-                  {user ? (user.fullName ?? user.username ?? "?").slice(0, 2) : "?"}
-                </span>
-                <span className="text-zinc-500">Ticket created</span>
-                <span className="ml-auto text-zinc-400 dark:text-zinc-600">today</span>
-              </div>
-              <p className="text-zinc-400 dark:text-zinc-600 text-[11px]">
-                Field changes will appear here once the GraphQL layer is wired.
-              </p>
+            <div className="flex flex-col gap-2 text-xs text-zinc-500">
+              {historyQuery.loading && history.length === 0 && (
+                <p className="text-zinc-400 dark:text-zinc-600 text-[11px]">Loading history…</p>
+              )}
+              {history.length === 0 && !historyQuery.loading && (
+                <p className="text-zinc-400 dark:text-zinc-600 text-[11px]">No activity yet.</p>
+              )}
+              {history.map((entry) => (
+                <div key={entry.id} className="flex items-start gap-2 py-1">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-[9px] font-bold text-zinc-600 dark:text-zinc-300 uppercase">
+                    {entry.actorId.slice(0, 2)}
+                  </span>
+                  <div className="flex-1">
+                    <span className="text-zinc-600 dark:text-zinc-400">
+                      {entry.kind === "created" && "Created the ticket"}
+                      {entry.kind === "commented" && "Added a comment"}
+                      {entry.kind === "comment_edited" && "Edited a comment"}
+                      {entry.kind === "comment_deleted" && "Deleted a comment"}
+                      {entry.kind === "assignee_added" && "Added an assignee"}
+                      {entry.kind === "assignee_removed" && "Removed an assignee"}
+                      {entry.kind === "updated" && "Updated"}
+                    </span>
+                    {entry.changes.length > 0 && (
+                      <ul className="mt-0.5 ml-2 list-disc text-[11px] text-zinc-500">
+                        {entry.changes.map((ch, idx) => (
+                          <li key={idx}>
+                            <span className="font-medium">{ch.field}</span>:{" "}
+                            <span className="line-through text-zinc-400">{ch.from ?? "—"}</span>
+                            {" → "}
+                            <span className="text-zinc-700 dark:text-zinc-300">{ch.to ?? "—"}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <span className="text-zinc-400 dark:text-zinc-600 text-[10px]">
+                    {new Date(entry.timestamp).toLocaleString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      day: "2-digit",
+                      month: "short",
+                    })}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </section>

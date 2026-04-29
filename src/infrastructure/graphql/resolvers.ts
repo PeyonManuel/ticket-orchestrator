@@ -67,6 +67,14 @@ export const resolvers = {
       requireAuth(ctx);
       return ctx.loaders.ticketById.load(id);
     },
+    ticketByNumber: (
+      _p: unknown,
+      { ticketNumber }: { ticketNumber: string },
+      ctx: GraphQLContext
+    ) => {
+      requireAuth(ctx);
+      return repo.getTicketByNumber(ctx.orgId, ticketNumber);
+    },
     ticketHistory: (_p: unknown, { ticketId }: { ticketId: string }, ctx: GraphQLContext) => {
       requireAuth(ctx);
       return repo.getTicketHistory(ctx.orgId, ticketId);
@@ -78,6 +86,10 @@ export const resolvers = {
     boardMembers: (_p: unknown, { boardId }: { boardId: string }, ctx: GraphQLContext) => {
       requireAuth(ctx);
       return repo.getBoardMembers(ctx.orgId, boardId);
+    },
+    labels: (_p: unknown, _a: unknown, ctx: GraphQLContext) => {
+      requireAuth(ctx);
+      return repo.getLabels(ctx.orgId);
     },
   },
 
@@ -213,6 +225,11 @@ export const resolvers = {
     deleteVersion: (_p: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
       requireAdmin(ctx);
       return repo.deleteVersion(ctx.orgId, id);
+    },
+
+    addLabel: (_p: unknown, { label }: { label: string }, ctx: GraphQLContext) => {
+      requireAuth(ctx);
+      return repo.addLabel(ctx.orgId, label);
     },
   },
 };

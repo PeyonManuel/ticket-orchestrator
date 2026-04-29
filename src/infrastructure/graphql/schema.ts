@@ -129,9 +129,13 @@ export const typeDefs = /* GraphQL */ `
     boardColumns(boardId: ID!): [BoardColumn!]!
     tickets(boardId: ID!, first: Int = 50, after: String): TicketConnection!
     ticket(id: ID!): Ticket
+    """Looks up a ticket by its human-readable number (e.g. OR-42). Index-backed O(1)."""
+    ticketByNumber(ticketNumber: String!): Ticket
     ticketHistory(ticketId: ID!): [TicketHistoryEntry!]!
     releaseVersions(boardId: ID!): [ReleaseVersion!]!
     boardMembers(boardId: ID!): [BoardMember!]!
+    """All labels available to the org (union of seed labels + user-created)."""
+    labels: [String!]!
   }
 
   input CreateBoardInput { name: String!, type: BoardType! }
@@ -198,5 +202,8 @@ export const typeDefs = /* GraphQL */ `
 
     createVersion(boardId: ID!, name: String!, releaseDate: String!): ReleaseVersion!
     deleteVersion(id: ID!): Boolean!
+
+    """Add a new label to the org-scoped label vocabulary. Idempotent."""
+    addLabel(label: String!): String!
   }
 `;

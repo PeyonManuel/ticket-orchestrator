@@ -3,8 +3,15 @@
 import React from "react";
 import { useBoardContext } from "@/presentation/board/BoardContext";
 
+/**
+ * Placeholder shell for the AI Orchestrator panel.
+ *
+ * The XState orchestration machine and LangGraph integration land in the
+ * dedicated AI implementation slice. Until then this modal is a stub that
+ * confirms the open/close flow is wired correctly.
+ */
 export function OrchestratorModal() {
-  const { orchestratorOpen, closeModal, dispatchOrchestratorEvent } = useBoardContext();
+  const { orchestratorOpen, closeModal } = useBoardContext();
 
   if (!orchestratorOpen) return null;
 
@@ -19,37 +26,15 @@ export function OrchestratorModal() {
       >
         <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">AI Orchestrator</h2>
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          Quick simulation controls while we prepare LangGraph integration.
+          The Analyst, Architect, and Controller agents will appear here once the
+          LangGraph integration is wired up.
         </p>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-6 flex justify-end">
           <button
-            onClick={() =>
-              dispatchOrchestratorEvent({
-                type: "START_ANALYSIS",
-                requirement: "Split quarterly roadmap into executable slices.",
-              })
-            }
-            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            onClick={closeModal}
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
           >
-            Start Analysis
-          </button>
-          <button
-            onClick={() =>
-              dispatchOrchestratorEvent({
-                type: "ANALYSIS_COMPLETED",
-                refinementDraft: "Edge cases expanded with technical caveats.",
-                planDraft: "Ticket decomposition by role and sprint capacity.",
-                suggestion: {
-                  id: "s-2",
-                  summary: "De-scope low-value scope to protect deadline.",
-                  riskLevel: "high",
-                  suggestedAction: "deScope",
-                },
-              })
-            }
-            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-          >
-            Complete Analysis
+            Close
           </button>
         </div>
       </div>
