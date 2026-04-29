@@ -38,6 +38,18 @@ import {
 
 // ── View-model shapes (kept identical to previous public API) ───────
 
+/** Holds the server's current state when an optimistic-concurrency conflict is detected. */
+export interface ActiveConflict {
+  ticketId: string;
+  /** Server's current Ticket — what was committed by another user. */
+  currentState: Ticket;
+  /** Field names that differ between the user's submission and the server state. */
+  conflictedFields: string[];
+  message: string;
+  /** The patch the user was trying to apply — needed for Overwrite. */
+  pendingPatch: Record<string, unknown>;
+}
+
 export type ActiveModal =
   | "none"
   | "ticket"
@@ -72,6 +84,8 @@ export interface BoardData {
   /** True while any of the initial data queries are still in flight. */
   isLoading: boolean;
   createTicketLinkSourceId: string | null;
+  /** Set when an UpdateTicket mutation returns a ConflictError. Cleared on resolve. */
+  conflictError: ActiveConflict | null;
 }
 
 export interface BoardActions {
@@ -107,6 +121,12 @@ export interface BoardActions {
   createTicket: (payload: CreateTicketInput) => void;
   addLabel: (label: string) => void;
   getTicketShareUrl: (ticketId: string) => string;
+  /**
+   * Resolve an active conflict.
+   * - "overwrite": re-submit the pending patch against the server's current version.
+   * - "discard": accept the server's current state, abandon the local change.
+   */
+  resolveConflict: (strategy: "overwrite" | "discard") => void;
 }
 
 export type BoardViewModel = BoardData & BoardActions;
@@ -162,6 +182,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<ActiveModal>("none");
   const [createTicketLinkSourceId, setCreateTicketLinkSourceId] = useState<string | null>(null);
+  const [conflictError, setConflictError] = useState<ActiveConflict | null>(null);
 
   // ── Queries ──────────────────────────────────────────────────────
   const { data: boardsData, loading: boardsLoading } =
@@ -228,6 +249,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     allTickets,
     activeBoardId,
     createTicketLinkSourceId,
+    conflictError,
     pathname,
     searchParams,
     router,
@@ -239,6 +261,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       allTickets,
       activeBoardId,
       createTicketLinkSourceId,
+      conflictError,
       pathname,
       searchParams,
       router,
@@ -355,8 +378,8 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     /**
      * Wraps a partial ticket field patch into the optimistic-concurrency
      * `UpdateTicketInput` shape (with `expectedVersion`) and dispatches.
-     * On `ConflictError`, currently re-throws — the conflict UI lives in
-     * TicketModal which inspects the mutation result directly.
+     * On `ConflictError`, sets `conflictError` UI state so TicketModal
+     * can render a diff/resolve banner.
      */
     const dispatchTicketPatch = async (
       ticketId: string,
@@ -364,12 +387,25 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     ) => {
       const current = findTicket(ticketId);
       if (!current) return;
-      await updateTicketMutation({
+      const result = await updateTicketMutation({
         variables: {
           id: ticketId,
           input: { ...patch, expectedVersion: current.version },
         },
       });
+      const payload = (result.data as Record<string, unknown> | undefined)?.updateTicket as
+        | ({ __typename: "Ticket" } & Ticket)
+        | { __typename: "ConflictError"; currentState: Ticket; conflictedFields: string[]; message: string }
+        | undefined;
+      if (payload?.__typename === "ConflictError") {
+        setConflictError({
+          ticketId,
+          currentState: payload.currentState,
+          conflictedFields: payload.conflictedFields,
+          message: payload.message,
+          pendingPatch: patch,
+        });
+      }
     };
 
     return {
@@ -642,6 +678,37 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         if (!ticket) return "";
         return `${window.location.origin}/tickets/${ticket.ticketNumber}`;
       },
+
+      resolveConflict: async (strategy) => {
+        const conflict = stateRef.current.conflictError;
+        if (!conflict) return;
+        if (strategy === "overwrite") {
+          // Re-submit the same patch but with the server's current version
+          const result = await updateTicketMutation({
+            variables: {
+              id: conflict.ticketId,
+              input: { ...conflict.pendingPatch, expectedVersion: conflict.currentState.version },
+            },
+          });
+          const payload = (result.data as Record<string, unknown> | undefined)?.updateTicket as
+            | ({ __typename: "Ticket" } & Ticket)
+            | { __typename: "ConflictError"; currentState: Ticket; conflictedFields: string[]; message: string }
+            | undefined;
+          if (payload?.__typename === "ConflictError") {
+            // Another conflict after overwrite — update with fresh conflict
+            setConflictError({
+              ticketId: conflict.ticketId,
+              currentState: payload.currentState,
+              conflictedFields: payload.conflictedFields,
+              message: payload.message,
+              pendingPatch: conflict.pendingPatch,
+            });
+            return;
+          }
+        }
+        // discard OR overwrite succeeded — clear conflict; Apollo cache already has latest
+        setConflictError(null);
+      },
     };
   }, [
     addLabelMutation,
@@ -681,6 +748,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       labels,
       isLoading,
       createTicketLinkSourceId,
+      conflictError,
     }),
     [
       boards,
@@ -698,6 +766,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       labels,
       isLoading,
       createTicketLinkSourceId,
+      conflictError,
     ],
   );
 

@@ -27,6 +27,7 @@ export function TicketModal() {
     selectedTicket,
     allTickets,
     linkedTickets,
+    conflictError,
     closeModal,
     openTicket,
     updateTicketField,
@@ -40,6 +41,7 @@ export function TicketModal() {
     getTicketShareUrl,
     labels,
     addLabel,
+    resolveConflict,
   } = useBoardContext();
   const { user } = useUser();
 
@@ -149,6 +151,47 @@ export function TicketModal() {
         onClick={(event) => event.stopPropagation()}
         className="w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-2xl"
       >
+        {/* Conflict resolution banner */}
+        {conflictError && conflictError.ticketId === selectedTicket.id && (
+          <div className="mb-4 rounded-lg border border-amber-400/60 bg-amber-50 dark:bg-amber-950/40 p-4">
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-1">
+              Edit conflict
+            </p>
+            <p className="text-xs text-amber-700 dark:text-amber-400 mb-2">
+              {conflictError.message} The following field{conflictError.conflictedFields.length !== 1 ? "s were" : " was"} changed by someone else:
+            </p>
+            <ul className="mb-3 space-y-1">
+              {conflictError.conflictedFields.map((field) => {
+                const serverVal = (conflictError.currentState as unknown as Record<string, unknown>)[field];
+                const yourVal = conflictError.pendingPatch[field];
+                return (
+                  <li key={field} className="text-xs text-amber-700 dark:text-amber-400">
+                    <span className="font-medium capitalize">{field}</span>:{" "}
+                    <span className="line-through text-amber-500/70">{String(yourVal ?? "—")}</span>
+                    {" → "}
+                    <span className="font-medium text-amber-900 dark:text-amber-200">{String(serverVal ?? "—")}</span>
+                    {" (server)"}
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="flex gap-2">
+              <button
+                onClick={() => resolveConflict("overwrite")}
+                className="rounded-md bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-500 transition-colors"
+              >
+                Overwrite with my change
+              </button>
+              <button
+                onClick={() => resolveConflict("discard")}
+                className="rounded-md border border-amber-400/60 px-3 py-1 text-xs font-semibold text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+              >
+                Discard my change
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="mb-3 flex items-start justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-3">
           <div>
