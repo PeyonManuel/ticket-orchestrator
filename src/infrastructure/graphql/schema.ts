@@ -18,6 +18,8 @@ export const typeDefs = /* GraphQL */ `
     orgId: ID!
     name: String!
     type: BoardType!
+    """ISO-8601 timestamp set when the board was archived. null on active boards. Archived boards are auto-purged after 30 days."""
+    deletedAt: String
   }
 
   type BoardColumn {
@@ -96,6 +98,14 @@ export const typeDefs = /* GraphQL */ `
     releaseDate: String!
   }
 
+  """A member of the active Clerk organization. Used to populate assignee pickers."""
+  type OrgMember {
+    userId: ID!
+    fullName: String!
+    imageUrl: String
+    emailAddress: String
+  }
+
   # ── Cursor pagination for tickets ────────────────────────────────────
   # Stable, concurrent-write-safe (unlike offset pagination).
   type PageInfo {
@@ -125,7 +135,10 @@ export const typeDefs = /* GraphQL */ `
   union UpdateTicketResult = Ticket | ConflictError
 
   type Query {
+    """Active (non-archived) boards for the current tenant."""
     boards: [Board!]!
+    """Archived boards, newest deletion first. Admin-only. Used by the Trash UI."""
+    archivedBoards: [Board!]!
     boardColumns(boardId: ID!): [BoardColumn!]!
     tickets(boardId: ID!, first: Int = 50, after: String): TicketConnection!
     ticket(id: ID!): Ticket
@@ -136,9 +149,11 @@ export const typeDefs = /* GraphQL */ `
     boardMembers(boardId: ID!): [BoardMember!]!
     """All labels available to the org (union of seed labels + user-created)."""
     labels: [String!]!
+    """Members of the current Clerk organization. Used as the assignee pool."""
+    orgMembers: [OrgMember!]!
   }
 
-  input CreateBoardInput { name: String!, type: BoardType! }
+  input CreateBoardInput { name: String!, type: BoardType }
 
   input CreateColumnInput {
     boardId: ID!
@@ -185,6 +200,12 @@ export const typeDefs = /* GraphQL */ `
 
   type Mutation {
     createBoard(input: CreateBoardInput!): Board!
+    """Soft-delete a board. Admin-only. Tickets/columns are hidden until restored or purged after 30 days."""
+    archiveBoard(id: ID!): Board!
+    """Restore a soft-deleted board. Admin-only."""
+    restoreBoard(id: ID!): Board!
+    """Immediately hard-delete an archived board and cascade all children. Admin-only. Irreversible."""
+    purgeBoard(id: ID!): Boolean!
     createColumn(input: CreateColumnInput!): BoardColumn!
     updateColumn(id: ID!, input: UpdateColumnInput!): BoardColumn
     deleteColumn(id: ID!): Boolean!

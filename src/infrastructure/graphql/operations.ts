@@ -8,6 +8,7 @@ export const BOARD_FIELDS = gql`
     orgId
     name
     type
+    deletedAt
   }
 `;
 
@@ -94,6 +95,15 @@ export const GET_BOARDS = gql`
   }
 `;
 
+export const GET_ARCHIVED_BOARDS = gql`
+  ${BOARD_FIELDS}
+  query GetArchivedBoards {
+    archivedBoards {
+      ...BoardFields
+    }
+  }
+`;
+
 export const GET_BOARD_COLUMNS = gql`
   ${COLUMN_FIELDS}
   query GetBoardColumns($boardId: ID!) {
@@ -149,6 +159,17 @@ export const GET_LABELS = gql`
   }
 `;
 
+export const GET_ORG_MEMBERS = gql`
+  query GetOrgMembers {
+    orgMembers {
+      userId
+      fullName
+      imageUrl
+      emailAddress
+    }
+  }
+`;
+
 export const GET_TICKET_COMMENTS = gql`
   ${COMMENT_FIELDS}
   query GetTicketComments($ticketId: ID!) {
@@ -178,6 +199,30 @@ export const CREATE_BOARD = gql`
     createBoard(input: $input) {
       ...BoardFields
     }
+  }
+`;
+
+export const ARCHIVE_BOARD = gql`
+  ${BOARD_FIELDS}
+  mutation ArchiveBoard($id: ID!) {
+    archiveBoard(id: $id) {
+      ...BoardFields
+    }
+  }
+`;
+
+export const RESTORE_BOARD = gql`
+  ${BOARD_FIELDS}
+  mutation RestoreBoard($id: ID!) {
+    restoreBoard(id: $id) {
+      ...BoardFields
+    }
+  }
+`;
+
+export const PURGE_BOARD = gql`
+  mutation PurgeBoard($id: ID!) {
+    purgeBoard(id: $id)
   }
 `;
 

@@ -1,6 +1,8 @@
+import { clerkClient } from "@clerk/nextjs/server";
 import * as repo from "@/infrastructure/persistence/repository";
 import type { RequestLoaders } from "@/infrastructure/persistence/loaders";
 import type { Ticket, BoardMember } from "@/domain/analyst";
+import { logger } from "@/infrastructure/observability/logger";
 
 export interface GraphQLContext {
   userId: string | null;
@@ -36,6 +38,10 @@ export const resolvers = {
     boards: (_p: unknown, _a: unknown, ctx: GraphQLContext) => {
       requireAuth(ctx);
       return repo.getBoards(ctx.orgId);
+    },
+    archivedBoards: (_p: unknown, _a: unknown, ctx: GraphQLContext) => {
+      requireAdmin(ctx);
+      return repo.getArchivedBoards(ctx.orgId);
     },
     boardColumns: (_p: unknown, { boardId }: { boardId: string }, ctx: GraphQLContext) => {
       requireAuth(ctx);
@@ -91,6 +97,29 @@ export const resolvers = {
       requireAuth(ctx);
       return repo.getLabels(ctx.orgId);
     },
+    orgMembers: async (_p: unknown, _a: unknown, ctx: GraphQLContext) => {
+      requireAuth(ctx);
+      const client = await clerkClient();
+      const { data } = await client.organizations.getOrganizationMembershipList({
+        organizationId: ctx.orgId,
+        limit: 100,
+      });
+      return data
+        .map((m) => {
+          const u = m.publicUserData;
+          if (!u) return null;
+          const fullName = [u.firstName, u.lastName].filter(Boolean).join(" ").trim()
+            || u.identifier
+            || u.userId;
+          return {
+            userId: u.userId,
+            fullName,
+            imageUrl: u.imageUrl ?? null,
+            emailAddress: u.identifier ?? null,
+          };
+        })
+        .filter((m): m is NonNullable<typeof m> => m !== null);
+    },
   },
 
   Ticket: {
@@ -112,13 +141,43 @@ export const resolvers = {
   },
 
   Mutation: {
-    createBoard: (
+    createBoard: async (
       _p: unknown,
-      { input }: { input: { name: string; type: "scrum" | "kanban" | "task" } },
+      { input }: { input: { name: string; type?: "scrum" | "kanban" | "task" } },
       ctx: GraphQLContext
     ) => {
       requireAdmin(ctx);
-      return repo.createBoard(ctx.orgId, input);
+      const board = await repo.createBoard(ctx.orgId, { name: input.name, type: input.type ?? "scrum" });
+      const palette = ["#4f46e5", "#0ea5e9", "#22c55e"];
+      const defaults = [
+        { name: "To Do", states: ["todo"], color: palette[0] },
+        { name: "In Progress", states: ["inProgress"], color: palette[1] },
+        { name: "Done", states: ["done"], color: palette[2] },
+      ];
+      for (let i = 0; i < defaults.length; i++) {
+        await repo.createColumn(ctx.orgId, { boardId: board.id, ...defaults[i], order: i });
+      }
+      return board;
+    },
+    archiveBoard: async (_p: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      requireAdmin(ctx);
+      const board = await repo.archiveBoard(ctx.orgId, id);
+      if (!board) throw new Error("Board not found or already archived");
+      logger.info("board", "archived", { orgId: ctx.orgId, boardId: id });
+      return board;
+    },
+    restoreBoard: async (_p: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      requireAdmin(ctx);
+      const board = await repo.restoreBoard(ctx.orgId, id);
+      if (!board) throw new Error("Board not found or not archived");
+      logger.info("board", "restored", { orgId: ctx.orgId, boardId: id });
+      return board;
+    },
+    purgeBoard: async (_p: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      requireAdmin(ctx);
+      const counts = await repo.purgeBoard(ctx.orgId, id);
+      logger.warn("board", "purged (hard delete)", { orgId: ctx.orgId, boardId: id, counts });
+      return counts.board > 0;
     },
     createColumn: async (
       _p: unknown,
@@ -157,8 +216,7 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       requireAuth(ctx);
-      const ticketNumber = `OR-${Date.now().toString(36).toUpperCase()}`;
-      return repo.createTicket(ctx.orgId, ctx.userId, input, ticketNumber);
+      return repo.createTicket(ctx.orgId, ctx.userId, input);
     },
     updateTicket: async (
       _p: unknown,

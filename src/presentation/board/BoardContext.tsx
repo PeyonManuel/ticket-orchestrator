@@ -16,16 +16,24 @@ import type {
   Board,
   BoardColumn,
   CreateTicketInput,
+  OrgMember,
   ReleaseVersion,
   Ticket,
   UserRole,
 } from "@/domain/analyst";
 import {
   GET_BOARDS,
+  GET_ARCHIVED_BOARDS,
   GET_BOARD_COLUMNS,
   GET_TICKETS,
+  GET_TICKET_HISTORY,
   GET_RELEASE_VERSIONS,
   GET_LABELS,
+  GET_ORG_MEMBERS,
+  CREATE_BOARD,
+  ARCHIVE_BOARD,
+  RESTORE_BOARD,
+  PURGE_BOARD,
   CREATE_COLUMN,
   UPDATE_COLUMN,
   DELETE_COLUMN,
@@ -77,6 +85,7 @@ export interface BoardData {
   allTickets: Ticket[];
   linkedTickets: Ticket[];
   releaseVersions: ReleaseVersion[];
+  orgMembers: OrgMember[];
   currentUserRole: UserRole;
   orchestratorOpen: boolean;
   createModalOpen: boolean;
@@ -115,10 +124,23 @@ export interface BoardActions {
     ticketId: string,
     storyPoints: 1 | 2 | 3 | 5 | 8 | 13,
   ) => void;
+  updateTicketPriority: (
+    ticketId: string,
+    priority: "low" | "medium" | "high",
+  ) => void;
+  /**
+   * Sets the single assignee for a ticket. Pass `null` to clear.
+   * The schema still stores an array; we wrap into `[userId]` or `[]` accordingly.
+   */
+  setTicketAssignee: (ticketId: string, userId: string | null) => void;
   linkTickets: (ticketId: string, targetTicketId: string) => void;
   unlinkTickets: (ticketId: string, targetTicketId: string) => void;
   createVersion: (name: string, releaseDate: string, applyToTicketId?: string) => void;
   deleteVersion: (versionId: string) => void;
+  createBoard: (name: string) => Promise<void>;
+  archiveBoard: (boardId: string) => Promise<void>;
+  restoreBoard: (boardId: string) => Promise<void>;
+  purgeBoard: (boardId: string) => Promise<void>;
   createTicket: (payload: CreateTicketInput) => void;
   addLabel: (label: string) => void;
   getTicketShareUrl: (ticketId: string) => string;
@@ -146,6 +168,7 @@ interface GetTicketsResult {
 }
 interface GetReleaseVersionsResult { releaseVersions: ReleaseVersion[] }
 interface GetLabelsResult { labels: string[] }
+interface GetOrgMembersResult { orgMembers: OrgMember[] }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -236,9 +259,21 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const { data: labelsData } = useQuery<GetLabelsResult>(GET_LABELS, { skip: !sessionReady });
   const labels = labelsData?.labels ?? [];
 
+  const { data: orgMembersData } = useQuery<GetOrgMembersResult>(GET_ORG_MEMBERS, {
+    skip: !sessionReady,
+  });
+  const orgMembers = useMemo<OrgMember[]>(
+    () => orgMembersData?.orgMembers ?? [],
+    [orgMembersData],
+  );
+
   const isLoading = boardsLoading || (!!activeBoardId && (columnsLoading || ticketsLoading));
 
   // ── Mutations ────────────────────────────────────────────────────
+  const [createBoardMutation] = useMutation(CREATE_BOARD);
+  const [archiveBoardMutation] = useMutation(ARCHIVE_BOARD);
+  const [restoreBoardMutation] = useMutation(RESTORE_BOARD);
+  const [purgeBoardMutation] = useMutation(PURGE_BOARD);
   const [createColumnMutation] = useMutation(CREATE_COLUMN);
   const [updateColumnMutation] = useMutation(UPDATE_COLUMN);
   const [deleteColumnMutation] = useMutation(DELETE_COLUMN);
@@ -399,6 +434,8 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
           id: ticketId,
           input: { ...patch, expectedVersion: current.version },
         },
+        // Keep the History tab in sync when the user toggles it open after an edit.
+        refetchQueries: [{ query: GET_TICKET_HISTORY, variables: { ticketId } }],
       });
       const payload = (result.data as Record<string, unknown> | undefined)?.updateTicket as
         | ({ __typename: "Ticket" } & Ticket)
@@ -552,6 +589,16 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         await dispatchTicketPatch(ticketId, { storyPoints });
       },
 
+      updateTicketPriority: async (ticketId, priority) => {
+        await dispatchTicketPatch(ticketId, { priority });
+      },
+
+      setTicketAssignee: async (ticketId, userId) => {
+        await dispatchTicketPatch(ticketId, {
+          assigneeIds: userId ? [userId] : [],
+        });
+      },
+
       linkTickets: async (ticketId, targetTicketId) => {
         if (ticketId === targetTicketId) return;
         const a = findTicket(ticketId);
@@ -670,6 +717,47 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         updateUrlParams({ modal: null });
       },
 
+      createBoard: async (name) => {
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        const result = await createBoardMutation({
+          variables: { input: { name: trimmed } },
+          refetchQueries: [{ query: GET_BOARDS }],
+        });
+        const created = (result.data as { createBoard?: Board } | null | undefined)?.createBoard;
+        if (created) setActiveBoardId(created.id);
+      },
+
+      archiveBoard: async (boardId) => {
+        await archiveBoardMutation({
+          variables: { id: boardId },
+          refetchQueries: [{ query: GET_BOARDS }, { query: GET_ARCHIVED_BOARDS }],
+          awaitRefetchQueries: true,
+        });
+        // If the user just archived the board they were viewing, switch to the
+        // first remaining active board (or null if there is none).
+        if (stateRef.current.activeBoardId === boardId) {
+          const remaining = stateRef.current.boards.filter((b) => b.id !== boardId && !b.deletedAt);
+          setActiveBoardId(remaining[0]?.id ?? null);
+        }
+      },
+
+      restoreBoard: async (boardId) => {
+        await restoreBoardMutation({
+          variables: { id: boardId },
+          refetchQueries: [{ query: GET_BOARDS }, { query: GET_ARCHIVED_BOARDS }],
+          awaitRefetchQueries: true,
+        });
+      },
+
+      purgeBoard: async (boardId) => {
+        await purgeBoardMutation({
+          variables: { id: boardId },
+          refetchQueries: [{ query: GET_BOARDS }, { query: GET_ARCHIVED_BOARDS }],
+          awaitRefetchQueries: true,
+        });
+      },
+
       addLabel: async (label) => {
         const trimmed = label.trim().toLowerCase();
         if (!trimmed) return;
@@ -719,12 +807,16 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     };
   }, [
     addLabelMutation,
+    archiveBoardMutation,
+    createBoardMutation,
     createColumnMutation,
     createTicketMutation,
     createVersionMutation,
     deleteColumnMutation,
     deleteVersionMutation,
+    purgeBoardMutation,
     reorderColumnsMutation,
+    restoreBoardMutation,
     updateColumnMutation,
     updateTicketMutation,
     updateUrlParams,
@@ -749,6 +841,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       linkedTickets,
       currentUserRole: "member",
       releaseVersions,
+      orgMembers,
       orchestratorOpen: activeModal === "orchestrator",
       createModalOpen: activeModal === "createTicket",
       createVersionModalOpen: activeModal === "createVersion",
@@ -770,6 +863,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       workflowChoicesOrdered,
       linkedTickets,
       releaseVersions,
+      orgMembers,
       labels,
       isLoading,
       createTicketLinkSourceId,

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Check, Clock, Link2, MessageSquare, Plus, User, X } from "lucide-react";
+import { Check, Clock, Link2, MessageSquare, Plus, X } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useQuery, useMutation } from "@apollo/client/react";
 import { useBoardContext } from "@/presentation/board/BoardContext";
@@ -33,6 +33,10 @@ export function TicketModal() {
     updateTicketField,
     updateTicketWorkflowState,
     updateTicketStoryPoints,
+    updateTicketPriority,
+    setTicketAssignee,
+    orgMembers,
+    boardColumns,
     linkTickets,
     unlinkTickets,
     openCreateTicketLinkedTo,
@@ -62,6 +66,8 @@ export function TicketModal() {
   const historyQuery = useQuery<HistoryQueryResult>(GET_TICKET_HISTORY, {
     variables: { ticketId: selectedTicket?.id ?? "" },
     skip: !selectedTicket || activityTab !== "history",
+    // Surface freshly-recorded entries without forcing the user to reopen the modal.
+    fetchPolicy: "cache-and-network",
   });
   const [addCommentMutation, { loading: addingComment }] = useMutation(ADD_COMMENT, {
     refetchQueries: [
@@ -87,11 +93,38 @@ export function TicketModal() {
 
   if (!selectedTicket) return null;
 
+  // Maps a raw history value to something human-readable.
+  // - assignee field: userId → member full name
+  // - columnId field: column UUID → column name
+  // - workflowState: camelCase slug → spaced label
+  // - everything else: pass through
+  const resolveHistoryValue = (field: string, raw: string | null): string => {
+    if (raw === null || raw === "") return "—";
+    if (field === "assignee") {
+      const member = orgMembers.find((m) => m.userId === raw);
+      return member?.fullName ?? raw;
+    }
+    if (field === "columnId") {
+      const col = boardColumns.find((c) => c.id === raw);
+      return col?.name ?? raw;
+    }
+    if (field === "workflowState") {
+      return raw.replace(/([A-Z])/g, " $1").trim();
+    }
+    return raw;
+  };
+
+  const resolveActorName = (actorId: string): string => {
+    if (actorId === user?.id) return "You";
+    const member = orgMembers.find((m) => m.userId === actorId);
+    return member?.fullName ?? actorId.slice(0, 8);
+  };
+
   const submitComment = async () => {
     const body = commentDraft.trim();
     if (!body || addingComment) return;
     await addCommentMutation({
-      variables: { input: { ticketId: selectedTicket.id, body } },
+      variables: { ticketId: selectedTicket.id, body },
     });
     setCommentDraft("");
     commentInputRef.current?.focus();
@@ -221,8 +254,8 @@ export function TicketModal() {
           </button>
         </div>
 
-        {/* 3-col body: description | metadata | assignee */}
-        <div className="grid gap-4 lg:grid-cols-[1fr_0.75fr_0.6fr]">
+        {/* 2-col body: description | metadata (assignee folded into metadata as a compact dropdown) */}
+        <div className="grid gap-4 lg:grid-cols-[1fr_0.75fr]">
           {/* Description */}
           <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 p-4">
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Description</p>
@@ -241,19 +274,36 @@ export function TicketModal() {
               />
             </div>
 
-            <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 p-3">
-              <p className="text-[10px] uppercase tracking-wide text-zinc-500 font-semibold">Priority</p>
-              <p
-                className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
-                  selectedTicket.priority === "high"
-                    ? "bg-rose-500/20 text-rose-700 dark:text-rose-300"
-                    : selectedTicket.priority === "medium"
-                      ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
-                      : "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
-                }`}
-              >
-                {selectedTicket.priority}
-              </p>
+            <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
+              Assignee
+              <SimpleDropdown
+                value={selectedTicket.assigneeIds[0] ?? ""}
+                placeholder={orgMembers.length === 0 ? "No teammates yet" : "Unassigned"}
+                options={[
+                  { label: "Unassigned", value: "" },
+                  ...orgMembers.map((m) => ({
+                    label: m.fullName,
+                    value: m.userId,
+                    meta: m.userId === user?.id ? "you" : undefined,
+                  })),
+                ]}
+                onChange={(v) => setTicketAssignee(selectedTicket.id, v || null)}
+              />
+            </div>
+
+            <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
+              Priority
+              <SimpleDropdown
+                value={selectedTicket.priority}
+                options={[
+                  { label: "Low", value: "low", dot: "#22c55e" },
+                  { label: "Medium", value: "medium", dot: "#f59e0b" },
+                  { label: "High", value: "high", dot: "#ef4444" },
+                ]}
+                onChange={(v) =>
+                  updateTicketPriority(selectedTicket.id, v as "low" | "medium" | "high")
+                }
+              />
             </div>
 
             <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
@@ -291,40 +341,6 @@ export function TicketModal() {
                 onChange={(v) => updateTicketField(selectedTicket.id, "fixVersion", v)}
               />
             </div>
-          </aside>
-
-          {/* Assignees — far right column */}
-          <aside className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 p-3 content-start grid gap-2">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 flex items-center gap-1">
-                <User size={11} />
-                Assignees
-              </p>
-              {user && (
-                <button
-                  onClick={() => {/* placeholder: wire to updateTicketAssignees */}}
-                  className="rounded border border-zinc-300 dark:border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-500 dark:text-zinc-400 hover:border-indigo-500 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors"
-                  title="Assign to me"
-                >
-                  + Me
-                </button>
-              )}
-            </div>
-
-            {selectedTicket.assigneeIds && selectedTicket.assigneeIds.length > 0 ? (
-              <ul className="flex flex-col gap-1.5">
-                {selectedTicket.assigneeIds.map((id) => (
-                  <li key={id} className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300">
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white uppercase">
-                      {id.slice(0, 2)}
-                    </span>
-                    <span className="truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{id}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-[11px] text-zinc-500">No assignees yet.</p>
-            )}
           </aside>
         </div>
 
@@ -510,44 +526,70 @@ export function TicketModal() {
               {history.length === 0 && !historyQuery.loading && (
                 <p className="text-zinc-400 dark:text-zinc-600 text-[11px]">No activity yet.</p>
               )}
-              {history.map((entry) => (
-                <div key={entry.id} className="flex items-start gap-2 py-1">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-[9px] font-bold text-zinc-600 dark:text-zinc-300 uppercase">
-                    {entry.actorId.slice(0, 2)}
-                  </span>
-                  <div className="flex-1">
-                    <span className="text-zinc-600 dark:text-zinc-400">
-                      {entry.kind === "created" && "Created the ticket"}
-                      {entry.kind === "commented" && "Added a comment"}
-                      {entry.kind === "comment_edited" && "Edited a comment"}
-                      {entry.kind === "comment_deleted" && "Deleted a comment"}
-                      {entry.kind === "assignee_added" && "Added an assignee"}
-                      {entry.kind === "assignee_removed" && "Removed an assignee"}
-                      {entry.kind === "updated" && "Updated"}
+              {history.map((entry) => {
+                const actorLabel = resolveActorName(entry.actorId);
+                return (
+                  <div key={entry.id} className="flex items-start gap-2 py-1">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-[9px] font-bold text-zinc-600 dark:text-zinc-300 uppercase">
+                      {actorLabel.slice(0, 2)}
                     </span>
-                    {entry.changes.length > 0 && (
-                      <ul className="mt-0.5 ml-2 list-disc text-[11px] text-zinc-500">
-                        {entry.changes.map((ch, idx) => (
-                          <li key={idx}>
-                            <span className="font-medium">{ch.field}</span>:{" "}
-                            <span className="line-through text-zinc-400">{ch.from ?? "—"}</span>
-                            {" → "}
-                            <span className="text-zinc-700 dark:text-zinc-300">{ch.to ?? "—"}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                    <div className="flex-1">
+                      <span className="text-zinc-600 dark:text-zinc-400">
+                        <span className="font-semibold text-zinc-700 dark:text-zinc-300">{actorLabel}</span>
+                        {entry.kind === "created" && " created the ticket"}
+                        {entry.kind === "commented" && " added a comment"}
+                        {entry.kind === "comment_edited" && " edited a comment"}
+                        {entry.kind === "comment_deleted" && " deleted a comment"}
+                        {entry.kind === "assignee_added" && " assigned "}
+                        {entry.kind === "assignee_removed" && " unassigned "}
+                        {entry.kind === "updated" && " updated"}
+                        {(entry.kind === "assignee_added" || entry.kind === "assignee_removed") &&
+                          entry.changes[0] && (
+                            <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                              {resolveHistoryValue(
+                                "assignee",
+                                entry.kind === "assignee_added"
+                                  ? entry.changes[0].to
+                                  : entry.changes[0].from,
+                              )}
+                            </span>
+                          )}
+                      </span>
+                      {entry.kind === "updated" && entry.changes.length > 0 && (
+                        <ul className="mt-0.5 ml-2 list-disc text-[11px] text-zinc-500">
+                          {entry.changes.map((ch, idx) => (
+                            <li key={idx}>
+                              <span className="font-medium capitalize">
+                                {ch.field === "columnId" ? "column" :
+                                 ch.field === "workflowState" ? "status" :
+                                 ch.field === "fixVersion" ? "version" :
+                                 ch.field === "storyPoints" ? "points" :
+                                 ch.field}
+                              </span>
+                              {": "}
+                              <span className="line-through text-zinc-400">
+                                {resolveHistoryValue(ch.field, ch.from)}
+                              </span>
+                              {" → "}
+                              <span className="text-zinc-700 dark:text-zinc-300">
+                                {resolveHistoryValue(ch.field, ch.to)}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <span className="text-zinc-400 dark:text-zinc-600 text-[10px] shrink-0">
+                      {new Date(entry.timestamp).toLocaleString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        day: "2-digit",
+                        month: "short",
+                      })}
+                    </span>
                   </div>
-                  <span className="text-zinc-400 dark:text-zinc-600 text-[10px]">
-                    {new Date(entry.timestamp).toLocaleString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      day: "2-digit",
-                      month: "short",
-                    })}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

@@ -48,7 +48,22 @@ async function coll<T extends { _id: string }>(name: string): Promise<Collection
 
 // ─── Mongo document shapes (with string _id) ─────────────────────────────────
 
-interface BoardDoc { _id: string; orgId: string; name: string; type: "scrum" | "kanban" | "task" }
+interface BoardDoc {
+  _id: string; orgId: string; name: string;
+  type: "scrum" | "kanban" | "task";
+  /** Stored as a Date (not string) so the partial index { deletedAt: { $type: "date" } } applies. */
+  deletedAt?: Date | null;
+  /**
+   * Stable, immutable per-board prefix (e.g. "BACK") used for human-readable ticket numbers.
+   * Unique within an org. Set on board creation; never mutated, even if the board is renamed.
+   */
+  code?: string;
+  /**
+   * Monotonic counter for the next ticket number on this board.
+   * Atomically incremented during createTicket via $inc.
+   */
+  nextTicketNumber?: number;
+}
 interface ColumnDoc {
   _id: string; orgId: string; boardId: string; name: string;
   states: string[]; color: string; order: number;
@@ -71,12 +86,38 @@ interface HistoryDoc {
 
 // ─── Boards ──────────────────────────────────────────────────────────────────
 
+function parseBoard(d: BoardDoc): Board {
+  return BoardSchema.parse({
+    id: d._id,
+    orgId: d.orgId,
+    name: d.name,
+    type: d.type,
+    deletedAt: d.deletedAt ? d.deletedAt.toISOString() : null,
+  });
+}
+
+/**
+ * Active boards only. Soft-deleted (`deletedAt` set) boards are excluded.
+ * `{ deletedAt: null }` matches both null AND missing field, so this works
+ * uniformly across boards created before and after the soft-delete column existed.
+ */
 export async function getBoards(orgId: string): Promise<Board[]> {
   const col = await coll<BoardDoc>("boards");
-  const docs = await col.find({ orgId }).toArray();
-  return docs.map((d) =>
-    BoardSchema.parse({ id: d._id, orgId: d.orgId, name: d.name, type: d.type })
-  );
+  const docs = await col.find({ orgId, deletedAt: null }).toArray();
+  return docs.map(parseBoard);
+}
+
+/**
+ * Soft-deleted boards for the current tenant, newest deletion first.
+ * Backed by the partial index `{ orgId: 1, deletedAt: 1 }` (only indexes archived rows).
+ */
+export async function getArchivedBoards(orgId: string): Promise<Board[]> {
+  const col = await coll<BoardDoc>("boards");
+  const docs = await col
+    .find({ orgId, deletedAt: { $type: "date" } })
+    .sort({ deletedAt: -1 })
+    .toArray();
+  return docs.map(parseBoard);
 }
 
 export async function createBoard(
@@ -85,8 +126,143 @@ export async function createBoard(
 ): Promise<Board> {
   const col = await coll<BoardDoc>("boards");
   const id = crypto.randomUUID();
-  await col.insertOne({ _id: id, orgId, name: input.name, type: input.type });
-  return BoardSchema.parse({ id, orgId, name: input.name, type: input.type });
+  const code = await pickUniqueBoardCode(col, orgId, input.name);
+  await col.insertOne({
+    _id: id, orgId, name: input.name, type: input.type, deletedAt: null,
+    code, nextTicketNumber: 1,
+  });
+  return parseBoard({ _id: id, orgId, name: input.name, type: input.type, deletedAt: null });
+}
+
+/**
+ * Derives a 3–4 letter board prefix from the name (e.g. "Backend Sprint" → "BACK")
+ * and ensures it does not collide with another board in the same org. On
+ * collision, suffixes a numeric disambiguator: BACK, BACK2, BACK3, …
+ */
+async function pickUniqueBoardCode(
+  col: Collection<BoardDoc>,
+  orgId: string,
+  name: string,
+): Promise<string> {
+  const base = (name || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4) || "BOARD";
+  const existing = await col
+    .find({ orgId, code: { $exists: true } }, { projection: { code: 1 } })
+    .toArray();
+  const taken = new Set(existing.map((b) => b.code).filter((c): c is string => !!c));
+  if (!taken.has(base)) return base;
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${base}${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base}${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
+}
+
+/**
+ * Returns the board's `code`, generating one for legacy boards that pre-date
+ * the per-board counter. Idempotent under concurrent callers thanks to the
+ * `code: { $exists: false }` guard on the update.
+ */
+async function ensureBoardCode(orgId: string, boardId: string): Promise<string> {
+  const col = await coll<BoardDoc>("boards");
+  const board = await col.findOne({ _id: boardId, orgId });
+  if (!board) throw new Error("Board not found");
+  if (board.code) return board.code;
+  const code = await pickUniqueBoardCode(col, orgId, board.name);
+  await col.updateOne(
+    { _id: boardId, orgId, code: { $exists: false } },
+    { $set: { code } }
+  );
+  const after = await col.findOne({ _id: boardId, orgId }, { projection: { code: 1 } });
+  return after?.code ?? code;
+}
+
+/**
+ * Soft-delete a board. Returns the updated board with `deletedAt` set.
+ * Tickets and columns are not stamped — they're hidden naturally because every
+ * read scopes by `boardId` and the parent board is filtered out.
+ */
+export async function archiveBoard(orgId: string, id: string): Promise<Board | null> {
+  const col = await coll<BoardDoc>("boards");
+  const result = await col.findOneAndUpdate(
+    { _id: id, orgId, deletedAt: null },
+    { $set: { deletedAt: new Date() } },
+    { returnDocument: "after" }
+  );
+  return result ? parseBoard(result) : null;
+}
+
+export async function restoreBoard(orgId: string, id: string): Promise<Board | null> {
+  const col = await coll<BoardDoc>("boards");
+  const result = await col.findOneAndUpdate(
+    { _id: id, orgId, deletedAt: { $type: "date" } },
+    { $set: { deletedAt: null } },
+    { returnDocument: "after" }
+  );
+  return result ? parseBoard(result) : null;
+}
+
+/**
+ * Hard-delete a board and cascade every owned record: columns, tickets,
+ * comments scoped to those tickets, history, versions. Used by:
+ *   - admin-driven immediate purge from the Trash UI, and
+ *   - the scheduled cleanup endpoint that AWS EventBridge calls daily.
+ *
+ * Multi-step delete; not transactional. If a step fails midway the board is
+ * already gone so a re-run picks up the orphans (each step is idempotent on
+ * the boardId it scopes by).
+ */
+export async function purgeBoard(orgId: string, boardId: string): Promise<{
+  board: number; columns: number; tickets: number; comments: number; history: number; versions: number;
+}> {
+  const client = await clientPromise;
+  const db = client.db(DB_NAME);
+
+  // Fetch ticket ids first so we can scope comment/history deletion.
+  const tickets = await db
+    .collection<TicketDoc>("tickets")
+    .find({ orgId, boardId }, { projection: { _id: 1 } })
+    .toArray();
+  const ticketIds = tickets.map((t) => t._id);
+
+  const [comments, history, columns, ticketsDel, versions, board] = await Promise.all([
+    ticketIds.length
+      ? db.collection("comments").deleteMany({ orgId, ticketId: { $in: ticketIds } })
+      : Promise.resolve({ deletedCount: 0 } as { deletedCount: number }),
+    ticketIds.length
+      ? db.collection("ticketHistory").deleteMany({ orgId, ticketId: { $in: ticketIds } })
+      : Promise.resolve({ deletedCount: 0 } as { deletedCount: number }),
+    db.collection("columns").deleteMany({ orgId, boardId }),
+    db.collection("tickets").deleteMany({ orgId, boardId }),
+    db.collection("versions").deleteMany({ orgId, boardId }),
+    db.collection<BoardDoc>("boards").deleteOne({ _id: boardId, orgId }),
+  ]);
+
+  return {
+    board: board.deletedCount ?? 0,
+    columns: columns.deletedCount ?? 0,
+    tickets: ticketsDel.deletedCount ?? 0,
+    comments: comments.deletedCount ?? 0,
+    history: history.deletedCount ?? 0,
+    versions: versions.deletedCount ?? 0,
+  };
+}
+
+/**
+ * Returns every (orgId, boardId) pair archived more than `cutoffDays` days ago.
+ * Used by the scheduled cleanup endpoint to drive `purgeBoard` calls.
+ */
+export async function findBoardsToHardDelete(cutoffDays: number): Promise<Array<{ orgId: string; boardId: string }>> {
+  const client = await clientPromise;
+  const db = client.db(DB_NAME);
+  const cutoff = new Date(Date.now() - cutoffDays * 24 * 60 * 60 * 1000);
+  const docs = await db
+    .collection<BoardDoc>("boards")
+    .find(
+      { deletedAt: { $lte: cutoff } },
+      { projection: { _id: 1, orgId: 1 } }
+    )
+    .toArray();
+  return docs.map((d) => ({ orgId: d.orgId, boardId: d._id }));
 }
 
 // ─── Columns ─────────────────────────────────────────────────────────────────
@@ -225,8 +401,8 @@ export async function createTicket(
   orgId: string,
   actorId: string,
   input: CreateTicketInput,
-  ticketNumber: string
 ): Promise<Ticket> {
+  const ticketNumber = await reserveTicketNumber(orgId, input.boardId);
   const col = await coll<TicketDoc>("tickets");
   const id = crypto.randomUUID();
   const doc = {
@@ -242,6 +418,26 @@ export async function createTicket(
   await col.insertOne(doc);
   await recordHistory(orgId, id, actorId, "created", []);
   return parseTicket(doc);
+}
+
+/**
+ * Atomically reserves the next ticket number for a board. Format: `${code}-${n}`,
+ * where `n` starts at 1 and increments per board. Single round-trip via
+ * findOneAndUpdate's $inc — safe under concurrent createTicket calls.
+ */
+async function reserveTicketNumber(orgId: string, boardId: string): Promise<string> {
+  const code = await ensureBoardCode(orgId, boardId);
+  const boards = await coll<BoardDoc>("boards");
+  const updated = await boards.findOneAndUpdate(
+    { _id: boardId, orgId },
+    { $inc: { nextTicketNumber: 1 } },
+    { returnDocument: "after" }
+  );
+  if (!updated) throw new Error("Board not found");
+  // First-ever ticket on a legacy board (counter was missing) → $inc treats
+  // missing as 0, so we land at 1. Number it as 1 either way.
+  const n = updated.nextTicketNumber ?? 1;
+  return `${code}-${n}`;
 }
 
 export type UpdateTicketResult =

@@ -20,6 +20,8 @@ export interface Board {
   orgId: string;
   name: string;
   type: "scrum" | "kanban" | "task";
+  /** ISO-8601 string when soft-deleted. Null/undefined while active. */
+  deletedAt?: string | null;
 }
 
 export interface Ticket {
@@ -63,6 +65,13 @@ export interface BoardMember {
   userId: string;
   role: UserRole;
   addedAt: string;
+}
+
+export interface OrgMember {
+  userId: string;
+  fullName: string;
+  imageUrl: string | null;
+  emailAddress: string | null;
 }
 
 export interface Comment {
