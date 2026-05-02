@@ -10,6 +10,8 @@ export const BoardSchema = z.object({
   orgId: z.string(),
   name: z.string().min(1),
   type: z.enum(["scrum", "kanban", "task"]),
+  /** ISO-8601 string. Set when archived; null/absent on active boards. */
+  deletedAt: z.string().nullable().optional(),
 });
 
 export const BoardColumnSchema = z.object({

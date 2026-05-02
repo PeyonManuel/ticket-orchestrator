@@ -18,6 +18,7 @@ export default function LoginPage() {
         <Suspense fallback={<div className="text-sm text-zinc-500">Loading...</div>}>
           <SignIn
             forceRedirectUrl="/"
+            withSignUp={false}
             appearance={{
               baseTheme: dark,
               variables: {

@@ -83,6 +83,16 @@ export default function BoardWorkspaceView() {
     [],
   );
 
+  if (boards.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-zinc-500">
+          No boards yet — create one in the sidebar.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-full flex-col gap-4">
       <section className="rounded-xl border border-indigo-500/20 bg-white dark:bg-zinc-900/80 p-4 shadow-sm dark:shadow-[0_0_0_1px_rgba(99,102,241,0.08)]">

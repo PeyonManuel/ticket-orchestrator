@@ -1,12 +1,13 @@
 "use client";
 
-import { ApolloClient, InMemoryCache, HttpLink } from "@apollo/client";
+import { ApolloClient, InMemoryCache, HttpLink, from } from "@apollo/client";
 import { ApolloProvider } from "@apollo/client/react";
 import { useMemo } from "react";
+import { makeLoggerLink } from "./loggerLink";
 
 function makeClient() {
   return new ApolloClient({
-    link: new HttpLink({ uri: "/api/graphql" }),
+    link: from([makeLoggerLink(), new HttpLink({ uri: "/api/graphql" })]),
     cache: new InMemoryCache({
       typePolicies: {
         Query: {

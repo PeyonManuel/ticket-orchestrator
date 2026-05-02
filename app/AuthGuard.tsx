@@ -3,6 +3,7 @@
 import { useAuth, useOrganizationList } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { logger } from "@/infrastructure/observability/logger";
 
 const Spinner = () => (
   <div className="flex h-screen w-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
@@ -32,10 +33,16 @@ function OrgGuard({ children }: { children: React.ReactNode }) {
     if (!orgId) {
       const firstMembership = userMemberships.data?.[0];
       if (firstMembership) {
+        logger.info("auth", "no active org → activating first membership", {
+          orgId: firstMembership.organization.id,
+        });
         setActive?.({ organization: firstMembership.organization.id });
       } else {
+        logger.info("auth", "user has no orgs → redirecting to onboarding");
         router.replace("/onboarding");
       }
+    } else {
+      logger.debug("auth", "active org confirmed", { orgId });
     }
   }, [orgsLoaded, orgId, userMemberships.data, setActive, router]);
 
@@ -49,7 +56,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    if (isLoaded && !isSignedIn) router.replace("/login");
+    if (isLoaded && !isSignedIn) {
+      logger.info("auth", "unauthenticated → redirecting to /login");
+      router.replace("/login");
+    }
   }, [isLoaded, isSignedIn, router]);
 
   if (!isLoaded) return <Spinner />;

@@ -1,4 +1,5 @@
 import { MongoClient } from "mongodb";
+import { logger } from "@/infrastructure/observability/logger";
 
 const uri = process.env.MONGODB_URI;
 
@@ -16,13 +17,17 @@ let clientPromise: Promise<MongoClient>;
 
 const client = new MongoClient(uri);
 
+function connectWithLog(): Promise<MongoClient> {
+  return logger.time("infra", "mongo connect", () => client.connect());
+}
+
 if (process.env.NODE_ENV === "development") {
   if (!global._mongoClientPromise) {
-    global._mongoClientPromise = client.connect();
+    global._mongoClientPromise = connectWithLog();
   }
   clientPromise = global._mongoClientPromise;
 } else {
-  clientPromise = client.connect();
+  clientPromise = connectWithLog();
 }
 
 export default clientPromise;

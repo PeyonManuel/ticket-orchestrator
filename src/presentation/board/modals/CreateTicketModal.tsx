@@ -8,6 +8,7 @@ import type { TicketHierarchyType } from "@/domain/analyst";
 
 export function CreateTicketModal() {
   const {
+    boards,
     activeBoardId,
     boardColumns,
     releaseVersions,
@@ -18,9 +19,11 @@ export function CreateTicketModal() {
     addLabel,
   } = useBoardContext();
 
+  const [selectedBoardId, setSelectedBoardId] = useState<string>(activeBoardId ?? boards[0]?.id ?? "");
+
   const columnsForBoard = useMemo(
-    () => boardColumns.filter((column) => column.boardId === activeBoardId),
-    [activeBoardId, boardColumns],
+    () => boardColumns.filter((c) => c.boardId === selectedBoardId),
+    [selectedBoardId, boardColumns],
   );
 
   const [form, setForm] = useState<{
@@ -31,31 +34,26 @@ export function CreateTicketModal() {
     storyPoints: 1 | 2 | 3 | 5 | 8 | 13;
     hierarchyType: TicketHierarchyType;
     priority: "low" | "medium" | "high";
-    parentTicketId: string;
     columnId: string;
   }>({
     title: "",
     description: "",
-    label: "backend",
-    fixVersion: releaseVersions[0]?.name ?? "v1.0.0",
+    label: labels[0] ?? "backend",
+    fixVersion: releaseVersions[0]?.name ?? "",
     storyPoints: 3,
     hierarchyType: "task",
     priority: "medium",
-    parentTicketId: "",
     columnId: columnsForBoard[0]?.id ?? "",
   });
 
-  // Adjust state while rendering when the active board's columns change
-  if (
-    columnsForBoard[0] &&
-    !columnsForBoard.find((item) => item.id === form.columnId)
-  ) {
-    setForm((prev) => ({ ...prev, columnId: columnsForBoard[0].id }));
-  }
+  // Keep columnId in sync when board changes
+  const effectiveColumnId =
+    columnsForBoard.find((c) => c.id === form.columnId)?.id ?? columnsForBoard[0]?.id ?? "";
 
   if (!createModalOpen) return null;
 
-  const chosenColumn = columnsForBoard.find((item) => item.id === form.columnId);
+  const chosenColumn = columnsForBoard.find((c) => c.id === effectiveColumnId);
+  const canSubmit = !!selectedBoardId && !!effectiveColumnId && !!form.title.trim();
 
   return (
     <div
@@ -63,15 +61,15 @@ export function CreateTicketModal() {
       className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 dark:bg-zinc-950/70 backdrop-blur-sm p-6"
     >
       <form
-        onClick={(event) => event.stopPropagation()}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!activeBoardId || !form.columnId || !form.title.trim()) return;
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!canSubmit) return;
           createTicket({
-            boardId: activeBoardId,
-            columnId: form.columnId,
+            boardId: selectedBoardId,
+            columnId: effectiveColumnId,
             hierarchyType: form.hierarchyType,
-            parentTicketId: form.parentTicketId || null,
+            parentTicketId: null,
             title: form.title.trim(),
             description: form.description.trim(),
             label: form.label.trim(),
@@ -85,21 +83,31 @@ export function CreateTicketModal() {
         className="w-full max-w-xl rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-2xl"
       >
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Create ticket</h2>
+
         <div className="mt-4 grid gap-3">
+          {/* Board picker */}
+          <SimpleDropdown
+            value={selectedBoardId}
+            options={boards.map((b) => ({ label: b.name, value: b.id }))}
+            onChange={(v) => {
+              setSelectedBoardId(v);
+              setForm((prev) => ({ ...prev, columnId: "" }));
+            }}
+          />
+
           <input
             value={form.title}
-            onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+            onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
             placeholder="Title"
             className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600"
           />
           <textarea
             value={form.description}
-            onChange={(event) =>
-              setForm((prev) => ({ ...prev, description: event.target.value }))
-            }
+            onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
             placeholder="Description"
             className="min-h-24 rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600"
           />
+
           <div className="grid gap-3 md:grid-cols-2">
             <LabelDropdown
               value={form.label}
@@ -107,17 +115,22 @@ export function CreateTicketModal() {
               onChange={(v) => setForm((prev) => ({ ...prev, label: v }))}
               onAddLabel={addLabel}
             />
-            <SimpleDropdown
+            {/* Free-text version — no dropdown needed until versions exist */}
+            <input
               value={form.fixVersion}
-              options={releaseVersions.map((v) => ({
-                label: v.name,
-                value: v.name,
-                meta: v.releaseDate,
-              }))}
-              onChange={(v) => setForm((prev) => ({ ...prev, fixVersion: v }))}
+              onChange={(e) => setForm((prev) => ({ ...prev, fixVersion: e.target.value }))}
+              placeholder="Fix version (optional)"
+              list="version-options"
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600"
             />
+            <datalist id="version-options">
+              {releaseVersions.map((v) => (
+                <option key={v.id} value={v.name} />
+              ))}
+            </datalist>
           </div>
-          <div className="grid gap-3 md:grid-cols-4">
+
+          <div className="grid gap-3 md:grid-cols-3">
             <SimpleDropdown
               value={form.hierarchyType}
               options={[
@@ -125,12 +138,7 @@ export function CreateTicketModal() {
                 { label: "Story", value: "story" },
                 { label: "Task", value: "task" },
               ]}
-              onChange={(v) =>
-                setForm((prev) => ({
-                  ...prev,
-                  hierarchyType: v as TicketHierarchyType,
-                }))
-              }
+              onChange={(v) => setForm((prev) => ({ ...prev, hierarchyType: v as TicketHierarchyType }))}
             />
             <SimpleDropdown
               value={form.priority}
@@ -139,33 +147,28 @@ export function CreateTicketModal() {
                 { label: "Medium", value: "medium", dot: "#f59e0b" },
                 { label: "High", value: "high", dot: "#ef4444" },
               ]}
-              onChange={(v) =>
-                setForm((prev) => ({ ...prev, priority: v as "low" | "medium" | "high" }))
-              }
+              onChange={(v) => setForm((prev) => ({ ...prev, priority: v as "low" | "medium" | "high" }))}
             />
             <SimpleDropdown
               value={String(form.storyPoints)}
-              options={[1, 2, 3, 5, 8, 13].map((p) => ({
-                label: `${p} SP`,
-                value: String(p),
-              }))}
-              onChange={(v) =>
-                setForm((prev) => ({
-                  ...prev,
-                  storyPoints: Number(v) as 1 | 2 | 3 | 5 | 8 | 13,
-                }))
-              }
-            />
-            <SimpleDropdown
-              value={form.columnId}
-              options={columnsForBoard.map((col) => ({
-                label: col.name,
-                value: col.id,
-                dot: col.color,
-              }))}
-              onChange={(v) => setForm((prev) => ({ ...prev, columnId: v }))}
+              options={[1, 2, 3, 5, 8, 13].map((p) => ({ label: `${p} SP`, value: String(p) }))}
+              onChange={(v) => setForm((prev) => ({ ...prev, storyPoints: Number(v) as 1 | 2 | 3 | 5 | 8 | 13 }))}
             />
           </div>
+
+          {/* Column picker — or warning if no columns */}
+          {columnsForBoard.length === 0 ? (
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+              This board has no columns yet. Add columns from the board view first.
+            </p>
+          ) : (
+            <SimpleDropdown
+              value={effectiveColumnId}
+              options={columnsForBoard.map((col) => ({ label: col.name, value: col.id, dot: col.color }))}
+              onChange={(v) => setForm((prev) => ({ ...prev, columnId: v }))}
+            />
+          )}
+
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -176,7 +179,8 @@ export function CreateTicketModal() {
             </button>
             <button
               type="submit"
-              className="rounded-md bg-indigo-400 px-4 py-2 text-xs font-semibold text-zinc-950"
+              disabled={!canSubmit}
+              className="rounded-md bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               Create
             </button>
