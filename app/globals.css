@@ -135,8 +135,6 @@ html:not(.dark) [class*="cl-formButtonDanger"]:hover {
 }
 
 /* Joined date text in member rows */
-.dark [class*="cl-memberListItem"] td:nth-child(3),
-.dark [class*="cl-memberListItem"] [class*="cl-tableCell"]:nth-child(3),
 .dark [class*="cl-memberCreatedAt"],
 .dark [class*="cl-memberListItemCreatedAt"] {
   color: #f4f4f5 !important;

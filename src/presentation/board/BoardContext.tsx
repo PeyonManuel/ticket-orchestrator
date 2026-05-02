@@ -10,6 +10,7 @@ import React, {
   useState,
 } from "react";
 import { useQuery, useMutation, useApolloClient } from "@apollo/client/react";
+import { useAuth } from "@clerk/nextjs";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   Board,
@@ -177,6 +178,12 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
   const apollo = useApolloClient();
 
+  // Wait for Clerk to confirm an active org before firing any queries.
+  // Without this guard, Apollo fires immediately and the server-side auth()
+  // may still see orgId: null in the session cookie (setActive is async).
+  const { orgId: clerkOrgId } = useAuth();
+  const sessionReady = !!clerkOrgId;
+
   // ── UI state (was XState; now plain useState) ────────────────────
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
@@ -186,7 +193,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
 
   // ── Queries ──────────────────────────────────────────────────────
   const { data: boardsData, loading: boardsLoading } =
-    useQuery<GetBoardsResult>(GET_BOARDS);
+    useQuery<GetBoardsResult>(GET_BOARDS, { skip: !sessionReady });
   const boards = boardsData?.boards ?? [];
 
   // Auto-select a board once boards load.
@@ -226,7 +233,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   });
   const releaseVersions = versionsData?.releaseVersions ?? [];
 
-  const { data: labelsData } = useQuery<GetLabelsResult>(GET_LABELS);
+  const { data: labelsData } = useQuery<GetLabelsResult>(GET_LABELS, { skip: !sessionReady });
   const labels = labelsData?.labels ?? [];
 
   const isLoading = boardsLoading || (!!activeBoardId && (columnsLoading || ticketsLoading));
