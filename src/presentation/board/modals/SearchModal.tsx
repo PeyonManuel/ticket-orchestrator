@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { motion } from "framer-motion";
 import { Search } from "lucide-react";
 import { useBoardContext } from "@/presentation/board/BoardContext";
 import { fuzzyScore } from "@/presentation/shared/utils/fuzzyScore";
@@ -22,11 +23,17 @@ export function SearchModal() {
     .slice(0, 10);
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.15 }}
       onClick={closeModal}
       className="fixed inset-0 z-30 flex items-start justify-center bg-black/30 dark:bg-zinc-950/25 pt-16"
     >
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: -8, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
         onClick={(event) => event.stopPropagation()}
         className="w-full max-w-md rounded-xl border border-indigo-500/30 bg-white dark:bg-zinc-900 p-4 shadow-2xl"
       >
@@ -68,7 +75,7 @@ export function SearchModal() {
             )}
           </div>
         )}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

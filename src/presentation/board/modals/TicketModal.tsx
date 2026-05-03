@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
+import { motion } from "framer-motion";
 import { Check, Clock, Link2, MessageSquare, Plus, X } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useQuery, useMutation } from "@apollo/client/react";
@@ -176,13 +177,20 @@ export function TicketModal() {
   };
 
   return (
-    <div
+    <motion.div
+      key={selectedTicket.id}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.15 }}
       onClick={closeModal}
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 dark:bg-zinc-950/70 backdrop-blur-sm p-6"
+      className="fixed inset-0 z-30 flex items-end sm:items-center justify-center bg-black/50 dark:bg-zinc-950/70 backdrop-blur-sm sm:p-6"
     >
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 16, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-2xl"
+        className="w-full sm:max-w-5xl max-h-[92dvh] sm:max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 sm:p-5 shadow-2xl"
       >
         {/* Conflict resolution banner */}
         {conflictError && conflictError.ticketId === selectedTicket.id && (
@@ -593,7 +601,7 @@ export function TicketModal() {
             </div>
           )}
         </section>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

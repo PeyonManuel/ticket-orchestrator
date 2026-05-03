@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { motion } from "framer-motion";
 import { AlertTriangle, X } from "lucide-react";
 import type { Board } from "@/domain/analyst";
 import { useBoardActions } from "@/presentation/board/BoardContext";
@@ -34,11 +35,17 @@ export function DeleteBoardModal({ board, onClose }: DeleteBoardModalProps) {
   }
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.15 }}
       onClick={onClose}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 dark:bg-zinc-950/80 backdrop-blur-sm p-6"
     >
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 12, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-lg rounded-xl border border-red-500/40 bg-white dark:bg-zinc-900 shadow-2xl"
       >
@@ -103,7 +110,7 @@ export function DeleteBoardModal({ board, onClose }: DeleteBoardModalProps) {
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

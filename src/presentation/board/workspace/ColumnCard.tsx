@@ -116,7 +116,7 @@ function ColumnCardImpl(props: ColumnCardProps) {
       onDragOver={(e) => onColumnDragOver(column.id, e)}
       onDragLeave={onColumnDragLeave}
       onDrop={(e) => onColumnDrop(column.id, e)}
-      className={`flex min-w-[300px] flex-1 flex-col rounded-lg border p-3 transition-colors ${
+      className={`flex min-w-[260px] sm:min-w-[300px] flex-1 flex-col rounded-lg border p-3 transition-colors ${
         isColumnDropTarget
           ? "border-indigo-400/70 bg-indigo-500/10 ring-1 ring-indigo-500/30"
           : isTicketDropTarget

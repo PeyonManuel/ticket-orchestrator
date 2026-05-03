@@ -16,13 +16,18 @@ function VersionPanelImpl({ releaseVersions, onCreateVersion, onDeleteVersion }:
   const [date, setDate] = useState("");
   const dateInputRef = useRef<HTMLInputElement>(null);
 
+  function openPicker() {
+    dateInputRef.current?.showPicker?.();
+    dateInputRef.current?.focus();
+  }
+
   return (
     <div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={() => setOpen((p) => !p)}
-          className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:border-zinc-500"
+          className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:border-zinc-500 transition-colors"
         >
           {open ? "Close Version Manager" : "Manage Versions"}
         </button>
@@ -32,6 +37,7 @@ function VersionPanelImpl({ releaseVersions, onCreateVersion, onDeleteVersion }:
           </span>
         )}
       </div>
+
       {open && (
         <div className="mt-3">
           {releaseVersions.length > 0 && (
@@ -54,29 +60,38 @@ function VersionPanelImpl({ releaseVersions, onCreateVersion, onDeleteVersion }:
               ))}
             </div>
           )}
-          <div className="grid gap-2 md:grid-cols-[1fr_auto_auto]">
+
+          {/* Form — stacks vertically on mobile, row on md+ */}
+          <div className="flex flex-col gap-2 md:flex-row md:items-center">
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Version name (e.g. v1.4.0)"
-              className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-200"
+              className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
-            <div className="relative">
+
+            {/*
+             * Date field: a custom-styled wrapper that makes the invisible native
+             * <input type="date"> fill its container, with a calendar icon on the
+             * right. Tapping anywhere in the box (icon included) opens the native
+             * picker, which is the most reliable cross-browser experience on mobile.
+             */}
+            <div
+              onClick={openPicker}
+              className="relative flex items-center rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 cursor-pointer md:w-44 gap-2"
+            >
+              <Calendar size={13} className="text-zinc-400 shrink-0 pointer-events-none" />
               <input
                 ref={dateInputRef}
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="h-full w-40 cursor-pointer rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-200"
+                onClick={(e) => e.stopPropagation()}
+                className="flex-1 min-w-0 bg-transparent text-xs text-zinc-900 dark:text-zinc-200 outline-none cursor-pointer appearance-none"
+                style={{ colorScheme: "auto" }}
               />
-              <button
-                type="button"
-                onClick={() => dateInputRef.current?.showPicker?.()}
-                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500"
-              >
-                <Calendar size={13} />
-              </button>
             </div>
+
             <button
               type="button"
               onClick={() => {
@@ -85,7 +100,8 @@ function VersionPanelImpl({ releaseVersions, onCreateVersion, onDeleteVersion }:
                 setName("");
                 setDate("");
               }}
-              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:border-zinc-500"
+              disabled={!name.trim()}
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:border-zinc-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
             >
               Add Version
             </button>

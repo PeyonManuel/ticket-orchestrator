@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { motion } from "framer-motion";
 import { useBoardContext } from "@/presentation/board/BoardContext";
 
 /**
@@ -16,11 +17,17 @@ export function OrchestratorModal() {
   if (!orchestratorOpen) return null;
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.15 }}
       onClick={closeModal}
       className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 dark:bg-zinc-950/70 backdrop-blur-sm p-6"
     >
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 12, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
         onClick={(event) => event.stopPropagation()}
         className="w-full max-w-2xl rounded-xl border border-indigo-500/30 bg-white dark:bg-zinc-900 p-6"
       >
@@ -37,7 +44,7 @@ export function OrchestratorModal() {
             Close
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { motion } from "framer-motion";
+import { X } from "lucide-react";
 import { useBoardContext } from "@/presentation/board/BoardContext";
 import { LabelDropdown } from "@/presentation/shared/dropdowns/LabelDropdown";
 import { SimpleDropdown } from "@/presentation/shared/dropdowns/SimpleDropdown";
@@ -46,7 +48,6 @@ export function CreateTicketModal() {
     columnId: columnsForBoard[0]?.id ?? "",
   });
 
-  // Keep columnId in sync when board changes
   const effectiveColumnId =
     columnsForBoard.find((c) => c.id === form.columnId)?.id ?? columnsForBoard[0]?.id ?? "";
 
@@ -55,12 +56,24 @@ export function CreateTicketModal() {
   const chosenColumn = columnsForBoard.find((c) => c.id === effectiveColumnId);
   const canSubmit = !!selectedBoardId && !!effectiveColumnId && !!form.title.trim();
 
+  // Fix-version: use our custom dropdown when versions exist, plain text input otherwise.
+  const versionOptions = [
+    { label: "None", value: "" },
+    ...releaseVersions.map((v) => ({ label: v.name, value: v.name })),
+  ];
+
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.15 }}
       onClick={closeModal}
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 dark:bg-zinc-950/70 backdrop-blur-sm p-6"
+      className="fixed inset-0 z-30 flex items-end sm:items-center justify-center bg-black/50 dark:bg-zinc-950/70 backdrop-blur-sm"
     >
-      <form
+      <motion.form
+        initial={{ opacity: 0, y: 16, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
@@ -80,11 +93,17 @@ export function CreateTicketModal() {
           });
           setForm((prev) => ({ ...prev, title: "", description: "" }));
         }}
-        className="w-full max-w-xl rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-2xl"
+        className="w-full sm:max-w-xl rounded-t-2xl sm:rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-2xl max-h-[90dvh] overflow-y-auto"
       >
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Create ticket</h2>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-white dark:bg-zinc-900 z-10 border-b border-zinc-100 dark:border-zinc-800">
+          <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Create ticket</h2>
+          <button type="button" onClick={closeModal} className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">
+            <X size={16} />
+          </button>
+        </div>
 
-        <div className="mt-4 grid gap-3">
+        <div className="p-5 grid gap-3">
           {/* Board picker */}
           <SimpleDropdown
             value={selectedBoardId}
@@ -96,41 +115,45 @@ export function CreateTicketModal() {
           />
 
           <input
+            autoFocus
             value={form.title}
             onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
             placeholder="Title"
-            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600"
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
           <textarea
             value={form.description}
             onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
-            placeholder="Description"
-            className="min-h-24 rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600"
+            placeholder="Description (optional)"
+            rows={3}
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 resize-none focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
 
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             <LabelDropdown
               value={form.label}
               labels={labels}
               onChange={(v) => setForm((prev) => ({ ...prev, label: v }))}
               onAddLabel={addLabel}
             />
-            {/* Free-text version — no dropdown needed until versions exist */}
-            <input
-              value={form.fixVersion}
-              onChange={(e) => setForm((prev) => ({ ...prev, fixVersion: e.target.value }))}
-              placeholder="Fix version (optional)"
-              list="version-options"
-              className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600"
-            />
-            <datalist id="version-options">
-              {releaseVersions.map((v) => (
-                <option key={v.id} value={v.name} />
-              ))}
-            </datalist>
+            {releaseVersions.length > 0 ? (
+              <SimpleDropdown
+                value={form.fixVersion}
+                options={versionOptions}
+                onChange={(v) => setForm((prev) => ({ ...prev, fixVersion: v }))}
+                placeholder="Fix version (optional)"
+              />
+            ) : (
+              <input
+                value={form.fixVersion}
+                onChange={(e) => setForm((prev) => ({ ...prev, fixVersion: e.target.value }))}
+                placeholder="Fix version (optional)"
+                className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            )}
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 grid-cols-3">
             <SimpleDropdown
               value={form.hierarchyType}
               options={[
@@ -156,7 +179,6 @@ export function CreateTicketModal() {
             />
           </div>
 
-          {/* Column picker — or warning if no columns */}
           {columnsForBoard.length === 0 ? (
             <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
               This board has no columns yet. Add columns from the board view first.
@@ -169,24 +191,24 @@ export function CreateTicketModal() {
             />
           )}
 
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
               onClick={closeModal}
-              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-4 py-2.5 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!canSubmit}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="rounded-md bg-indigo-600 px-5 py-2.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               Create
             </button>
           </div>
         </div>
-      </form>
-    </div>
+      </motion.form>
+    </motion.div>
   );
 }

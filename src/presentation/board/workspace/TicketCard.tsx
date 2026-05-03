@@ -47,8 +47,12 @@ function TicketCardImpl({
       </h4>
       <p className="mt-1 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">{ticket.description}</p>
       <div className="mt-2 flex flex-wrap gap-1 text-[10px]">
-        <span className="rounded bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-zinc-600 dark:text-zinc-300">{ticket.label}</span>
-        <span className="rounded bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-zinc-600 dark:text-zinc-300">{ticket.fixVersion}</span>
+        {ticket.label && (
+          <span className="rounded bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-zinc-600 dark:text-zinc-300">{ticket.label}</span>
+        )}
+        {ticket.fixVersion && (
+          <span className="rounded bg-indigo-100 dark:bg-indigo-500/15 px-2 py-0.5 text-indigo-700 dark:text-indigo-300">{ticket.fixVersion}</span>
+        )}
       </div>
     </article>
   );

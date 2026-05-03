@@ -102,6 +102,68 @@ Naming conventions:
 - Events: imperative domain events (e.g., `RESEARCH_COMPLETED`, `REFINEMENT_COMPLETED`, `HUMAN_APPROVED`, `HUMAN_REJECTED`, `RETRY`).
 - Avoid boolean status flags for lifecycle representation.
 
+## Performance Contract
+
+### Render Tree
+
+- Split contexts into **Data** and **Actions** (see `BoardContext`). Components subscribe only to what they need — never use the merged `useBoardContext()` in frequently-rendering components like topbars, toolbars, or layout shells; prefer `useBoardData()` or `useBoardActions()`.
+- `memo()` leaf components that receive stable props (e.g. `TicketCard`, `ColumnCard`). A card should not re-render when an unrelated ticket changes.
+- `useCallback` / `useMemo` for callbacks and derived data exposed on context. Actions must be stable across renders.
+- Never create objects or arrays inline inside JSX (`style={{ ... }}`, `className` template literals are fine; `value={[a, b]}` is not — derive once).
+- Use `stateRef` pattern for values needed inside stable callbacks without making those callbacks re-bind.
+
+### Layout Animations
+
+- **Sidebar open/close**: translate the **entire `[sidebar | content]` row** with a single CSS `transition-transform`. Never use Framer Motion `layout` on large containers — it computes layout on every frame and desyncs with siblings.
+- `motion.X layout` is banned on page-level containers (`main`, content columns, flex rows). Use it only on small self-contained elements (e.g. drag handles).
+- Prefer CSS transitions for *structural* layout changes (sidebar width, panel size). Use Framer Motion only for *conditional presence* (modals, overlays, mobile drawer).
+- Add `will-change: transform` only on elements that animate frequently (e.g. drag ghost). Remove it after the animation ends.
+
+### Framer Motion Usage Rules
+
+- `AnimatePresence` is for **mounting/unmounting** elements. Don't use it on elements that stay in the DOM.
+- Use `mode="sync"` (default) over `mode="wait"` — `mode="wait"` blocks entry until exit finishes, causing visible delay.
+- Mobile sidebar overlay: `motion.aside` with spring. Desktop sidebar: plain `<aside>` — the parent row CSS transform handles animation.
+- Never put `animate` on a `motion.div` that is always mounted and whose value never changes; use plain CSS.
+
+---
+
+## Animation Contract
+
+The app should feel **alive, reactive, and fast** — never theatrical. The test: after using the app daily for a month, animations should be invisible (you notice the *absence* of jank, not the presence of motion).
+
+### Timing Rules
+
+| Element | Duration | Curve |
+|---|---|---|
+| Modal entrance (backdrop) | 150ms | linear |
+| Modal entrance (panel) | 160ms | `[0.16, 1, 0.3, 1]` |
+| Sidebar slide (CSS) | 220ms | `cubic-bezier(0.25, 0.46, 0.45, 0.94)` |
+| Mobile sidebar (spring) | stiffness 320 / damping 32 | spring |
+| Hover state transitions | 100–150ms | `ease-out` |
+| Toast / badge appear | 120ms | `[0.16, 1, 0.3, 1]` |
+
+**Never exceed 300ms** for any interaction-triggered animation. Long animations feel broken to daily users.
+
+### Modal Pattern
+
+All modals use the same two-layer animation:
+```
+backdrop:  opacity 0→1, 150ms linear
+panel:     opacity + y(12–16px) + scale(0.97→1), 160ms [0.16,1,0.3,1]
+```
+Close is **instant** (early return / `display:none`). Users who close a modal don't want to watch it leave.
+
+### General Principles
+
+- **Translate, don't resize**: animate `transform: translateX/Y/scale` not `width/height/margin/padding` — transforms are compositor-only (GPU) and never cause layout reflow.
+- **Hover = color/opacity only**: never animate size or position on hover. It causes layout thrash and feels jittery.
+- **No bounce, no spin**: motion is for orientation and feedback, not novelty. If an animation makes you smile the first time and wince the tenth, cut it.
+- **Stagger sparingly**: list item stagger (30ms) is acceptable on initial load of a short list (<20 items). Never stagger on user-triggered re-renders.
+- **Respect `prefers-reduced-motion`**: wrap non-essential animations in a `@media (prefers-reduced-motion: reduce)` check or use Framer Motion's `useReducedMotion()`.
+
+---
+
 ## First Slice Kickoff Spec (Analyst Flow)
 
 First implementation target is the Analyst refinement cycle with explicit human approval.
