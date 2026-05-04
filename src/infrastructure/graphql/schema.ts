@@ -3,6 +3,8 @@ export const typeDefs = /* GraphQL */ `
   enum HierarchyType { epic story task }
   enum Priority { low medium high }
   enum BoardRole { member admin }
+  enum OrgMemberRole { developer designer qa po admin }
+  enum SprintStatus { planning active completed }
   enum HistoryEntryKind {
     created
     updated
@@ -104,6 +106,36 @@ export const typeDefs = /* GraphQL */ `
     fullName: String!
     imageUrl: String
     emailAddress: String
+    """Functional planning role (developer/designer/qa/po/admin). Set by PO/admin in org settings."""
+    role: OrgMemberRole
+  }
+
+  type Sprint {
+    id: ID!
+    orgId: ID!
+    boardId: ID!
+    name: String!
+    startDate: String!
+    endDate: String!
+    capacityPoints: Int!
+    status: SprintStatus!
+  }
+
+  type SprintAssignment {
+    id: ID!
+    orgId: ID!
+    sprintId: ID!
+    userId: ID!
+    availableHours: Float!
+  }
+
+  """Immutable baseline snapshot of an AI-generated Epic plan. Used for drift detection."""
+  type EpicSnapshot {
+    id: ID!
+    orgId: ID!
+    epicTicketId: ID!
+    createdAt: String!
+    planJson: String!
   }
 
   # ── Cursor pagination for tickets ────────────────────────────────────
@@ -151,6 +183,9 @@ export const typeDefs = /* GraphQL */ `
     labels: [String!]!
     """Members of the current Clerk organization. Used as the assignee pool."""
     orgMembers: [OrgMember!]!
+    sprints(boardId: ID!): [Sprint!]!
+    sprintAssignments(sprintId: ID!): [SprintAssignment!]!
+    epicSnapshot(epicTicketId: ID!): EpicSnapshot
   }
 
   input CreateBoardInput { name: String!, type: BoardType }
@@ -226,5 +261,40 @@ export const typeDefs = /* GraphQL */ `
 
     """Add a new label to the org-scoped label vocabulary. Idempotent."""
     addLabel(label: String!): String!
+
+    createSprint(input: CreateSprintInput!): Sprint!
+    updateSprint(id: ID!, input: UpdateSprintInput!): Sprint
+    deleteSprint(id: ID!): Boolean!
+
+    upsertSprintAssignment(input: UpsertSprintAssignmentInput!): SprintAssignment!
+    removeSprintAssignment(sprintId: ID!, userId: ID!): Boolean!
+
+    """Creates or replaces the immutable AI-generated plan baseline for an Epic."""
+    createEpicSnapshot(epicTicketId: ID!, planJson: String!): EpicSnapshot!
+
+    """Set (or clear) the functional planning role for an org member."""
+    setMemberRole(userId: ID!, role: OrgMemberRole): Boolean!
+  }
+
+  input CreateSprintInput {
+    boardId: ID!
+    name: String!
+    startDate: String!
+    endDate: String!
+    capacityPoints: Int
+  }
+
+  input UpdateSprintInput {
+    name: String
+    startDate: String
+    endDate: String
+    capacityPoints: Int
+    status: SprintStatus
+  }
+
+  input UpsertSprintAssignmentInput {
+    sprintId: ID!
+    userId: ID!
+    availableHours: Float!
   }
 `;

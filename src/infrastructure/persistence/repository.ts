@@ -16,6 +16,10 @@ import type {
   HistoryFieldChange,
   HistoryEntryKind,
   BoardMember,
+  Sprint,
+  SprintAssignment,
+  EpicSnapshot,
+  OrgMemberRole,
 } from "@/domain/analyst";
 import clientPromise from "./mongo";
 import {
@@ -27,6 +31,10 @@ import {
   TicketHistoryEntrySchema,
   BoardMemberSchema,
   UpdateTicketInputSchema,
+  SprintSchema,
+  SprintAssignmentSchema,
+  EpicSnapshotSchema,
+  OrgMemberRoleSchema,
 } from "./schemas";
 import { ensureIndexes } from "./indexes";
 import type { z } from "zod";
@@ -882,4 +890,163 @@ export async function addLabel(orgId: string, label: string): Promise<string> {
     { upsert: true }
   );
   return normalized;
+}
+
+// ─── Sprint ───────────────────────────────────────────────────────────────────
+
+interface SprintDoc {
+  _id: string; orgId: string; boardId: string; name: string;
+  startDate: string; endDate: string; capacityPoints: number;
+  status: "planning" | "active" | "completed";
+}
+
+function parseSprint(d: SprintDoc): Sprint {
+  return SprintSchema.parse({
+    id: d._id, orgId: d.orgId, boardId: d.boardId, name: d.name,
+    startDate: d.startDate, endDate: d.endDate,
+    capacityPoints: d.capacityPoints, status: d.status,
+  });
+}
+
+export async function getSprints(orgId: string, boardId: string): Promise<Sprint[]> {
+  const col = await coll<SprintDoc>("sprints");
+  const docs = await col.find({ orgId, boardId }).sort({ startDate: 1 }).toArray();
+  return docs.map(parseSprint);
+}
+
+export async function createSprint(
+  orgId: string,
+  input: { boardId: string; name: string; startDate: string; endDate: string; capacityPoints: number }
+): Promise<Sprint> {
+  const col = await coll<SprintDoc>("sprints");
+  const id = crypto.randomUUID();
+  const doc: SprintDoc = { _id: id, orgId, ...input, status: "planning" };
+  await col.insertOne(doc);
+  return parseSprint(doc);
+}
+
+export async function updateSprint(
+  orgId: string,
+  id: string,
+  patch: Partial<Pick<Sprint, "name" | "startDate" | "endDate" | "capacityPoints" | "status">>
+): Promise<Sprint | null> {
+  const col = await coll<SprintDoc>("sprints");
+  const result = await col.findOneAndUpdate(
+    { _id: id, orgId },
+    { $set: patch },
+    { returnDocument: "after" }
+  );
+  return result ? parseSprint(result) : null;
+}
+
+export async function deleteSprint(orgId: string, id: string): Promise<boolean> {
+  const col = await coll<SprintDoc>("sprints");
+  const result = await col.deleteOne({ _id: id, orgId });
+  return result.deletedCount > 0;
+}
+
+// ─── SprintAssignment ─────────────────────────────────────────────────────────
+
+interface SprintAssignmentDoc {
+  _id: string; orgId: string; sprintId: string; userId: string; availableHours: number;
+}
+
+function parseSprintAssignment(d: SprintAssignmentDoc): SprintAssignment {
+  return SprintAssignmentSchema.parse({
+    id: d._id, orgId: d.orgId, sprintId: d.sprintId,
+    userId: d.userId, availableHours: d.availableHours,
+  });
+}
+
+export async function getSprintAssignments(orgId: string, sprintId: string): Promise<SprintAssignment[]> {
+  const col = await coll<SprintAssignmentDoc>("sprintAssignments");
+  const docs = await col.find({ orgId, sprintId }).toArray();
+  return docs.map(parseSprintAssignment);
+}
+
+export async function upsertSprintAssignment(
+  orgId: string,
+  input: { sprintId: string; userId: string; availableHours: number }
+): Promise<SprintAssignment> {
+  const col = await coll<SprintAssignmentDoc>("sprintAssignments");
+  const id = crypto.randomUUID();
+  await col.updateOne(
+    { orgId, sprintId: input.sprintId, userId: input.userId },
+    {
+      $set: { availableHours: input.availableHours },
+      $setOnInsert: { _id: id, orgId, sprintId: input.sprintId, userId: input.userId },
+    },
+    { upsert: true }
+  );
+  const doc = await col.findOne({ orgId, sprintId: input.sprintId, userId: input.userId });
+  if (!doc) throw new Error("Failed to upsert sprint assignment");
+  return parseSprintAssignment(doc);
+}
+
+export async function removeSprintAssignment(
+  orgId: string, sprintId: string, userId: string
+): Promise<boolean> {
+  const col = await coll<SprintAssignmentDoc>("sprintAssignments");
+  const result = await col.deleteOne({ orgId, sprintId, userId });
+  return result.deletedCount > 0;
+}
+
+// ─── EpicSnapshot ─────────────────────────────────────────────────────────────
+
+interface EpicSnapshotDoc {
+  _id: string; orgId: string; epicTicketId: string; createdAt: string; planJson: string;
+}
+
+function parseEpicSnapshot(d: EpicSnapshotDoc): EpicSnapshot {
+  return EpicSnapshotSchema.parse({
+    id: d._id, orgId: d.orgId, epicTicketId: d.epicTicketId,
+    createdAt: d.createdAt, planJson: d.planJson,
+  });
+}
+
+export async function getEpicSnapshot(
+  orgId: string, epicTicketId: string
+): Promise<EpicSnapshot | null> {
+  const col = await coll<EpicSnapshotDoc>("epicSnapshots");
+  const doc = await col.findOne({ orgId, epicTicketId });
+  return doc ? parseEpicSnapshot(doc) : null;
+}
+
+export async function createEpicSnapshot(
+  orgId: string, epicTicketId: string, planJson: string
+): Promise<EpicSnapshot> {
+  const col = await coll<EpicSnapshotDoc>("epicSnapshots");
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const doc: EpicSnapshotDoc = { _id: id, orgId, epicTicketId, createdAt, planJson };
+  await col.insertOne(doc);
+  return parseEpicSnapshot(doc);
+}
+
+// ─── Member Roles ─────────────────────────────────────────────────────────────
+
+interface MemberRoleDoc { _id: string; orgId: string; userId: string; role: OrgMemberRole }
+
+export async function getMemberRoles(
+  orgId: string
+): Promise<Array<{ userId: string; role: OrgMemberRole }>> {
+  const col = await coll<MemberRoleDoc>("memberRoles");
+  const docs = await col.find({ orgId }).toArray();
+  return docs.map((d) => ({ userId: d.userId, role: OrgMemberRoleSchema.parse(d.role) }));
+}
+
+export async function setMemberRole(
+  orgId: string, userId: string, role: OrgMemberRole | null
+): Promise<boolean> {
+  const col = await coll<MemberRoleDoc>("memberRoles");
+  if (role === null) {
+    await col.deleteOne({ orgId, userId });
+  } else {
+    await col.updateOne(
+      { orgId, userId },
+      { $set: { role }, $setOnInsert: { _id: crypto.randomUUID(), orgId, userId } },
+      { upsert: true }
+    );
+  }
+  return true;
 }

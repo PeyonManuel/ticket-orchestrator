@@ -104,6 +104,8 @@ export const resolvers = {
         organizationId: ctx.orgId,
         limit: 100,
       });
+      const roles = await repo.getMemberRoles(ctx.orgId);
+      const roleMap = new Map(roles.map((r) => [r.userId, r.role]));
       return data
         .map((m) => {
           const u = m.publicUserData;
@@ -116,9 +118,22 @@ export const resolvers = {
             fullName,
             imageUrl: u.imageUrl ?? null,
             emailAddress: u.identifier ?? null,
+            role: roleMap.get(u.userId) ?? null,
           };
         })
         .filter((m): m is NonNullable<typeof m> => m !== null);
+    },
+    sprints: (_p: unknown, { boardId }: { boardId: string }, ctx: GraphQLContext) => {
+      requireAuth(ctx);
+      return repo.getSprints(ctx.orgId, boardId);
+    },
+    sprintAssignments: (_p: unknown, { sprintId }: { sprintId: string }, ctx: GraphQLContext) => {
+      requireAuth(ctx);
+      return repo.getSprintAssignments(ctx.orgId, sprintId);
+    },
+    epicSnapshot: (_p: unknown, { epicTicketId }: { epicTicketId: string }, ctx: GraphQLContext) => {
+      requireAuth(ctx);
+      return repo.getEpicSnapshot(ctx.orgId, epicTicketId);
     },
   },
 
@@ -288,6 +303,62 @@ export const resolvers = {
     addLabel: (_p: unknown, { label }: { label: string }, ctx: GraphQLContext) => {
       requireAuth(ctx);
       return repo.addLabel(ctx.orgId, label);
+    },
+
+    createSprint: (
+      _p: unknown,
+      { input }: { input: { boardId: string; name: string; startDate: string; endDate: string; capacityPoints?: number } },
+      ctx: GraphQLContext
+    ) => {
+      requireAuth(ctx);
+      return repo.createSprint(ctx.orgId, { ...input, capacityPoints: input.capacityPoints ?? 0 });
+    },
+    updateSprint: (
+      _p: unknown,
+      { id, input }: { id: string; input: Parameters<typeof repo.updateSprint>[2] },
+      ctx: GraphQLContext
+    ) => {
+      requireAuth(ctx);
+      return repo.updateSprint(ctx.orgId, id, input);
+    },
+    deleteSprint: (_p: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      requireAuth(ctx);
+      return repo.deleteSprint(ctx.orgId, id);
+    },
+
+    upsertSprintAssignment: (
+      _p: unknown,
+      { input }: { input: Parameters<typeof repo.upsertSprintAssignment>[1] },
+      ctx: GraphQLContext
+    ) => {
+      requireAuth(ctx);
+      return repo.upsertSprintAssignment(ctx.orgId, input);
+    },
+    removeSprintAssignment: (
+      _p: unknown,
+      { sprintId, userId }: { sprintId: string; userId: string },
+      ctx: GraphQLContext
+    ) => {
+      requireAuth(ctx);
+      return repo.removeSprintAssignment(ctx.orgId, sprintId, userId);
+    },
+
+    createEpicSnapshot: (
+      _p: unknown,
+      { epicTicketId, planJson }: { epicTicketId: string; planJson: string },
+      ctx: GraphQLContext
+    ) => {
+      requireAuth(ctx);
+      return repo.createEpicSnapshot(ctx.orgId, epicTicketId, planJson);
+    },
+
+    setMemberRole: (
+      _p: unknown,
+      { userId, role }: { userId: string; role: string | null | undefined },
+      ctx: GraphQLContext
+    ) => {
+      requireAdmin(ctx);
+      return repo.setMemberRole(ctx.orgId, userId, (role ?? null) as import("@/domain/analyst").OrgMemberRole | null);
     },
   },
 };

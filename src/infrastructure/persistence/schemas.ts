@@ -126,6 +126,57 @@ export const UpdateTicketInputSchema = z.object({
   expectedVersion: z.number().int().nonnegative(),
 });
 
+export const OrgMemberRoleSchema = z.enum(["developer", "designer", "qa", "po", "admin"]);
+
+export const SprintSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  boardId: z.string(),
+  name: z.string().min(1),
+  startDate: z.string(),
+  endDate: z.string(),
+  capacityPoints: z.number().int().nonnegative(),
+  status: z.enum(["planning", "active", "completed"]),
+});
+
+export const SprintAssignmentSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  sprintId: z.string(),
+  userId: z.string(),
+  availableHours: z.number().nonnegative(),
+});
+
+export const EpicSnapshotSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  epicTicketId: z.string(),
+  createdAt: z.string(),
+  planJson: z.string(),
+});
+
+export const CreateSprintInputSchema = z.object({
+  boardId: z.string(),
+  name: z.string().min(1),
+  startDate: z.string(),
+  endDate: z.string(),
+  capacityPoints: z.number().int().nonnegative().default(0),
+});
+
+export const UpdateSprintInputSchema = z.object({
+  name: z.string().min(1).optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  capacityPoints: z.number().int().nonnegative().optional(),
+  status: z.enum(["planning", "active", "completed"]).optional(),
+});
+
+export const UpsertSprintAssignmentInputSchema = z.object({
+  sprintId: z.string(),
+  userId: z.string(),
+  availableHours: z.number().nonnegative(),
+});
+
 export type BoardSchemaType = z.infer<typeof BoardSchema>;
 export type BoardColumnSchemaType = z.infer<typeof BoardColumnSchema>;
 export type TicketSchemaType = z.infer<typeof TicketSchema>;

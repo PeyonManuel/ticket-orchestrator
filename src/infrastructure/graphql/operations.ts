@@ -166,6 +166,67 @@ export const GET_ORG_MEMBERS = gql`
       fullName
       imageUrl
       emailAddress
+      role
+    }
+  }
+`;
+
+export const SPRINT_FIELDS = gql`
+  fragment SprintFields on Sprint {
+    id
+    orgId
+    boardId
+    name
+    startDate
+    endDate
+    capacityPoints
+    status
+  }
+`;
+
+export const SPRINT_ASSIGNMENT_FIELDS = gql`
+  fragment SprintAssignmentFields on SprintAssignment {
+    id
+    orgId
+    sprintId
+    userId
+    availableHours
+  }
+`;
+
+export const EPIC_SNAPSHOT_FIELDS = gql`
+  fragment EpicSnapshotFields on EpicSnapshot {
+    id
+    orgId
+    epicTicketId
+    createdAt
+    planJson
+  }
+`;
+
+export const GET_SPRINTS = gql`
+  ${SPRINT_FIELDS}
+  query GetSprints($boardId: ID!) {
+    sprints(boardId: $boardId) {
+      ...SprintFields
+    }
+  }
+`;
+
+export const GET_SPRINT_ASSIGNMENTS = gql`
+  ${SPRINT_ASSIGNMENT_FIELDS}
+  query GetSprintAssignments($sprintId: ID!) {
+    sprintAssignments(sprintId: $sprintId) {
+      ...SprintAssignmentFields
+    }
+  }
+`;
+
+export const GET_EPIC_SNAPSHOT = gql`
+  ${EPIC_SNAPSHOT_FIELDS}
+  query GetEpicSnapshot($epicTicketId: ID!) {
+    epicSnapshot(epicTicketId: $epicTicketId) {
+      ...EpicSnapshotFields
     }
   }
 `;
@@ -340,5 +401,65 @@ export const DELETE_COMMENT = gql`
 export const ADD_LABEL = gql`
   mutation AddLabel($label: String!) {
     addLabel(label: $label)
+  }
+`;
+
+// ─── Sprint Mutations ─────────────────────────────────────────────────────────
+
+export const CREATE_SPRINT = gql`
+  ${SPRINT_FIELDS}
+  mutation CreateSprint($input: CreateSprintInput!) {
+    createSprint(input: $input) {
+      ...SprintFields
+    }
+  }
+`;
+
+export const UPDATE_SPRINT = gql`
+  ${SPRINT_FIELDS}
+  mutation UpdateSprint($id: ID!, $input: UpdateSprintInput!) {
+    updateSprint(id: $id, input: $input) {
+      ...SprintFields
+    }
+  }
+`;
+
+export const DELETE_SPRINT = gql`
+  mutation DeleteSprint($id: ID!) {
+    deleteSprint(id: $id)
+  }
+`;
+
+export const UPSERT_SPRINT_ASSIGNMENT = gql`
+  ${SPRINT_ASSIGNMENT_FIELDS}
+  mutation UpsertSprintAssignment($input: UpsertSprintAssignmentInput!) {
+    upsertSprintAssignment(input: $input) {
+      ...SprintAssignmentFields
+    }
+  }
+`;
+
+export const REMOVE_SPRINT_ASSIGNMENT = gql`
+  mutation RemoveSprintAssignment($sprintId: ID!, $userId: ID!) {
+    removeSprintAssignment(sprintId: $sprintId, userId: $userId)
+  }
+`;
+
+// ─── Epic Snapshot Mutations ──────────────────────────────────────────────────
+
+export const CREATE_EPIC_SNAPSHOT = gql`
+  ${EPIC_SNAPSHOT_FIELDS}
+  mutation CreateEpicSnapshot($epicTicketId: ID!, $planJson: String!) {
+    createEpicSnapshot(epicTicketId: $epicTicketId, planJson: $planJson) {
+      ...EpicSnapshotFields
+    }
+  }
+`;
+
+// ─── Member Role Mutations ────────────────────────────────────────────────────
+
+export const SET_MEMBER_ROLE = gql`
+  mutation SetMemberRole($userId: ID!, $role: OrgMemberRole) {
+    setMemberRole(userId: $userId, role: $role)
   }
 `;

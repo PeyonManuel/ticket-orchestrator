@@ -16,8 +16,12 @@ import type {
   Board,
   BoardColumn,
   CreateTicketInput,
+  EpicSnapshot,
   OrgMember,
+  OrgMemberRole,
   ReleaseVersion,
+  Sprint,
+  SprintAssignment,
   Ticket,
   UserRole,
 } from "@/domain/analyst";
@@ -43,6 +47,14 @@ import {
   CREATE_VERSION,
   DELETE_VERSION,
   ADD_LABEL,
+  GET_SPRINTS,
+  CREATE_SPRINT,
+  UPDATE_SPRINT,
+  DELETE_SPRINT,
+  UPSERT_SPRINT_ASSIGNMENT,
+  REMOVE_SPRINT_ASSIGNMENT,
+  CREATE_EPIC_SNAPSHOT,
+  SET_MEMBER_ROLE,
 } from "@/infrastructure/graphql/operations";
 
 // ── View-model shapes (kept identical to previous public API) ───────
@@ -96,6 +108,7 @@ export interface BoardData {
   createTicketLinkSourceId: string | null;
   /** Set when an UpdateTicket mutation returns a ConflictError. Cleared on resolve. */
   conflictError: ActiveConflict | null;
+  sprints: Sprint[];
 }
 
 export interface BoardActions {
@@ -150,6 +163,13 @@ export interface BoardActions {
    * - "discard": accept the server's current state, abandon the local change.
    */
   resolveConflict: (strategy: "overwrite" | "discard") => void;
+  createSprint: (input: { name: string; startDate: string; endDate: string; capacityPoints?: number }) => Promise<Sprint | null>;
+  updateSprint: (id: string, input: { name?: string; startDate?: string; endDate?: string; capacityPoints?: number; status?: Sprint["status"] }) => Promise<void>;
+  deleteSprint: (id: string) => Promise<void>;
+  upsertSprintAssignment: (input: { sprintId: string; userId: string; availableHours: number }) => Promise<SprintAssignment | null>;
+  removeSprintAssignment: (sprintId: string, userId: string) => Promise<void>;
+  createEpicSnapshot: (epicTicketId: string, planJson: string) => Promise<EpicSnapshot | null>;
+  setMemberRole: (userId: string, role: OrgMemberRole | null) => Promise<void>;
 }
 
 export type BoardViewModel = BoardData & BoardActions;
@@ -169,6 +189,7 @@ interface GetTicketsResult {
 interface GetReleaseVersionsResult { releaseVersions: ReleaseVersion[] }
 interface GetLabelsResult { labels: string[] }
 interface GetOrgMembersResult { orgMembers: OrgMember[] }
+interface GetSprintsResult { sprints: Sprint[] }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -267,6 +288,12 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     [orgMembersData],
   );
 
+  const { data: sprintsData } = useQuery<GetSprintsResult>(GET_SPRINTS, {
+    variables: { boardId: activeBoardId },
+    skip: !activeBoardId,
+  });
+  const sprints = useMemo<Sprint[]>(() => sprintsData?.sprints ?? [], [sprintsData]);
+
   const isLoading = boardsLoading || (!!activeBoardId && (columnsLoading || ticketsLoading));
 
   // ── Mutations ────────────────────────────────────────────────────
@@ -283,6 +310,13 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const [createVersionMutation] = useMutation(CREATE_VERSION);
   const [deleteVersionMutation] = useMutation(DELETE_VERSION);
   const [addLabelMutation] = useMutation(ADD_LABEL);
+  const [createSprintMutation] = useMutation(CREATE_SPRINT);
+  const [updateSprintMutation] = useMutation(UPDATE_SPRINT);
+  const [deleteSprintMutation] = useMutation(DELETE_SPRINT);
+  const [upsertSprintAssignmentMutation] = useMutation(UPSERT_SPRINT_ASSIGNMENT);
+  const [removeSprintAssignmentMutation] = useMutation(REMOVE_SPRINT_ASSIGNMENT);
+  const [createEpicSnapshotMutation] = useMutation(CREATE_EPIC_SNAPSHOT);
+  const [setMemberRoleMutation] = useMutation(SET_MEMBER_ROLE);
 
   // Stable refs so action callbacks don't re-bind every render
   const stateRef = useRef({
@@ -774,6 +808,57 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         return `${window.location.origin}/tickets/${ticket.ticketNumber}`;
       },
 
+      createSprint: async (input) => {
+        const boardId = stateRef.current.activeBoardId;
+        if (!boardId) return null;
+        const result = await createSprintMutation({
+          variables: { input: { ...input, boardId } },
+          refetchQueries: [{ query: GET_SPRINTS, variables: { boardId } }],
+        });
+        return (result.data as { createSprint?: Sprint } | null | undefined)?.createSprint ?? null;
+      },
+
+      updateSprint: async (id, input) => {
+        const boardId = stateRef.current.activeBoardId;
+        await updateSprintMutation({
+          variables: { id, input },
+          refetchQueries: boardId ? [{ query: GET_SPRINTS, variables: { boardId } }] : [],
+        });
+      },
+
+      deleteSprint: async (id) => {
+        const boardId = stateRef.current.activeBoardId;
+        await deleteSprintMutation({
+          variables: { id },
+          refetchQueries: boardId ? [{ query: GET_SPRINTS, variables: { boardId } }] : [],
+        });
+      },
+
+      upsertSprintAssignment: async (input) => {
+        const result = await upsertSprintAssignmentMutation({
+          variables: { input },
+        });
+        return (result.data as { upsertSprintAssignment?: SprintAssignment } | null | undefined)?.upsertSprintAssignment ?? null;
+      },
+
+      removeSprintAssignment: async (sprintId, userId) => {
+        await removeSprintAssignmentMutation({ variables: { sprintId, userId } });
+      },
+
+      createEpicSnapshot: async (epicTicketId, planJson) => {
+        const result = await createEpicSnapshotMutation({
+          variables: { epicTicketId, planJson },
+        });
+        return (result.data as { createEpicSnapshot?: EpicSnapshot } | null | undefined)?.createEpicSnapshot ?? null;
+      },
+
+      setMemberRole: async (userId, role) => {
+        await setMemberRoleMutation({
+          variables: { userId, role },
+          refetchQueries: [{ query: GET_ORG_MEMBERS }],
+        });
+      },
+
       resolveConflict: async (strategy) => {
         const conflict = stateRef.current.conflictError;
         if (!conflict) return;
@@ -810,15 +895,22 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     archiveBoardMutation,
     createBoardMutation,
     createColumnMutation,
+    createEpicSnapshotMutation,
+    createSprintMutation,
     createTicketMutation,
     createVersionMutation,
     deleteColumnMutation,
+    deleteSprintMutation,
     deleteVersionMutation,
     purgeBoardMutation,
     reorderColumnsMutation,
+    removeSprintAssignmentMutation,
     restoreBoardMutation,
+    setMemberRoleMutation,
     updateColumnMutation,
+    updateSprintMutation,
     updateTicketMutation,
+    upsertSprintAssignmentMutation,
     updateUrlParams,
   ]);
 
@@ -849,6 +941,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       createTicketLinkSourceId,
       conflictError,
+      sprints,
     }),
     [
       boards,
@@ -868,6 +961,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       createTicketLinkSourceId,
       conflictError,
+      sprints,
     ],
   );
 

@@ -38,6 +38,24 @@ export async function ensureIndexes(): Promise<void> {
       ),
       db.collection("boardMembers").createIndex({ orgId: 1, userId: 1 }),
       db.collection("labels").createIndex({ orgId: 1, label: 1 }, { unique: true }),
+      // Sprints: list by board, ordered by startDate for timeline views
+      db.collection("sprints").createIndex({ orgId: 1, boardId: 1, startDate: 1 }),
+      // SprintAssignments: unique per user per sprint; secondary for user lookup
+      db.collection("sprintAssignments").createIndex(
+        { orgId: 1, sprintId: 1, userId: 1 },
+        { unique: true }
+      ),
+      db.collection("sprintAssignments").createIndex({ orgId: 1, userId: 1 }),
+      // EpicSnapshots: one snapshot per epic (unique), fast lookup by epicTicketId
+      db.collection("epicSnapshots").createIndex(
+        { orgId: 1, epicTicketId: 1 },
+        { unique: true }
+      ),
+      // MemberRoles: one role per user per org
+      db.collection("memberRoles").createIndex(
+        { orgId: 1, userId: 1 },
+        { unique: true }
+      ),
     ]),
   );
 

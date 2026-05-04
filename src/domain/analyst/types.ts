@@ -72,6 +72,46 @@ export interface OrgMember {
   fullName: string;
   imageUrl: string | null;
   emailAddress: string | null;
+  /** Functional planning role — set by PO/admin in org settings. */
+  role?: OrgMemberRole;
+}
+
+/** Functional role used for capacity planning and persona-based estimation. */
+export type OrgMemberRole = "developer" | "designer" | "qa" | "po" | "admin";
+
+export interface Sprint {
+  id: string;
+  orgId: string;
+  boardId: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  /** Total story-point budget for this sprint across all assignees. */
+  capacityPoints: number;
+  status: "planning" | "active" | "completed";
+}
+
+export interface SprintAssignment {
+  id: string;
+  orgId: string;
+  sprintId: string;
+  userId: string;
+  /** Available working hours for this person in this sprint. */
+  availableHours: number;
+}
+
+/**
+ * Immutable baseline snapshot of an AI-generated Epic plan.
+ * Created when the Orchestrator first executes on an Epic.
+ * Used by drift detection to diff "what was planned" vs "current state."
+ */
+export interface EpicSnapshot {
+  id: string;
+  orgId: string;
+  epicTicketId: string;
+  createdAt: string;
+  /** JSON-encoded plan: ticket proposals, role assignments, sprint allocation. */
+  planJson: string;
 }
 
 export interface Comment {
@@ -143,6 +183,21 @@ export interface AnalystMachineContext {
   releaseVersions: ReleaseVersion[];
   currentUserRole: UserRole;
   labels: string[];
+}
+
+/** Result of comparing an EpicSnapshot against the current board state. */
+export interface DriftReport {
+  epicTicketId: string;
+  snapshotCreatedAt: string;
+  /** Tickets in snapshot but no longer on the board. */
+  removedTickets: Array<{ id: string; title: string }>;
+  /** Tickets on the board not in the original snapshot. */
+  addedTickets: Array<{ id: string; title: string }>;
+  /** Tickets whose key fields changed since the snapshot. */
+  changedTickets: Array<{ id: string; title: string; changedFields: string[] }>;
+  /** 0–100: what percent of snapshot tickets are in a done-like state. */
+  completionPercent: number;
+  hasDrift: boolean;
 }
 
 export interface AiOrchestratorContext {

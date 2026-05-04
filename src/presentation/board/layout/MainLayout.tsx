@@ -51,30 +51,25 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         {/* ── Desktop ──────────────────────────────────────────────────── */}
         {!isMobile && (
           /*
-           * The inner row is wider than the viewport by exactly SIDEBAR_W.
-           * sidebar (280px) + content (flex-1 = 100vw) = 100vw + 280px.
-           *
-           * Closed (translateX -280px): sidebar off-screen left, content at x=0.
-           * Open  (translateX   0px):   sidebar visible,        content at x=280.
-           *
-           * Single CSS transform — both pieces move as one unit. No React
-           * state updates during the animation, no layout re-computations.
+           * Standard compress layout: sidebar is a flex sibling whose wrapper
+           * transitions width 0↔280px via CSS. The content column (flex-1)
+           * naturally fills the remaining space — no explicit animation needed
+           * on the content side. Both happen in the same CSS recalculation so
+           * they're perfectly in sync without Framer Motion layout animations.
            */
-          <div
-            className="flex h-full w-[calc(100%+280px)]"
-            style={{
-              transform: `translateX(${isSidebarOpen ? 0 : -SIDEBAR_W}px)`,
-              transition: "transform 220ms cubic-bezier(0.25,0.46,0.45,0.94)",
-            }}
-          >
+          <div className="flex h-full w-full">
             <div
-              className="w-[280px] shrink-0 h-full"
+              className="shrink-0 h-full overflow-hidden"
               aria-hidden={!isSidebarOpen}
+              style={{
+                width: isSidebarOpen ? SIDEBAR_W : 0,
+                transition: "width 220ms cubic-bezier(0.25,0.46,0.45,0.94)",
+              }}
             >
               <Sidebar />
             </div>
 
-            <div className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
               <Topbar onToggleSidebar={toggleSidebar} isSidebarOpen={isSidebarOpen} />
               <main className="flex-1 overflow-y-auto bg-zinc-100 dark:bg-zinc-900/50 p-6 relative">
                 {children}
