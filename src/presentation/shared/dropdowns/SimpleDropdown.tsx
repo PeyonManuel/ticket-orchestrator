@@ -35,7 +35,7 @@ export function SimpleDropdown({
   useClickOutside(containerRef, open, () => setOpen(false));
 
   const selected = options.find((opt) => opt.value === value);
-
+  
   return (
     <div ref={containerRef} className={`relative ${className}`}>
       <button

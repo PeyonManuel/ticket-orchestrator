@@ -20,8 +20,13 @@ export function CreateTicketModal() {
     labels,
     addLabel,
   } = useBoardContext();
+  const [selectedBoardId, setSelectedBoardId] = useState<string>(activeBoardId ?? "");
 
-  const [selectedBoardId, setSelectedBoardId] = useState<string>(activeBoardId ?? boards[0]?.id ?? "");
+  React.useEffect(() => {
+    if (activeBoardId) {
+      setSelectedBoardId(activeBoardId);
+    }
+  }, [activeBoardId]);
 
   const columnsForBoard = useMemo(
     () => boardColumns.filter((c) => c.boardId === selectedBoardId),
@@ -115,7 +120,6 @@ export function CreateTicketModal() {
           />
 
           <input
-            autoFocus
             value={form.title}
             onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
             placeholder="Title"
