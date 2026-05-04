@@ -29,7 +29,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onBoardSelect, isMobileOverlay = false }: SidebarProps) {
-  const { boards, activeBoardId } = useBoardData();
+  const { boards, activeBoardId, isLoading } = useBoardData();
   const { selectBoard, createBoard } = useBoardActions();
   const isAdmin = useIsAdmin();
 
@@ -101,7 +101,7 @@ export default function Sidebar({ onBoardSelect, isMobileOverlay = false }: Side
       )}
 
       <div className="flex-1 px-3 space-y-0.5 overflow-y-auto">
-        {boards.length === 0 && !creating && (
+        {boards.length === 0 && !creating && !isLoading && (
           <p className="px-3 py-4 text-xs text-zinc-500 text-center">
             No boards yet.{" "}
             <button onClick={() => setCreating(true)} className="text-indigo-400 hover:underline">
