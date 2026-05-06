@@ -1,4 +1,4 @@
-import type { DriftReport, EpicSnapshot, Ticket } from "@/domain/analyst";
+import type { BoardColumn, DriftReport, EpicSnapshot, Ticket } from "@/domain/analyst";
 
 interface SnapshotTicket {
   id: string;
@@ -20,15 +20,6 @@ const TRACKED_FIELDS: Array<keyof Ticket> = [
   "columnId",
   "workflowState",
 ];
-
-const DONE_STATES = new Set(["done", "closed", "released", "complete", "completed"]);
-
-function isDone(ticket: Ticket): boolean {
-  return (
-    DONE_STATES.has(ticket.workflowState.toLowerCase()) ||
-    DONE_STATES.has(ticket.workflowState.replace(/[_-]/g, "").toLowerCase())
-  );
-}
 
 function parseSnapshotPlan(planJson: string): SnapshotPlan {
   try {
@@ -52,11 +43,18 @@ function parseSnapshotPlan(planJson: string): SnapshotPlan {
  *
  * `currentTickets` should be pre-filtered to just the tickets under the epic
  * (i.e. those whose parentTicketId === epicTicketId, plus the epic itself).
+ *
+ * `columns` is the board's column set — used to resolve which tickets are "done"
+ * via the `isDone` flag, instead of hardcoded English state names.
  */
 export function computeDrift(
   snapshot: EpicSnapshot,
   currentTickets: Ticket[],
+  columns: BoardColumn[],
 ): DriftReport {
+  const doneColumnIds = new Set(columns.filter((c) => c.isDone).map((c) => c.id));
+  const isDone = (t: Ticket) => doneColumnIds.has(t.columnId);
+
   const plan = parseSnapshotPlan(snapshot.planJson);
   const snapshotById = new Map(plan.tickets.map((t) => [t.id, t]));
   const currentById = new Map(currentTickets.map((t) => [t.id, t]));

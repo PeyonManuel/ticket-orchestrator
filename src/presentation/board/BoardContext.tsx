@@ -77,7 +77,16 @@ export type ActiveModal =
   | "createTicket"
   | "orchestrator"
   | "search"
-  | "createVersion";
+  | "createVersion"
+  | "createSprint"
+  | "editSprint";
+
+/**
+ * Board kanban view modes.
+ * - `board`: kanban filtered to the selected sprint (defaults to the active sprint).
+ * - `backlog`: expandable all-sprints + backlog list view (BacklogView handles its own filtering).
+ */
+export type BoardViewMode = "board" | "backlog";
 
 export interface BoardData {
   boards: Board[];
@@ -109,6 +118,25 @@ export interface BoardData {
   /** Set when an UpdateTicket mutation returns a ConflictError. Cleared on resolve. */
   conflictError: ActiveConflict | null;
   sprints: Sprint[];
+  viewMode: BoardViewMode;
+  /** Sprint currently focused in the `board` view. Null when no sprint exists. */
+  selectedSprintId: string | null;
+  /** Resolved sprint object for `selectedSprintId`. Null when none is selected. */
+  selectedSprint: Sprint | null;
+  /** True only when there is no sprint at all on the active board. */
+  hasNoSprints: boolean;
+  createSprintModalOpen: boolean;
+  /**
+   * Sum of `storyPoints` for tickets in the selected sprint.
+   * 0 when no sprint is selected. Used by the capacity bar.
+   */
+  committedPoints: number;
+  /**
+   * Average `completedPoints` across the last 3 sprints with status `completed`.
+   * Null when there is insufficient history (< 1 completed sprint).
+   * Drives the velocity badge and Controller-agent realism check.
+   */
+  velocity: number | null;
 }
 
 export interface BoardActions {
@@ -163,13 +191,19 @@ export interface BoardActions {
    * - "discard": accept the server's current state, abandon the local change.
    */
   resolveConflict: (strategy: "overwrite" | "discard") => void;
-  createSprint: (input: { name: string; startDate: string; endDate: string; capacityPoints?: number }) => Promise<Sprint | null>;
-  updateSprint: (id: string, input: { name?: string; startDate?: string; endDate?: string; capacityPoints?: number; status?: Sprint["status"] }) => Promise<void>;
+  createSprint: (input: { name?: string; description?: string; goal?: string; startDate: string; endDate: string; capacityPoints?: number }) => Promise<Sprint | null>;
+  updateSprint: (id: string, input: { name?: string; description?: string; goal?: string; startDate?: string; endDate?: string; capacityPoints?: number; status?: Sprint["status"] }) => Promise<void>;
   deleteSprint: (id: string) => Promise<void>;
   upsertSprintAssignment: (input: { sprintId: string; userId: string; availableHours: number }) => Promise<SprintAssignment | null>;
   removeSprintAssignment: (sprintId: string, userId: string) => Promise<void>;
   createEpicSnapshot: (epicTicketId: string, planJson: string) => Promise<EpicSnapshot | null>;
   setMemberRole: (userId: string, role: OrgMemberRole | null) => Promise<void>;
+  setViewMode: (mode: BoardViewMode) => void;
+  selectSprint: (sprintId: string) => void;
+  openCreateSprint: () => void;
+  openEditSprint: (sprintId: string) => void;
+  /** Add or remove a ticket from a sprint. */
+  setTicketSprints: (ticketId: string, sprintIds: string[]) => Promise<void>;
 }
 
 export type BoardViewModel = BoardData & BoardActions;
@@ -234,6 +268,8 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const [activeModal, setActiveModal] = useState<ActiveModal>("none");
   const [createTicketLinkSourceId, setCreateTicketLinkSourceId] = useState<string | null>(null);
   const [conflictError, setConflictError] = useState<ActiveConflict | null>(null);
+  const [viewMode, setViewModeState] = useState<BoardViewMode>("board");
+  const [selectedSprintIdState, setSelectedSprintIdState] = useState<string | null>(null);
 
   // ── Queries ──────────────────────────────────────────────────────
   const { data: boardsData, loading: boardsLoading } =
@@ -396,6 +432,10 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       setActiveModal("createVersion");
       return;
     }
+    if (modal === "create-sprint" && activeModal !== "createSprint") {
+      setActiveModal("createSprint");
+      return;
+    }
     if (!ticketNumber && !modal && activeModal !== "none") {
       setActiveModal("none");
       setSelectedTicketId(null);
@@ -403,11 +443,71 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, allTickets]);
 
+  // ── Sprint selection / view-mode derivations ─────────────────────
+  /**
+   * The "currently focused" sprint defaults to the board's active sprint
+   * (status === "active") when the user hasn't explicitly picked another.
+   * Falling through this priority chain keeps the UI sensible whether
+   * the board has 0, 1, or many sprints.
+   */
+  const defaultSprintId = useMemo<string | null>(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    // Find sprint whose dates include today
+    const currentSprint = sprints.find((s) => s.startDate <= today && today <= s.endDate);
+    if (currentSprint) return currentSprint.id;
+    // Fallback to active status
+    const active = sprints.find((s) => s.status === "active");
+    if (active) return active.id;
+    // Fallback to planning status
+    const planning = sprints.find((s) => s.status === "planning");
+    if (planning) return planning.id;
+    // Fallback to first sprint
+    return sprints[0]?.id ?? null;
+  }, [sprints]);
+
+  const selectedSprintId = selectedSprintIdState ?? defaultSprintId;
+  const selectedSprint = useMemo(
+    () => sprints.find((s) => s.id === selectedSprintId) ?? null,
+    [sprints, selectedSprintId],
+  );
+  const hasNoSprints = sprints.length === 0;
+
+  // In `board` mode: filter to the selected sprint. In `backlog` mode the kanban
+  // is replaced by BacklogView which handles its own filtering — return all.
+  const filteredTickets = useMemo(() => {
+    if (viewMode === "board" && selectedSprintId) {
+      return allTickets.filter((t) => t.sprintIds.includes(selectedSprintId));
+    }
+    return allTickets;
+  }, [allTickets, viewMode, selectedSprintId]);
+
   // ── Selectors / derived data ─────────────────────────────────────
   const activeBoardTicketsByColumn = useMemo(
-    () => bucketTicketsByColumn(boardColumns, allTickets),
-    [boardColumns, allTickets],
+    () => bucketTicketsByColumn(boardColumns, filteredTickets),
+    [boardColumns, filteredTickets],
   );
+
+  const committedPoints = useMemo(() => {
+    if (!selectedSprintId) return 0;
+    return allTickets
+      .filter((t) => t.sprintIds.includes(selectedSprintId))
+      .reduce((sum, t) => sum + (t.storyPoints ?? 0), 0);
+  }, [allTickets, selectedSprintId]);
+
+  /**
+   * Velocity: average `completedPoints` over the last 3 completed sprints.
+   * Returned as null when history is too thin to be meaningful.
+   */
+  const velocity = useMemo<number | null>(() => {
+    const completed = sprints
+      .filter((s) => s.status === "completed" && typeof s.completedPoints === "number")
+      .slice()
+      .sort((a, b) => b.endDate.localeCompare(a.endDate))
+      .slice(0, 3);
+    if (completed.length === 0) return null;
+    const sum = completed.reduce((acc, s) => acc + (s.completedPoints ?? 0), 0);
+    return Math.round(sum / completed.length);
+  }, [sprints]);
 
   const selectedTicket = useMemo(
     () => allTickets.find((t) => t.id === selectedTicketId) ?? null,
@@ -859,6 +959,36 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         });
       },
 
+      setViewMode: (mode) => {
+        setViewModeState(mode);
+      },
+
+      selectSprint: (sprintId) => {
+        setSelectedSprintIdState(sprintId);
+        setViewModeState("board");
+      },
+
+      openCreateSprint: () => {
+        setActiveModal("createSprint");
+        updateUrlParams({ ticketId: null, modal: "create-sprint" });
+      },
+
+      openEditSprint: (sprintId) => {
+        setActiveModal("editSprint");
+        updateUrlParams({ ticketId: null, modal: "edit-sprint" });
+      },
+
+      setTicketSprints: async (ticketId, sprintIds) => {
+        const current = stateRef.current.allTickets.find((t) => t.id === ticketId);
+        if (!current) return;
+        await updateTicketMutation({
+          variables: {
+            id: ticketId,
+            input: { sprintIds, expectedVersion: current.version },
+          },
+        });
+      },
+
       resolveConflict: async (strategy) => {
         const conflict = stateRef.current.conflictError;
         if (!conflict) return;
@@ -942,6 +1072,13 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       createTicketLinkSourceId,
       conflictError,
       sprints,
+      viewMode,
+      selectedSprintId,
+      selectedSprint,
+      hasNoSprints,
+      createSprintModalOpen: activeModal === "createSprint",
+      committedPoints,
+      velocity,
     }),
     [
       boards,
@@ -962,6 +1099,12 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       createTicketLinkSourceId,
       conflictError,
       sprints,
+      viewMode,
+      selectedSprintId,
+      selectedSprint,
+      hasNoSprints,
+      committedPoints,
+      velocity,
     ],
   );
 

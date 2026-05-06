@@ -6,6 +6,9 @@ import { useIsAdmin } from "@/presentation/shared/hooks/useIsAdmin";
 import { ColumnCard } from "./ColumnCard";
 import { ColumnForm } from "./ColumnForm";
 import { VersionPanel } from "./VersionPanel";
+import { SprintViewSwitcher } from "./SprintViewSwitcher";
+import { ActiveSprintHeader } from "./ActiveSprintHeader";
+import { BacklogView } from "./BacklogView";
 import { useBoardDrag } from "./useBoardDrag";
 
 export default function BoardWorkspaceView() {
@@ -16,6 +19,8 @@ export default function BoardWorkspaceView() {
     activeBoardTicketsByColumn,
     boardColumns,
     releaseVersions,
+    viewMode,
+    selectedSprint,
   } = useBoardData();
 
   const {
@@ -129,8 +134,17 @@ export default function BoardWorkspaceView() {
             onDeleteVersion={deleteVersion}
           />
         )}
+
+        <div className="mt-3">
+          <SprintViewSwitcher />
+        </div>
       </section>
 
+      {viewMode === "board" && selectedSprint && <ActiveSprintHeader />}
+
+      {viewMode === "backlog" ? (
+        <BacklogView />
+      ) : (
       <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-3 md:p-4">
         <p className="mb-3 text-[11px] uppercase tracking-wider text-zinc-500">Tickets by Column</p>
         <div className="flex gap-3 md:gap-4 overflow-x-auto pb-2 -mx-1 px-1">
@@ -197,6 +211,7 @@ export default function BoardWorkspaceView() {
           )}
         </div>
       </section>
+      )}
     </div>
   );
 }

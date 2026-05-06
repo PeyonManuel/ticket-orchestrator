@@ -13,6 +13,12 @@ export interface BoardColumn {
   states: string[];
   color: string;
   order: number;
+  /**
+   * Marks this column as terminal — tickets here count as "done."
+   * Drives velocity, drift completion %, and sprint rollover.
+   * Invariant: every board must have ≥1 column with `isDone: true`.
+   */
+  isDone: boolean;
 }
 
 export interface Board {
@@ -41,6 +47,8 @@ export interface Ticket {
   priority: "low" | "medium" | "high";
   linkedTicketIds: TicketId[];
   assigneeIds: string[];
+  /** Sprints this ticket belongs to. A ticket can be in multiple sprints. */
+  sprintIds: string[];
   version: number;
 }
 
@@ -83,12 +91,22 @@ export interface Sprint {
   id: string;
   orgId: string;
   boardId: string;
+  /** Auto-generated as `{boardName} {N}` on creation; PO can rename. */
   name: string;
+  /** Free-form planning notes. */
+  description: string;
+  /** One-line "north star" deliverable shown in the active-sprint header. */
+  goal: string;
   startDate: string;
   endDate: string;
   /** Total story-point budget for this sprint across all assignees. */
   capacityPoints: number;
   status: "planning" | "active" | "completed";
+  /**
+   * Snapshot of "done" story points at the moment status flipped to `completed`.
+   * Used for velocity calculation; absent on planning/active sprints.
+   */
+  completedPoints?: number;
 }
 
 export interface SprintAssignment {
@@ -242,11 +260,11 @@ export const DEFAULT_RELEASE_VERSIONS: Array<Pick<ReleaseVersion, "id" | "name" 
   { id: "version-3", name: "v1.3.0", releaseDate: "2026-09-10" },
 ];
 
-export const DEFAULT_COLUMN_DEFINITIONS: Array<Pick<BoardColumn, "name" | "states">> = [
-  { name: "Backlog", states: ["backlog"] },
-  { name: "To Do", states: ["todo"] },
-  { name: "In Progress", states: ["inProgress"] },
-  { name: "In Review", states: ["inReview"] },
-  { name: "In QA", states: ["inQa"] },
-  { name: "Ready", states: ["ready"] },
+export const DEFAULT_COLUMN_DEFINITIONS: Array<Pick<BoardColumn, "name" | "states" | "isDone">> = [
+  { name: "Backlog", states: ["backlog"], isDone: false },
+  { name: "To Do", states: ["todo"], isDone: false },
+  { name: "In Progress", states: ["inProgress"], isDone: false },
+  { name: "In Review", states: ["inReview"], isDone: false },
+  { name: "In QA", states: ["inQa"], isDone: false },
+  { name: "Ready", states: ["ready"], isDone: true },
 ];

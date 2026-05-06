@@ -22,6 +22,8 @@ export const BoardColumnSchema = z.object({
   states: z.array(z.string()),
   color: z.string(),
   order: z.number().int().nonnegative().default(0),
+  /** Default false so column docs created before this field still parse. */
+  isDone: z.boolean().default(false),
 });
 
 export const TicketSchema = z.object({
@@ -41,6 +43,8 @@ export const TicketSchema = z.object({
   priority: z.enum(["low", "medium", "high"]),
   linkedTicketIds: z.array(z.string()),
   assigneeIds: z.array(z.string()),
+  /** Default empty so ticket docs predating multi-sprint membership still parse. */
+  sprintIds: z.array(z.string()).default([]),
   version: z.number().int().nonnegative(),
 });
 
@@ -122,6 +126,7 @@ export const UpdateTicketInputSchema = z.object({
   storyPoints: StoryPointsSchema.optional(),
   linkedTicketIds: z.array(z.string()).optional(),
   assigneeIds: z.array(z.string()).optional(),
+  sprintIds: z.array(z.string()).optional(),
   /** Version client last observed — required for optimistic concurrency */
   expectedVersion: z.number().int().nonnegative(),
 });
@@ -133,10 +138,13 @@ export const SprintSchema = z.object({
   orgId: z.string(),
   boardId: z.string(),
   name: z.string().min(1),
+  description: z.string().default(""),
+  goal: z.string().default(""),
   startDate: z.string(),
   endDate: z.string(),
   capacityPoints: z.number().int().nonnegative(),
   status: z.enum(["planning", "active", "completed"]),
+  completedPoints: z.number().int().nonnegative().optional(),
 });
 
 export const SprintAssignmentSchema = z.object({
@@ -157,7 +165,10 @@ export const EpicSnapshotSchema = z.object({
 
 export const CreateSprintInputSchema = z.object({
   boardId: z.string(),
-  name: z.string().min(1),
+  /** Optional — server auto-generates `{boardName} {N}` when omitted. */
+  name: z.string().min(1).optional(),
+  description: z.string().default(""),
+  goal: z.string().default(""),
   startDate: z.string(),
   endDate: z.string(),
   capacityPoints: z.number().int().nonnegative().default(0),
@@ -165,6 +176,8 @@ export const CreateSprintInputSchema = z.object({
 
 export const UpdateSprintInputSchema = z.object({
   name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  goal: z.string().optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   capacityPoints: z.number().int().nonnegative().optional(),

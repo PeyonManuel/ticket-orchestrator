@@ -7,6 +7,8 @@ import Sidebar from "@/presentation/board/layout/Sidebar";
 import Topbar from "@/presentation/board/layout/Topbar";
 import { TicketModal } from "@/presentation/board/modals/TicketModal";
 import { CreateTicketModal } from "@/presentation/board/modals/CreateTicketModal";
+import { CreateSprintModal } from "@/presentation/board/modals/CreateSprintModal";
+import { EditSprintModal } from "@/presentation/board/modals/EditSprintModal";
 import { OrchestratorModal } from "@/presentation/board/modals/OrchestratorModal";
 import { SearchModal } from "@/presentation/board/modals/SearchModal";
 import { useIsMobile } from "@/presentation/shared/hooks/useIsMobile";
@@ -45,6 +47,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             them inside the desktop/mobile branches below. */}
         <TicketModal />
         <CreateTicketModal />
+        <CreateSprintModal />
+        <EditSprintModal />
         <OrchestratorModal />
         <SearchModal />
 

@@ -165,9 +165,10 @@ export const resolvers = {
       const board = await repo.createBoard(ctx.orgId, { name: input.name, type: input.type ?? "scrum" });
       const palette = ["#4f46e5", "#0ea5e9", "#22c55e"];
       const defaults = [
-        { name: "To Do", states: ["todo"], color: palette[0] },
-        { name: "In Progress", states: ["inProgress"], color: palette[1] },
-        { name: "Done", states: ["done"], color: palette[2] },
+        { name: "To Do", states: ["todo"], color: palette[0], isDone: false },
+        { name: "In Progress", states: ["inProgress"], color: palette[1], isDone: false },
+        // Last default column is the board's "done" column — every board needs ≥1.
+        { name: "Done", states: ["done"], color: palette[2], isDone: true },
       ];
       for (let i = 0; i < defaults.length; i++) {
         await repo.createColumn(ctx.orgId, { boardId: board.id, ...defaults[i], order: i });
@@ -201,11 +202,12 @@ export const resolvers = {
     ) => {
       requireAdmin(ctx);
       const existing = await repo.getBoardColumns(ctx.orgId, input.boardId);
-      return repo.createColumn(ctx.orgId, { ...input, order: existing.length });
+      // New columns are non-terminal by default; flip via updateColumn { isDone: true }.
+      return repo.createColumn(ctx.orgId, { ...input, order: existing.length, isDone: false });
     },
     updateColumn: (
       _p: unknown,
-      { id, input }: { id: string; input: { name?: string; states?: string[]; color?: string } },
+      { id, input }: { id: string; input: { name?: string; states?: string[]; color?: string; isDone?: boolean } },
       ctx: GraphQLContext
     ) => {
       requireAdmin(ctx);
@@ -307,7 +309,17 @@ export const resolvers = {
 
     createSprint: (
       _p: unknown,
-      { input }: { input: { boardId: string; name: string; startDate: string; endDate: string; capacityPoints?: number } },
+      { input }: {
+        input: {
+          boardId: string;
+          name?: string;
+          description?: string;
+          goal?: string;
+          startDate: string;
+          endDate: string;
+          capacityPoints?: number;
+        };
+      },
       ctx: GraphQLContext
     ) => {
       requireAuth(ctx);

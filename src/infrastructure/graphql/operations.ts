@@ -21,6 +21,7 @@ export const COLUMN_FIELDS = gql`
     states
     color
     order
+    isDone
   }
 `;
 
@@ -42,6 +43,7 @@ export const TICKET_FIELDS = gql`
     priority
     linkedTicketIds
     assigneeIds
+    sprintIds
     version
   }
 `;
@@ -177,10 +179,13 @@ export const SPRINT_FIELDS = gql`
     orgId
     boardId
     name
+    description
+    goal
     startDate
     endDate
     capacityPoints
     status
+    completedPoints
   }
 `;
 

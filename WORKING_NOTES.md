@@ -77,3 +77,5 @@ Legacy localStorage implementations are preserved in `src/_legacy/` (excluded fr
 - **AI orchestrator wiring** — `aiOrchestratorMachine` exists in domain but `OrchestratorModal` is a placeholder stub. This is intentionally last.
 - **E2E tests** — Playwright specs are required per AGENTS.md for conflict resolution and AI approval flows but not yet written.
 - **Conflict UI in non-modal flows** — `resolveConflict` is wired but only surfaced via `TicketModal`. Board drag-and-drop (`moveTicketToColumn`) can also produce a `ConflictError` which currently has no UI feedback.
+
+every time we interact with the board, like clicking on a ticket, we need to ask for the board info again since another user might've updated stuff.

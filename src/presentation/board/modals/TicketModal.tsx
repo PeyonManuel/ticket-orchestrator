@@ -8,6 +8,7 @@ import { useQuery, useMutation } from "@apollo/client/react";
 import { useBoardContext } from "@/presentation/board/BoardContext";
 import { LabelDropdown } from "@/presentation/shared/dropdowns/LabelDropdown";
 import { SimpleDropdown } from "@/presentation/shared/dropdowns/SimpleDropdown";
+import { SprintMultiSelect } from "@/presentation/shared/dropdowns/SprintMultiSelect";
 import { WorkflowDropdown } from "@/presentation/shared/dropdowns/WorkflowDropdown";
 import {
   GET_TICKET_COMMENTS,
@@ -47,6 +48,8 @@ export function TicketModal() {
     labels,
     addLabel,
     resolveConflict,
+    sprints,
+    setTicketSprints,
   } = useBoardContext();
   const { user } = useUser();
 
@@ -347,6 +350,15 @@ export function TicketModal() {
                   meta: v.releaseDate,
                 }))}
                 onChange={(v) => updateTicketField(selectedTicket.id, "fixVersion", v)}
+              />
+            </div>
+
+            <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
+              Sprints
+              <SprintMultiSelect
+                sprints={sprints}
+                value={selectedTicket.sprintIds}
+                onChange={(next) => setTicketSprints(selectedTicket.id, next)}
               />
             </div>
           </aside>

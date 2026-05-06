@@ -75,6 +75,7 @@ interface BoardDoc {
 interface ColumnDoc {
   _id: string; orgId: string; boardId: string; name: string;
   states: string[]; color: string; order: number;
+  isDone?: boolean;
 }
 interface TicketDoc {
   _id: string; orgId: string; ticketNumber: string; boardId: string; columnId: string;
@@ -82,7 +83,7 @@ interface TicketDoc {
   title: string; description: string; label: string; fixVersion: string;
   storyPoints: 1 | 2 | 3 | 5 | 8 | 13; workflowState: string;
   priority: "low" | "medium" | "high"; linkedTicketIds: string[];
-  assigneeIds: string[]; version: number;
+  assigneeIds: string[]; sprintIds?: string[]; version: number;
 }
 interface VersionDoc { _id: string; orgId: string; boardId: string; name: string; releaseDate: string }
 interface BoardMemberDoc { _id: string; orgId: string; boardId: string; userId: string; role: "member" | "admin"; addedAt: string }
@@ -275,20 +276,23 @@ export async function findBoardsToHardDelete(cutoffDays: number): Promise<Array<
 
 // ─── Columns ─────────────────────────────────────────────────────────────────
 
+function parseColumn(d: ColumnDoc): BoardColumn {
+  return BoardColumnSchema.parse({
+    id: d._id,
+    orgId: d.orgId,
+    boardId: d.boardId,
+    name: d.name,
+    states: d.states,
+    color: d.color,
+    order: d.order ?? 0,
+    isDone: d.isDone ?? false,
+  });
+}
+
 export async function getBoardColumns(orgId: string, boardId: string): Promise<BoardColumn[]> {
   const col = await coll<ColumnDoc>("columns");
   const docs = await col.find({ orgId, boardId }).sort({ order: 1 }).toArray();
-  return docs.map((d) =>
-    BoardColumnSchema.parse({
-      id: d._id,
-      orgId: d.orgId,
-      boardId: d.boardId,
-      name: d.name,
-      states: d.states,
-      color: d.color,
-      order: d.order ?? 0,
-    })
-  );
+  return docs.map(parseColumn);
 }
 
 export async function createColumn(
@@ -301,31 +305,52 @@ export async function createColumn(
   return BoardColumnSchema.parse({ id, orgId, ...input });
 }
 
+/**
+ * Counts how many columns on a board are flagged `isDone: true`.
+ * Used to enforce the "every board must have ≥1 done column" invariant
+ * before we permit toggling `isDone` off or deleting a done column.
+ */
+async function countDoneColumns(orgId: string, boardId: string): Promise<number> {
+  const col = await coll<ColumnDoc>("columns");
+  return col.countDocuments({ orgId, boardId, isDone: true });
+}
+
 export async function updateColumn(
   orgId: string,
   id: string,
-  patch: Partial<Pick<BoardColumn, "name" | "states" | "color">>
+  patch: Partial<Pick<BoardColumn, "name" | "states" | "color" | "isDone">>
 ): Promise<BoardColumn | null> {
   const col = await coll<ColumnDoc>("columns");
+
+  if (patch.isDone === false) {
+    const current = await col.findOne({ _id: id, orgId });
+    if (current?.isDone === true) {
+      const doneCount = await countDoneColumns(orgId, current.boardId);
+      if (doneCount <= 1) {
+        throw new Error("Cannot unmark the last 'Done' column — every board needs at least one.");
+      }
+    }
+  }
+
   const result = await col.findOneAndUpdate(
     { _id: id, orgId },
     { $set: patch },
     { returnDocument: "after" }
   );
   if (!result) return null;
-  return BoardColumnSchema.parse({
-    id: result._id,
-    orgId: result.orgId,
-    boardId: result.boardId,
-    name: result.name,
-    states: result.states,
-    color: result.color,
-    order: result.order ?? 0,
-  });
+  return parseColumn(result);
 }
 
 export async function deleteColumn(orgId: string, id: string): Promise<boolean> {
   const col = await coll<ColumnDoc>("columns");
+  const target = await col.findOne({ _id: id, orgId });
+  if (!target) return false;
+  if (target.isDone === true) {
+    const doneCount = await countDoneColumns(orgId, target.boardId);
+    if (doneCount <= 1) {
+      throw new Error("Cannot delete the last 'Done' column — every board needs at least one.");
+    }
+  }
   const result = await col.deleteOne({ _id: id, orgId });
   return result.deletedCount === 1;
 }
@@ -366,6 +391,7 @@ function parseTicket(d: Record<string, unknown>): Ticket {
     priority: d.priority,
     linkedTicketIds: d.linkedTicketIds ?? [],
     assigneeIds: d.assigneeIds ?? [],
+    sprintIds: d.sprintIds ?? [],
     version: d.version ?? 0,
   });
 }
@@ -421,6 +447,7 @@ export async function createTicket(
     parentTicketId: input.parentTicketId ?? null,
     linkedTicketIds: [],
     assigneeIds: input.assigneeIds ?? [],
+    sprintIds: [],
     version: 0,
   };
   await col.insertOne(doc);
@@ -896,15 +923,20 @@ export async function addLabel(orgId: string, label: string): Promise<string> {
 
 interface SprintDoc {
   _id: string; orgId: string; boardId: string; name: string;
+  description?: string; goal?: string;
   startDate: string; endDate: string; capacityPoints: number;
   status: "planning" | "active" | "completed";
+  completedPoints?: number;
 }
 
 function parseSprint(d: SprintDoc): Sprint {
   return SprintSchema.parse({
     id: d._id, orgId: d.orgId, boardId: d.boardId, name: d.name,
+    description: d.description ?? "",
+    goal: d.goal ?? "",
     startDate: d.startDate, endDate: d.endDate,
     capacityPoints: d.capacityPoints, status: d.status,
+    completedPoints: d.completedPoints,
   });
 }
 
@@ -916,11 +948,41 @@ export async function getSprints(orgId: string, boardId: string): Promise<Sprint
 
 export async function createSprint(
   orgId: string,
-  input: { boardId: string; name: string; startDate: string; endDate: string; capacityPoints: number }
+  input: {
+    boardId: string;
+    name?: string;
+    description?: string;
+    goal?: string;
+    startDate: string;
+    endDate: string;
+    capacityPoints: number;
+  }
 ): Promise<Sprint> {
   const col = await coll<SprintDoc>("sprints");
   const id = crypto.randomUUID();
-  const doc: SprintDoc = { _id: id, orgId, ...input, status: "planning" };
+
+  // Auto-name when not provided: `{boardName} {N+1}` where N is existing sprints on this board.
+  let name = input.name?.trim();
+  if (!name) {
+    const boards = await coll<BoardDoc>("boards");
+    const board = await boards.findOne({ _id: input.boardId, orgId });
+    const existingCount = await col.countDocuments({ orgId, boardId: input.boardId });
+    const boardName = board?.name ?? "Sprint";
+    name = `${boardName} ${existingCount + 1}`;
+  }
+
+  const doc: SprintDoc = {
+    _id: id,
+    orgId,
+    boardId: input.boardId,
+    name,
+    description: input.description ?? "",
+    goal: input.goal ?? "",
+    startDate: input.startDate,
+    endDate: input.endDate,
+    capacityPoints: input.capacityPoints,
+    status: "planning",
+  };
   await col.insertOne(doc);
   return parseSprint(doc);
 }
@@ -928,15 +990,52 @@ export async function createSprint(
 export async function updateSprint(
   orgId: string,
   id: string,
-  patch: Partial<Pick<Sprint, "name" | "startDate" | "endDate" | "capacityPoints" | "status">>
+  patch: Partial<Pick<Sprint, "name" | "description" | "goal" | "startDate" | "endDate" | "capacityPoints" | "status">>
 ): Promise<Sprint | null> {
   const col = await coll<SprintDoc>("sprints");
+
+  // When transitioning from non-completed → completed, snapshot the
+  // currently-done story points as immutable velocity history.
+  const set: Partial<SprintDoc> = { ...patch };
+  if (patch.status === "completed") {
+    const current = await col.findOne({ _id: id, orgId });
+    if (current && current.status !== "completed") {
+      set.completedPoints = await sumDoneStoryPointsForSprint(orgId, current.boardId, id);
+    }
+  }
+
   const result = await col.findOneAndUpdate(
     { _id: id, orgId },
-    { $set: patch },
+    { $set: set },
     { returnDocument: "after" }
   );
   return result ? parseSprint(result) : null;
+}
+
+/**
+ * Sums `storyPoints` of tickets that:
+ *   - belong to the given sprint, AND
+ *   - sit in a column flagged `isDone: true`.
+ * Used to snapshot velocity at sprint-completion time.
+ */
+async function sumDoneStoryPointsForSprint(
+  orgId: string,
+  boardId: string,
+  sprintId: string,
+): Promise<number> {
+  const colsCol = await coll<ColumnDoc>("columns");
+  const doneColumns = await colsCol
+    .find({ orgId, boardId, isDone: true })
+    .project<{ _id: string }>({ _id: 1 })
+    .toArray();
+  if (doneColumns.length === 0) return 0;
+  const doneIds = doneColumns.map((c) => c._id);
+  const ticketsCol = await coll<TicketDoc>("tickets");
+  const tickets = await ticketsCol
+    .find({ orgId, boardId, columnId: { $in: doneIds }, sprintIds: sprintId })
+    .project<{ storyPoints: number }>({ storyPoints: 1 })
+    .toArray();
+  return tickets.reduce((sum, t) => sum + (t.storyPoints ?? 0), 0);
 }
 
 export async function deleteSprint(orgId: string, id: string): Promise<boolean> {

@@ -32,6 +32,8 @@ export const typeDefs = /* GraphQL */ `
     states: [String!]!
     color: String!
     order: Int!
+    """Tickets in a column with isDone=true count as completed for velocity, drift, and rollover."""
+    isDone: Boolean!
   }
 
   type BoardMember {
@@ -59,6 +61,8 @@ export const typeDefs = /* GraphQL */ `
     priority: Priority!
     linkedTicketIds: [ID!]!
     assigneeIds: [ID!]!
+    """Sprints this ticket is part of. Tickets can live in multiple sprints."""
+    sprintIds: [ID!]!
     version: Int!
     """Comments resolved via DataLoader (no N+1)."""
     comments: [Comment!]!
@@ -115,10 +119,15 @@ export const typeDefs = /* GraphQL */ `
     orgId: ID!
     boardId: ID!
     name: String!
+    description: String!
+    """One-line goal — anchors the sprint to a deliverable."""
+    goal: String!
     startDate: String!
     endDate: String!
     capacityPoints: Int!
     status: SprintStatus!
+    """SP completed at the moment status flipped to 'completed'. Absent on planning/active sprints."""
+    completedPoints: Int
   }
 
   type SprintAssignment {
@@ -201,6 +210,7 @@ export const typeDefs = /* GraphQL */ `
     name: String
     states: [String!]
     color: String
+    isDone: Boolean
   }
 
   input CreateTicketInput {
@@ -229,6 +239,7 @@ export const typeDefs = /* GraphQL */ `
     storyPoints: Int
     linkedTicketIds: [ID!]
     assigneeIds: [ID!]
+    sprintIds: [ID!]
     """The version the client last observed. Required for optimistic concurrency."""
     expectedVersion: Int!
   }
@@ -278,7 +289,10 @@ export const typeDefs = /* GraphQL */ `
 
   input CreateSprintInput {
     boardId: ID!
-    name: String!
+    """Optional — server auto-generates '{boardName} {N}' when omitted."""
+    name: String
+    description: String
+    goal: String
     startDate: String!
     endDate: String!
     capacityPoints: Int
@@ -286,6 +300,8 @@ export const typeDefs = /* GraphQL */ `
 
   input UpdateSprintInput {
     name: String
+    description: String
+    goal: String
     startDate: String
     endDate: String
     capacityPoints: Int
