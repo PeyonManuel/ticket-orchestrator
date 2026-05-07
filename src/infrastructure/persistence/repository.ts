@@ -563,6 +563,7 @@ function diffTickets(prev: Ticket, next: Ticket): HistoryFieldChange[] {
   const tracked: (keyof Ticket)[] = [
     "title", "description", "label", "fixVersion", "priority",
     "storyPoints", "workflowState", "columnId",
+    "hierarchyType", "parentTicketId",
   ];
   const changes: HistoryFieldChange[] = [];
   for (const field of tracked) {

@@ -1,10 +1,12 @@
 "use client";
 
 import React, { memo } from "react";
+import { TICKET_TYPE_COLORS } from "@/presentation/shared/utils/ticketTypeColors";
 import type { Ticket } from "@/domain/analyst";
 
 interface TicketCardProps {
   ticket: Ticket;
+  /** Reserved (column color); type-based accent is applied to the left border. */
   accentColor: string;
   isDragging: boolean;
   onOpen: (ticketId: string) => void;
@@ -14,12 +16,12 @@ interface TicketCardProps {
 
 function TicketCardImpl({
   ticket,
-  accentColor,
   isDragging,
   onOpen,
   onDragStart,
   onDragEnd,
 }: TicketCardProps) {
+  const colors = TICKET_TYPE_COLORS[ticket.hierarchyType];
   return (
     <article
       draggable
@@ -37,10 +39,10 @@ function TicketCardImpl({
       className={`cursor-pointer rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-3 hover:border-indigo-500/50 ${
         isDragging ? "opacity-40" : ""
       }`}
-      style={{ borderLeftColor: accentColor, borderLeftWidth: 3 }}
+      style={{ borderLeftColor: colors.accent, borderLeftWidth: 3 }}
     >
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-300/80">
-        {ticket.hierarchyType}
+      <p className={`text-[10px] font-semibold uppercase tracking-wide ${colors.text}`}>
+        {colors.label}
       </p>
       <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
         {ticket.ticketNumber} · {ticket.title}

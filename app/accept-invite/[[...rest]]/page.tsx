@@ -4,18 +4,27 @@ import { Suspense, useEffect, useState } from "react";
 import { SignUp } from "@clerk/nextjs";
 import { dark } from "@clerk/themes";
 import { useAuth, useClerk } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
 export default function AcceptInvitePage() {
   const { isSignedIn } = useAuth();
+  const router = useRouter();
   const { signOut } = useClerk();
-  const [hasSignedOut, setHasSignedOut] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [showExpiredMessage, setShowExpiredMessage] = useState(false);
 
   useEffect(() => {
-    if (isSignedIn && !hasSignedOut) {
-      signOut().then(() => setHasSignedOut(true));
+    if (isSignedIn && !signingOut) {
+      const params = new URLSearchParams(window.location.search);
+
+      setSigningOut(true);
+      signOut().then(() => {
+        router.replace(
+          "/accept-invite" + (params.toString() ? `?${params.toString()}` : ""),
+        );
+      });
     }
-  }, [isSignedIn, hasSignedOut, signOut]);
+  }, [isSignedIn, signingOut, signOut]);
 
   // Check if invite ticket is missing or invalid (already used)
   useEffect(() => {
@@ -37,13 +46,19 @@ export default function AcceptInvitePage() {
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-indigo-600 text-xl font-bold italic shadow-[0_0_20px_rgba(79,70,229,0.5)]">
               O
             </div>
-            <span className="text-2xl font-bold tracking-tighter text-zinc-100">ORION</span>
+            <span className="text-2xl font-bold tracking-tighter text-zinc-100">
+              ORION
+            </span>
           </div>
 
           <div className="rounded-lg border border-amber-200/20 bg-amber-500/10 p-4">
-            <p className="text-sm font-semibold text-amber-200">Invitation expired or already used</p>
+            <p className="text-sm font-semibold text-amber-200">
+              Invitation expired or already used
+            </p>
             <p className="mt-2 text-xs text-amber-200/80">
-              This invitation link has already been claimed or is no longer valid. Contact the person who invited you to send a new invitation.
+              This invitation link has already been claimed or is no longer
+              valid. Contact the person who invited you to send a new
+              invitation.
             </p>
           </div>
 
@@ -58,7 +73,7 @@ export default function AcceptInvitePage() {
     );
   }
 
-  if (isSignedIn && !hasSignedOut) {
+  if (signingOut) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-zinc-950">
         <div className="flex flex-col items-center gap-4">
@@ -66,9 +81,11 @@ export default function AcceptInvitePage() {
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-indigo-600 text-xl font-bold italic shadow-[0_0_20px_rgba(79,70,229,0.5)]">
               O
             </div>
-            <span className="text-2xl font-bold tracking-tighter text-zinc-100">ORION</span>
+            <span className="text-2xl font-bold tracking-tighter text-zinc-100">
+              ORION
+            </span>
           </div>
-          <p className="text-sm text-zinc-400">Signing you out to accept this invitation...</p>
+          <p className="text-sm text-zinc-400">Setting up your account...</p>
         </div>
       </main>
     );
@@ -81,12 +98,19 @@ export default function AcceptInvitePage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-md bg-indigo-600 text-xl font-bold italic shadow-[0_0_20px_rgba(79,70,229,0.5)]">
             O
           </div>
-          <span className="text-2xl font-bold tracking-tighter text-zinc-100">ORION</span>
+          <span className="text-2xl font-bold tracking-tighter text-zinc-100">
+            ORION
+          </span>
         </div>
 
-        <p className="text-sm text-zinc-400">You've been invited to a workspace. Create your account to get started.</p>
+        <p className="text-sm text-zinc-400">
+          You've been invited to a workspace. Create your account to get
+          started.
+        </p>
 
-        <Suspense fallback={<div className="text-sm text-zinc-500">Loading...</div>}>
+        <Suspense
+          fallback={<div className="text-sm text-zinc-500">Loading...</div>}
+        >
           <SignUp
             forceRedirectUrl="/"
             appearance={{
@@ -119,13 +143,15 @@ export default function AcceptInvitePage() {
                 formFieldLabel: "!text-zinc-200 font-medium",
                 formFieldInput:
                   "!border !border-zinc-600 focus:!border-indigo-500 !text-white placeholder:!text-zinc-500",
-                formFieldInputShowPasswordButton: "!text-zinc-400 hover:!text-zinc-200",
+                formFieldInputShowPasswordButton:
+                  "!text-zinc-400 hover:!text-zinc-200",
                 formFieldHintText: "!text-zinc-400",
                 formFieldErrorText: "!text-red-400",
                 formButtonPrimary:
                   "!bg-indigo-600 hover:!bg-indigo-500 !text-white font-semibold shadow-md",
                 footerActionText: "!text-zinc-400",
-                footerActionLink: "!text-indigo-400 hover:!text-indigo-300 font-medium",
+                footerActionLink:
+                  "!text-indigo-400 hover:!text-indigo-300 font-medium",
                 footer: "!text-zinc-600",
                 alertText: "!text-zinc-200",
                 formFieldRow: "!text-white",

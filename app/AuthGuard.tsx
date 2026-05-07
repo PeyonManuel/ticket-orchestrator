@@ -11,7 +11,9 @@ const Spinner = () => (
       <div className="flex h-10 w-10 items-center justify-center rounded-md bg-indigo-600 text-xl font-bold italic text-white">
         O
       </div>
-      <span className="text-2xl font-bold tracking-tighter text-zinc-900 dark:text-zinc-100">ORION</span>
+      <span className="text-2xl font-bold tracking-tighter text-zinc-900 dark:text-zinc-100">
+        ORION
+      </span>
     </div>
   </div>
 );
@@ -23,7 +25,11 @@ const Spinner = () => (
  */
 function OrgGuard({ children }: { children: React.ReactNode }) {
   const { orgId } = useAuth();
-  const { userMemberships, setActive, isLoaded: orgsLoaded } = useOrganizationList({
+  const {
+    userMemberships,
+    setActive,
+    isLoaded: orgsLoaded,
+  } = useOrganizationList({
     userMemberships: { infinite: true },
   });
   const router = useRouter();

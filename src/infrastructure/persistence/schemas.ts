@@ -127,6 +127,8 @@ export const UpdateTicketInputSchema = z.object({
   linkedTicketIds: z.array(z.string()).optional(),
   assigneeIds: z.array(z.string()).optional(),
   sprintIds: z.array(z.string()).optional(),
+  hierarchyType: z.enum(["epic", "story", "task"]).optional(),
+  parentTicketId: z.string().nullable().optional(),
   /** Version client last observed — required for optimistic concurrency */
   expectedVersion: z.number().int().nonnegative(),
 });

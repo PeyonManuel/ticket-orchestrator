@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { useBoardContext } from "@/presentation/board/BoardContext";
 import { LabelDropdown } from "@/presentation/shared/dropdowns/LabelDropdown";
 import { SimpleDropdown } from "@/presentation/shared/dropdowns/SimpleDropdown";
+import { ParentTicketSelect } from "@/presentation/shared/dropdowns/ParentTicketSelect";
 import type { TicketHierarchyType } from "@/domain/analyst";
 
 export function CreateTicketModal() {
@@ -19,8 +20,12 @@ export function CreateTicketModal() {
     closeModal,
     labels,
     addLabel,
+    allTickets,
+    createTicketParentId,
   } = useBoardContext();
-  const [selectedBoardId, setSelectedBoardId] = useState<string>(activeBoardId ?? "");
+  const [selectedBoardId, setSelectedBoardId] = useState<string>(
+    activeBoardId ?? "",
+  );
 
   React.useEffect(() => {
     if (activeBoardId) {
@@ -42,6 +47,7 @@ export function CreateTicketModal() {
     hierarchyType: TicketHierarchyType;
     priority: "low" | "medium" | "high";
     columnId: string;
+    parentTicketId: string | null;
   }>({
     title: "",
     description: "",
@@ -51,15 +57,56 @@ export function CreateTicketModal() {
     hierarchyType: "task",
     priority: "medium",
     columnId: columnsForBoard[0]?.id ?? "",
+    parentTicketId: null,
   });
 
+  // Eligible parents: epics on the selected board.
+  const epicOptions = useMemo(
+    () =>
+      allTickets.filter(
+        (t) => t.boardId === selectedBoardId && t.hierarchyType === "epic",
+      ),
+    [allTickets, selectedBoardId],
+  );
+
+  // When the modal is opened "as child of <epic>", pre-fill the parent ID.
+  // Default to story (the more common child type) when a parent is preset.
+  React.useEffect(() => {
+    if (createModalOpen && createTicketParentId) {
+      setForm((prev) => ({
+        ...prev,
+        parentTicketId: createTicketParentId,
+        hierarchyType: prev.hierarchyType === "epic" ? "story" : prev.hierarchyType,
+      }));
+    }
+  }, [createModalOpen, createTicketParentId]);
+
+  // Clear stale parent selection when the user switches board or promotes to epic.
+  React.useEffect(() => {
+    if (form.hierarchyType === "epic" && form.parentTicketId !== null) {
+      setForm((prev) => ({ ...prev, parentTicketId: null }));
+    }
+  }, [form.hierarchyType, form.parentTicketId]);
+
+  React.useEffect(() => {
+    if (
+      form.parentTicketId &&
+      !epicOptions.some((t) => t.id === form.parentTicketId)
+    ) {
+      setForm((prev) => ({ ...prev, parentTicketId: null }));
+    }
+  }, [epicOptions, form.parentTicketId]);
+
   const effectiveColumnId =
-    columnsForBoard.find((c) => c.id === form.columnId)?.id ?? columnsForBoard[0]?.id ?? "";
+    columnsForBoard.find((c) => c.id === form.columnId)?.id ??
+    columnsForBoard[0]?.id ??
+    "";
 
   if (!createModalOpen) return null;
 
   const chosenColumn = columnsForBoard.find((c) => c.id === effectiveColumnId);
-  const canSubmit = !!selectedBoardId && !!effectiveColumnId && !!form.title.trim();
+  const canSubmit =
+    !!selectedBoardId && !!effectiveColumnId && !!form.title.trim();
 
   // Fix-version: use our custom dropdown when versions exist, plain text input otherwise.
   const versionOptions = [
@@ -87,7 +134,8 @@ export function CreateTicketModal() {
             boardId: selectedBoardId,
             columnId: effectiveColumnId,
             hierarchyType: form.hierarchyType,
-            parentTicketId: null,
+            parentTicketId:
+              form.hierarchyType === "epic" ? null : form.parentTicketId,
             title: form.title.trim(),
             description: form.description.trim(),
             label: form.label.trim(),
@@ -102,32 +150,33 @@ export function CreateTicketModal() {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-white dark:bg-zinc-900 z-10 border-b border-zinc-100 dark:border-zinc-800">
-          <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Create ticket</h2>
-          <button type="button" onClick={closeModal} className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">
+          <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+            Create ticket for board "
+            {boards.find((b) => b.id === selectedBoardId)?.name ?? "N/A"}"
+          </h2>
+          <button
+            type="button"
+            onClick={closeModal}
+            className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
             <X size={16} />
           </button>
         </div>
 
         <div className="p-5 grid gap-3">
-          {/* Board picker */}
-          <SimpleDropdown
-            value={selectedBoardId}
-            options={boards.map((b) => ({ label: b.name, value: b.id }))}
-            onChange={(v) => {
-              setSelectedBoardId(v);
-              setForm((prev) => ({ ...prev, columnId: "" }));
-            }}
-          />
-
           <input
             value={form.title}
-            onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, title: e.target.value }))
+            }
             placeholder="Title"
             className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
           <textarea
             value={form.description}
-            onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, description: e.target.value }))
+            }
             placeholder="Description (optional)"
             rows={3}
             className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 resize-none focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -140,21 +189,12 @@ export function CreateTicketModal() {
               onChange={(v) => setForm((prev) => ({ ...prev, label: v }))}
               onAddLabel={addLabel}
             />
-            {releaseVersions.length > 0 ? (
-              <SimpleDropdown
-                value={form.fixVersion}
-                options={versionOptions}
-                onChange={(v) => setForm((prev) => ({ ...prev, fixVersion: v }))}
-                placeholder="Fix version (optional)"
-              />
-            ) : (
-              <input
-                value={form.fixVersion}
-                onChange={(e) => setForm((prev) => ({ ...prev, fixVersion: e.target.value }))}
-                placeholder="Fix version (optional)"
-                className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-            )}
+            <SimpleDropdown
+              value={form.fixVersion}
+              options={versionOptions}
+              onChange={(v) => setForm((prev) => ({ ...prev, fixVersion: v }))}
+              placeholder="Fix version (optional)"
+            />
           </div>
 
           <div className="grid gap-3 grid-cols-3">
@@ -165,7 +205,12 @@ export function CreateTicketModal() {
                 { label: "Story", value: "story" },
                 { label: "Task", value: "task" },
               ]}
-              onChange={(v) => setForm((prev) => ({ ...prev, hierarchyType: v as TicketHierarchyType }))}
+              onChange={(v) =>
+                setForm((prev) => ({
+                  ...prev,
+                  hierarchyType: v as TicketHierarchyType,
+                }))
+              }
             />
             <SimpleDropdown
               value={form.priority}
@@ -174,25 +219,57 @@ export function CreateTicketModal() {
                 { label: "Medium", value: "medium", dot: "#f59e0b" },
                 { label: "High", value: "high", dot: "#ef4444" },
               ]}
-              onChange={(v) => setForm((prev) => ({ ...prev, priority: v as "low" | "medium" | "high" }))}
+              onChange={(v) =>
+                setForm((prev) => ({
+                  ...prev,
+                  priority: v as "low" | "medium" | "high",
+                }))
+              }
             />
             <SimpleDropdown
               value={String(form.storyPoints)}
-              options={[1, 2, 3, 5, 8, 13].map((p) => ({ label: `${p} SP`, value: String(p) }))}
-              onChange={(v) => setForm((prev) => ({ ...prev, storyPoints: Number(v) as 1 | 2 | 3 | 5 | 8 | 13 }))}
+              options={[1, 2, 3, 5, 8, 13].map((p) => ({
+                label: `${p} SP`,
+                value: String(p),
+              }))}
+              onChange={(v) =>
+                setForm((prev) => ({
+                  ...prev,
+                  storyPoints: Number(v) as 1 | 2 | 3 | 5 | 8 | 13,
+                }))
+              }
             />
           </div>
 
           {columnsForBoard.length === 0 ? (
             <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
-              This board has no columns yet. Add columns from the board view first.
+              This board has no columns yet. Add columns from the board view
+              first.
             </p>
           ) : (
             <SimpleDropdown
               value={effectiveColumnId}
-              options={columnsForBoard.map((col) => ({ label: col.name, value: col.id, dot: col.color }))}
+              options={columnsForBoard.map((col) => ({
+                label: col.name,
+                value: col.id,
+                dot: col.color,
+              }))}
               onChange={(v) => setForm((prev) => ({ ...prev, columnId: v }))}
             />
+          )}
+
+          {form.hierarchyType !== "epic" && (
+            <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
+              Parent epic
+              <ParentTicketSelect
+                value={form.parentTicketId}
+                options={epicOptions}
+                onChange={(parentId) =>
+                  setForm((prev) => ({ ...prev, parentTicketId: parentId }))
+                }
+                placeholder="No parent"
+              />
+            </div>
           )}
 
           <div className="flex justify-end gap-2 pt-1">

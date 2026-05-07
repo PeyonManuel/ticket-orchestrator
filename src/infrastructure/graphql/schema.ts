@@ -240,6 +240,8 @@ export const typeDefs = /* GraphQL */ `
     linkedTicketIds: [ID!]
     assigneeIds: [ID!]
     sprintIds: [ID!]
+    hierarchyType: HierarchyType
+    parentTicketId: ID
     """The version the client last observed. Required for optimistic concurrency."""
     expectedVersion: Int!
   }

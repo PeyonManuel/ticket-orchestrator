@@ -23,6 +23,7 @@ import type {
   Sprint,
   SprintAssignment,
   Ticket,
+  TicketHierarchyType,
   UserRole,
 } from "@/domain/analyst";
 import {
@@ -115,6 +116,8 @@ export interface BoardData {
   /** True while any of the initial data queries are still in flight. */
   isLoading: boolean;
   createTicketLinkSourceId: string | null;
+  /** When set, the create-ticket modal pre-fills `parentTicketId` with this value. */
+  createTicketParentId: string | null;
   /** Set when an UpdateTicket mutation returns a ConflictError. Cleared on resolve. */
   conflictError: ActiveConflict | null;
   sprints: Sprint[];
@@ -145,10 +148,15 @@ export interface BoardActions {
   closeModal: () => void;
   openCreateTicket: () => void;
   openCreateTicketLinkedTo: (ticketId: string) => void;
+  openCreateTicketAsChildOf: (parentTicketId: string) => void;
   openSearch: () => void;
   openCreateVersion: () => void;
   openOrchestrator: () => void;
-  addBoardColumn: (boardId: string, columnName: string, states: string[]) => void;
+  addBoardColumn: (
+    boardId: string,
+    columnName: string,
+    states: string[],
+  ) => void;
   updateColumnState: (columnId: string, states: string[]) => void;
   updateColumnColor: (columnId: string, color: string) => void;
   renameColumn: (columnId: string, name: string) => void;
@@ -174,9 +182,17 @@ export interface BoardActions {
    * The schema still stores an array; we wrap into `[userId]` or `[]` accordingly.
    */
   setTicketAssignee: (ticketId: string, userId: string | null) => void;
+  /** Set ticket's parent (epic). Pass `null` to detach. */
+  setTicketParent: (ticketId: string, parentId: string | null) => Promise<void>;
+  /** Change a ticket's hierarchy type (epic / story / task). */
+  setTicketHierarchyType: (ticketId: string, hierarchyType: TicketHierarchyType) => Promise<void>;
   linkTickets: (ticketId: string, targetTicketId: string) => void;
   unlinkTickets: (ticketId: string, targetTicketId: string) => void;
-  createVersion: (name: string, releaseDate: string, applyToTicketId?: string) => void;
+  createVersion: (
+    name: string,
+    releaseDate: string,
+    applyToTicketId?: string,
+  ) => void;
   deleteVersion: (versionId: string) => void;
   createBoard: (name: string) => Promise<void>;
   archiveBoard: (boardId: string) => Promise<void>;
@@ -191,12 +207,37 @@ export interface BoardActions {
    * - "discard": accept the server's current state, abandon the local change.
    */
   resolveConflict: (strategy: "overwrite" | "discard") => void;
-  createSprint: (input: { name?: string; description?: string; goal?: string; startDate: string; endDate: string; capacityPoints?: number }) => Promise<Sprint | null>;
-  updateSprint: (id: string, input: { name?: string; description?: string; goal?: string; startDate?: string; endDate?: string; capacityPoints?: number; status?: Sprint["status"] }) => Promise<void>;
+  createSprint: (input: {
+    name?: string;
+    description?: string;
+    goal?: string;
+    startDate: string;
+    endDate: string;
+    capacityPoints?: number;
+  }) => Promise<Sprint | null>;
+  updateSprint: (
+    id: string,
+    input: {
+      name?: string;
+      description?: string;
+      goal?: string;
+      startDate?: string;
+      endDate?: string;
+      capacityPoints?: number;
+      status?: Sprint["status"];
+    },
+  ) => Promise<void>;
   deleteSprint: (id: string) => Promise<void>;
-  upsertSprintAssignment: (input: { sprintId: string; userId: string; availableHours: number }) => Promise<SprintAssignment | null>;
+  upsertSprintAssignment: (input: {
+    sprintId: string;
+    userId: string;
+    availableHours: number;
+  }) => Promise<SprintAssignment | null>;
   removeSprintAssignment: (sprintId: string, userId: string) => Promise<void>;
-  createEpicSnapshot: (epicTicketId: string, planJson: string) => Promise<EpicSnapshot | null>;
+  createEpicSnapshot: (
+    epicTicketId: string,
+    planJson: string,
+  ) => Promise<EpicSnapshot | null>;
   setMemberRole: (userId: string, role: OrgMemberRole | null) => Promise<void>;
   setViewMode: (mode: BoardViewMode) => void;
   selectSprint: (sprintId: string) => void;
@@ -215,19 +256,41 @@ const BoardActionsContext = createContext<BoardActions | null>(null);
 
 // ── Apollo result types (narrowed locally — keeps generated types optional) ──
 
-interface GetBoardsResult { boards: Board[] }
-interface GetBoardColumnsResult { boardColumns: BoardColumn[] }
-interface GetTicketsResult {
-  tickets: { edges: Array<{ cursor: string; node: Ticket }>; pageInfo: { endCursor: string | null; hasNextPage: boolean } };
+interface GetBoardsResult {
+  boards: Board[];
 }
-interface GetReleaseVersionsResult { releaseVersions: ReleaseVersion[] }
-interface GetLabelsResult { labels: string[] }
-interface GetOrgMembersResult { orgMembers: OrgMember[] }
-interface GetSprintsResult { sprints: Sprint[] }
+interface GetBoardColumnsResult {
+  boardColumns: BoardColumn[];
+}
+interface GetTicketsResult {
+  tickets: {
+    edges: Array<{ cursor: string; node: Ticket }>;
+    pageInfo: { endCursor: string | null; hasNextPage: boolean };
+  };
+}
+interface GetReleaseVersionsResult {
+  releaseVersions: ReleaseVersion[];
+}
+interface GetLabelsResult {
+  labels: string[];
+}
+interface GetOrgMembersResult {
+  orgMembers: OrgMember[];
+}
+interface GetSprintsResult {
+  sprints: Sprint[];
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-const COLUMN_PALETTE = ["#64748b", "#4f46e5", "#0ea5e9", "#f59e0b", "#ef4444", "#22c55e"];
+const COLUMN_PALETTE = [
+  "#64748b",
+  "#4f46e5",
+  "#0ea5e9",
+  "#f59e0b",
+  "#ef4444",
+  "#22c55e",
+];
 const SLUG = (s: string) => s.trim().toLowerCase().replace(/\s+/g, "-");
 
 function bucketTicketsByColumn(
@@ -262,14 +325,20 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const { orgId: clerkOrgId } = useAuth();
   const sessionReady = !!clerkOrgId;
 
-  // ── UI state (was XState; now plain useState) ────────────────────
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<ActiveModal>("none");
-  const [createTicketLinkSourceId, setCreateTicketLinkSourceId] = useState<string | null>(null);
-  const [conflictError, setConflictError] = useState<ActiveConflict | null>(null);
+  const [createTicketParentId, setCreateTicketParentId] = useState<string | null>(null);
+  const [createTicketLinkSourceId, setCreateTicketLinkSourceId] = useState<
+    string | null
+  >(null);
+  const [conflictError, setConflictError] = useState<ActiveConflict | null>(
+    null,
+  );
   const [viewMode, setViewModeState] = useState<BoardViewMode>("board");
-  const [selectedSprintIdState, setSelectedSprintIdState] = useState<string | null>(null);
+  const [selectedSprintIdState, setSelectedSprintIdState] = useState<
+    string | null
+  >(null);
 
   // ── Queries ──────────────────────────────────────────────────────
   const { data: boardsData, loading: boardsLoading } =
@@ -286,39 +355,46 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boards]);
 
-  const { data: columnsData, loading: columnsLoading } = useQuery<GetBoardColumnsResult>(
-    GET_BOARD_COLUMNS,
-    { variables: { boardId: activeBoardId }, skip: !activeBoardId },
-  );
+  const { data: columnsData, loading: columnsLoading } =
+    useQuery<GetBoardColumnsResult>(GET_BOARD_COLUMNS, {
+      variables: { boardId: activeBoardId },
+      skip: !activeBoardId,
+    });
   const boardColumns = useMemo<BoardColumn[]>(
     () => columnsData?.boardColumns ?? [],
     [columnsData],
   );
 
-  const { data: ticketsData, loading: ticketsLoading } = useQuery<GetTicketsResult>(
-    GET_TICKETS,
-    {
+  const { data: ticketsData, loading: ticketsLoading } =
+    useQuery<GetTicketsResult>(GET_TICKETS, {
       variables: { boardId: activeBoardId, first: 200 },
       skip: !activeBoardId,
-    },
-  );
+    });
   const allTickets = useMemo<Ticket[]>(
     () => ticketsData?.tickets.edges.map((e) => e.node) ?? [],
     [ticketsData],
   );
 
-  const { data: versionsData } = useQuery<GetReleaseVersionsResult>(GET_RELEASE_VERSIONS, {
-    variables: { boardId: activeBoardId },
-    skip: !activeBoardId,
-  });
+  const { data: versionsData } = useQuery<GetReleaseVersionsResult>(
+    GET_RELEASE_VERSIONS,
+    {
+      variables: { boardId: activeBoardId },
+      skip: !activeBoardId,
+    },
+  );
   const releaseVersions = versionsData?.releaseVersions ?? [];
 
-  const { data: labelsData } = useQuery<GetLabelsResult>(GET_LABELS, { skip: !sessionReady });
-  const labels = labelsData?.labels ?? [];
-
-  const { data: orgMembersData } = useQuery<GetOrgMembersResult>(GET_ORG_MEMBERS, {
+  const { data: labelsData } = useQuery<GetLabelsResult>(GET_LABELS, {
     skip: !sessionReady,
   });
+  const labels = labelsData?.labels ?? [];
+
+  const { data: orgMembersData } = useQuery<GetOrgMembersResult>(
+    GET_ORG_MEMBERS,
+    {
+      skip: !sessionReady,
+    },
+  );
   const orgMembers = useMemo<OrgMember[]>(
     () => orgMembersData?.orgMembers ?? [],
     [orgMembersData],
@@ -328,9 +404,13 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     variables: { boardId: activeBoardId },
     skip: !activeBoardId,
   });
-  const sprints = useMemo<Sprint[]>(() => sprintsData?.sprints ?? [], [sprintsData]);
+  const sprints = useMemo<Sprint[]>(
+    () => sprintsData?.sprints ?? [],
+    [sprintsData],
+  );
 
-  const isLoading = boardsLoading || (!!activeBoardId && (columnsLoading || ticketsLoading));
+  const isLoading =
+    boardsLoading || (!!activeBoardId && (columnsLoading || ticketsLoading));
 
   // ── Mutations ────────────────────────────────────────────────────
   const [createBoardMutation] = useMutation(CREATE_BOARD);
@@ -349,8 +429,12 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const [createSprintMutation] = useMutation(CREATE_SPRINT);
   const [updateSprintMutation] = useMutation(UPDATE_SPRINT);
   const [deleteSprintMutation] = useMutation(DELETE_SPRINT);
-  const [upsertSprintAssignmentMutation] = useMutation(UPSERT_SPRINT_ASSIGNMENT);
-  const [removeSprintAssignmentMutation] = useMutation(REMOVE_SPRINT_ASSIGNMENT);
+  const [upsertSprintAssignmentMutation] = useMutation(
+    UPSERT_SPRINT_ASSIGNMENT,
+  );
+  const [removeSprintAssignmentMutation] = useMutation(
+    REMOVE_SPRINT_ASSIGNMENT,
+  );
   const [createEpicSnapshotMutation] = useMutation(CREATE_EPIC_SNAPSHOT);
   const [setMemberRoleMutation] = useMutation(SET_MEMBER_ROLE);
 
@@ -383,7 +467,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   // ── URL <-> UI sync (deep links) ─────────────────────────────────
   const updateUrlParams = useCallback(
     (next: { modal?: string | null; ticketId?: string | null }) => {
-      const params = new URLSearchParams(stateRef.current.searchParams.toString());
+      const params = new URLSearchParams(
+        stateRef.current.searchParams.toString(),
+      );
       if (typeof next.modal !== "undefined") {
         if (next.modal) params.set("modal", next.modal);
         else params.delete("modal");
@@ -394,7 +480,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       }
       const query = params.toString();
       stateRef.current.router.replace(
-        query ? `${stateRef.current.pathname}?${query}` : stateRef.current.pathname,
+        query
+          ? `${stateRef.current.pathname}?${query}`
+          : stateRef.current.pathname,
         { scroll: false },
       );
     },
@@ -453,7 +541,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const defaultSprintId = useMemo<string | null>(() => {
     const today = new Date().toISOString().slice(0, 10);
     // Find sprint whose dates include today
-    const currentSprint = sprints.find((s) => s.startDate <= today && today <= s.endDate);
+    const currentSprint = sprints.find(
+      (s) => s.startDate <= today && today <= s.endDate,
+    );
     if (currentSprint) return currentSprint.id;
     // Fallback to active status
     const active = sprints.find((s) => s.status === "active");
@@ -500,7 +590,10 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
    */
   const velocity = useMemo<number | null>(() => {
     const completed = sprints
-      .filter((s) => s.status === "completed" && typeof s.completedPoints === "number")
+      .filter(
+        (s) =>
+          s.status === "completed" && typeof s.completedPoints === "number",
+      )
       .slice()
       .sort((a, b) => b.endDate.localeCompare(a.endDate))
       .slice(0, 3);
@@ -516,7 +609,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
 
   const workflowStateOptions = useMemo(() => {
     if (!selectedTicket) return [] as string[];
-    return boardColumns.find((c) => c.id === selectedTicket.columnId)?.states ?? [];
+    return (
+      boardColumns.find((c) => c.id === selectedTicket.columnId)?.states ?? []
+    );
   }, [boardColumns, selectedTicket]);
 
   const globalWorkflowStateOptions = useMemo(() => {
@@ -541,7 +636,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
 
   const linkedTickets = useMemo(() => {
     if (!selectedTicket) return [] as Ticket[];
-    return allTickets.filter((t) => selectedTicket.linkedTicketIds.includes(t.id));
+    return allTickets.filter((t) =>
+      selectedTicket.linkedTicketIds.includes(t.id),
+    );
   }, [allTickets, selectedTicket]);
 
   // ─────────────────────────────────────────────────────────────────
@@ -569,11 +666,19 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
           input: { ...patch, expectedVersion: current.version },
         },
         // Keep the History tab in sync when the user toggles it open after an edit.
-        refetchQueries: [{ query: GET_TICKET_HISTORY, variables: { ticketId } }],
+        refetchQueries: [
+          { query: GET_TICKET_HISTORY, variables: { ticketId } },
+        ],
       });
-      const payload = (result.data as Record<string, unknown> | undefined)?.updateTicket as
+      const payload = (result.data as Record<string, unknown> | undefined)
+        ?.updateTicket as
         | ({ __typename: "Ticket" } & Ticket)
-        | { __typename: "ConflictError"; currentState: Ticket; conflictedFields: string[]; message: string }
+        | {
+            __typename: "ConflictError";
+            currentState: Ticket;
+            conflictedFields: string[];
+            message: string;
+          }
         | undefined;
       if (payload?.__typename === "ConflictError") {
         setConflictError({
@@ -589,7 +694,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     return {
       selectBoard: (boardId) => {
         setActiveBoardId(boardId);
-        const params = new URLSearchParams(stateRef.current.searchParams.toString());
+        const params = new URLSearchParams(
+          stateRef.current.searchParams.toString(),
+        );
         params.set("board", boardId);
         stateRef.current.router.replace(
           `${stateRef.current.pathname}?${params.toString()}`,
@@ -601,7 +708,10 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         setSelectedTicketId(ticketId);
         setActiveModal("ticket");
         const ticket = findTicket(ticketId);
-        updateUrlParams({ ticketId: ticket?.ticketNumber ?? null, modal: "ticket" });
+        updateUrlParams({
+          ticketId: ticket?.ticketNumber ?? null,
+          modal: "ticket",
+        });
       },
 
       closeModal: () => {
@@ -614,12 +724,21 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       openCreateTicket: () => {
         setActiveModal("createTicket");
         setCreateTicketLinkSourceId(null);
+        setCreateTicketParentId(null);
         updateUrlParams({ ticketId: null, modal: "create" });
       },
 
       openCreateTicketLinkedTo: (ticketId) => {
         setActiveModal("createTicket");
         setCreateTicketLinkSourceId(ticketId);
+        setCreateTicketParentId(null);
+        updateUrlParams({ ticketId: null, modal: "create" });
+      },
+
+      openCreateTicketAsChildOf: (parentTicketId) => {
+        setActiveModal("createTicket");
+        setCreateTicketLinkSourceId(null);
+        setCreateTicketParentId(parentTicketId);
         updateUrlParams({ ticketId: null, modal: "create" });
       },
 
@@ -641,7 +760,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       addBoardColumn: async (boardId, columnName, states) => {
         const trimmed = columnName.trim();
         if (!trimmed) return;
-        const existing = stateRef.current.boardColumns.filter((c) => c.boardId === boardId);
+        const existing = stateRef.current.boardColumns.filter(
+          (c) => c.boardId === boardId,
+        );
         if (existing.length >= 6) return;
         const color = COLUMN_PALETTE[existing.length] ?? "#64748b";
         await createColumnMutation({
@@ -653,7 +774,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
               color,
             },
           },
-          refetchQueries: [{ query: GET_BOARD_COLUMNS, variables: { boardId } }],
+          refetchQueries: [
+            { query: GET_BOARD_COLUMNS, variables: { boardId } },
+          ],
         });
       },
 
@@ -692,12 +815,16 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       reorderColumns: async (boardId, orderedColumnIds) => {
         await reorderColumnsMutation({
           variables: { boardId, orderedIds: orderedColumnIds },
-          refetchQueries: [{ query: GET_BOARD_COLUMNS, variables: { boardId } }],
+          refetchQueries: [
+            { query: GET_BOARD_COLUMNS, variables: { boardId } },
+          ],
         });
       },
 
       moveTicketToColumn: async (ticketId, columnId) => {
-        const target = stateRef.current.boardColumns.find((c) => c.id === columnId);
+        const target = stateRef.current.boardColumns.find(
+          (c) => c.id === columnId,
+        );
         if (!target) return;
         await dispatchTicketPatch(ticketId, {
           columnId,
@@ -731,6 +858,17 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         await dispatchTicketPatch(ticketId, {
           assigneeIds: userId ? [userId] : [],
         });
+      },
+
+      setTicketParent: async (ticketId, parentId) => {
+        await dispatchTicketPatch(ticketId, { parentTicketId: parentId });
+      },
+
+      setTicketHierarchyType: async (ticketId, hierarchyType) => {
+        // Promoting to epic clears any parent (epics can't have parents).
+        const patch: Record<string, unknown> = { hierarchyType };
+        if (hierarchyType === "epic") patch.parentTicketId = null;
+        await dispatchTicketPatch(ticketId, patch);
       },
 
       linkTickets: async (ticketId, targetTicketId) => {
@@ -770,7 +908,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
             variables: {
               id: ticketId,
               input: {
-                linkedTicketIds: a.linkedTicketIds.filter((id) => id !== targetTicketId),
+                linkedTicketIds: a.linkedTicketIds.filter(
+                  (id) => id !== targetTicketId,
+                ),
                 expectedVersion: a.version,
               },
             },
@@ -781,7 +921,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
             variables: {
               id: targetTicketId,
               input: {
-                linkedTicketIds: b.linkedTicketIds.filter((id) => id !== ticketId),
+                linkedTicketIds: b.linkedTicketIds.filter(
+                  (id) => id !== ticketId,
+                ),
                 expectedVersion: b.version,
               },
             },
@@ -796,7 +938,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         if (!trimmed) return;
         await createVersionMutation({
           variables: { boardId, name: trimmed, releaseDate },
-          refetchQueries: [{ query: GET_RELEASE_VERSIONS, variables: { boardId } }],
+          refetchQueries: [
+            { query: GET_RELEASE_VERSIONS, variables: { boardId } },
+          ],
         });
         if (applyToTicketId) {
           await dispatchTicketPatch(applyToTicketId, { fixVersion: trimmed });
@@ -818,13 +962,19 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         if (!boardId) return;
         const result = await createTicketMutation({
           variables: { input: payload },
-          refetchQueries: [{ query: GET_TICKETS, variables: { boardId, first: 200 } }],
+          refetchQueries: [
+            { query: GET_TICKETS, variables: { boardId, first: 200 } },
+          ],
         });
-        const created = (result.data as { createTicket?: Ticket } | null | undefined)?.createTicket;
+        const created = (
+          result.data as { createTicket?: Ticket } | null | undefined
+        )?.createTicket;
         // If we opened the create modal from another ticket, link them after creation
         const linkSource = stateRef.current.createTicketLinkSourceId;
         if (created && linkSource) {
-          const source = stateRef.current.allTickets.find((t) => t.id === linkSource);
+          const source = stateRef.current.allTickets.find(
+            (t) => t.id === linkSource,
+          );
           if (source) {
             await updateTicketMutation({
               variables: {
@@ -858,20 +1008,27 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
           variables: { input: { name: trimmed } },
           refetchQueries: [{ query: GET_BOARDS }],
         });
-        const created = (result.data as { createBoard?: Board } | null | undefined)?.createBoard;
+        const created = (
+          result.data as { createBoard?: Board } | null | undefined
+        )?.createBoard;
         if (created) setActiveBoardId(created.id);
       },
 
       archiveBoard: async (boardId) => {
         await archiveBoardMutation({
           variables: { id: boardId },
-          refetchQueries: [{ query: GET_BOARDS }, { query: GET_ARCHIVED_BOARDS }],
+          refetchQueries: [
+            { query: GET_BOARDS },
+            { query: GET_ARCHIVED_BOARDS },
+          ],
           awaitRefetchQueries: true,
         });
         // If the user just archived the board they were viewing, switch to the
         // first remaining active board (or null if there is none).
         if (stateRef.current.activeBoardId === boardId) {
-          const remaining = stateRef.current.boards.filter((b) => b.id !== boardId && !b.deletedAt);
+          const remaining = stateRef.current.boards.filter(
+            (b) => b.id !== boardId && !b.deletedAt,
+          );
           setActiveBoardId(remaining[0]?.id ?? null);
         }
       },
@@ -879,7 +1036,10 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       restoreBoard: async (boardId) => {
         await restoreBoardMutation({
           variables: { id: boardId },
-          refetchQueries: [{ query: GET_BOARDS }, { query: GET_ARCHIVED_BOARDS }],
+          refetchQueries: [
+            { query: GET_BOARDS },
+            { query: GET_ARCHIVED_BOARDS },
+          ],
           awaitRefetchQueries: true,
         });
       },
@@ -887,7 +1047,10 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       purgeBoard: async (boardId) => {
         await purgeBoardMutation({
           variables: { id: boardId },
-          refetchQueries: [{ query: GET_BOARDS }, { query: GET_ARCHIVED_BOARDS }],
+          refetchQueries: [
+            { query: GET_BOARDS },
+            { query: GET_ARCHIVED_BOARDS },
+          ],
           awaitRefetchQueries: true,
         });
       },
@@ -903,7 +1066,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
 
       getTicketShareUrl: (ticketId) => {
         if (typeof window === "undefined") return "";
-        const ticket = stateRef.current.allTickets.find((t) => t.id === ticketId);
+        const ticket = stateRef.current.allTickets.find(
+          (t) => t.id === ticketId,
+        );
         if (!ticket) return "";
         return `${window.location.origin}/tickets/${ticket.ticketNumber}`;
       },
@@ -915,14 +1080,19 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
           variables: { input: { ...input, boardId } },
           refetchQueries: [{ query: GET_SPRINTS, variables: { boardId } }],
         });
-        return (result.data as { createSprint?: Sprint } | null | undefined)?.createSprint ?? null;
+        return (
+          (result.data as { createSprint?: Sprint } | null | undefined)
+            ?.createSprint ?? null
+        );
       },
 
       updateSprint: async (id, input) => {
         const boardId = stateRef.current.activeBoardId;
         await updateSprintMutation({
           variables: { id, input },
-          refetchQueries: boardId ? [{ query: GET_SPRINTS, variables: { boardId } }] : [],
+          refetchQueries: boardId
+            ? [{ query: GET_SPRINTS, variables: { boardId } }]
+            : [],
         });
       },
 
@@ -930,7 +1100,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         const boardId = stateRef.current.activeBoardId;
         await deleteSprintMutation({
           variables: { id },
-          refetchQueries: boardId ? [{ query: GET_SPRINTS, variables: { boardId } }] : [],
+          refetchQueries: boardId
+            ? [{ query: GET_SPRINTS, variables: { boardId } }]
+            : [],
         });
       },
 
@@ -938,18 +1110,34 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         const result = await upsertSprintAssignmentMutation({
           variables: { input },
         });
-        return (result.data as { upsertSprintAssignment?: SprintAssignment } | null | undefined)?.upsertSprintAssignment ?? null;
+        return (
+          (
+            result.data as
+              | { upsertSprintAssignment?: SprintAssignment }
+              | null
+              | undefined
+          )?.upsertSprintAssignment ?? null
+        );
       },
 
       removeSprintAssignment: async (sprintId, userId) => {
-        await removeSprintAssignmentMutation({ variables: { sprintId, userId } });
+        await removeSprintAssignmentMutation({
+          variables: { sprintId, userId },
+        });
       },
 
       createEpicSnapshot: async (epicTicketId, planJson) => {
         const result = await createEpicSnapshotMutation({
           variables: { epicTicketId, planJson },
         });
-        return (result.data as { createEpicSnapshot?: EpicSnapshot } | null | undefined)?.createEpicSnapshot ?? null;
+        return (
+          (
+            result.data as
+              | { createEpicSnapshot?: EpicSnapshot }
+              | null
+              | undefined
+          )?.createEpicSnapshot ?? null
+        );
       },
 
       setMemberRole: async (userId, role) => {
@@ -979,7 +1167,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       },
 
       setTicketSprints: async (ticketId, sprintIds) => {
-        const current = stateRef.current.allTickets.find((t) => t.id === ticketId);
+        const current = stateRef.current.allTickets.find(
+          (t) => t.id === ticketId,
+        );
         if (!current) return;
         await updateTicketMutation({
           variables: {
@@ -997,12 +1187,21 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
           const result = await updateTicketMutation({
             variables: {
               id: conflict.ticketId,
-              input: { ...conflict.pendingPatch, expectedVersion: conflict.currentState.version },
+              input: {
+                ...conflict.pendingPatch,
+                expectedVersion: conflict.currentState.version,
+              },
             },
           });
-          const payload = (result.data as Record<string, unknown> | undefined)?.updateTicket as
+          const payload = (result.data as Record<string, unknown> | undefined)
+            ?.updateTicket as
             | ({ __typename: "Ticket" } & Ticket)
-            | { __typename: "ConflictError"; currentState: Ticket; conflictedFields: string[]; message: string }
+            | {
+                __typename: "ConflictError";
+                currentState: Ticket;
+                conflictedFields: string[];
+                message: string;
+              }
             | undefined;
           if (payload?.__typename === "ConflictError") {
             // Another conflict after overwrite — update with fresh conflict
@@ -1070,6 +1269,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       labels,
       isLoading,
       createTicketLinkSourceId,
+      createTicketParentId,
       conflictError,
       sprints,
       viewMode,
@@ -1097,6 +1297,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       labels,
       isLoading,
       createTicketLinkSourceId,
+      createTicketParentId,
       conflictError,
       sprints,
       viewMode,
@@ -1110,7 +1311,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <BoardActionsContext.Provider value={actions}>
-      <BoardDataContext.Provider value={data}>{children}</BoardDataContext.Provider>
+      <BoardDataContext.Provider value={data}>
+        {children}
+      </BoardDataContext.Provider>
     </BoardActionsContext.Provider>
   );
 }
@@ -1125,7 +1328,8 @@ export function useBoardData(): BoardData {
 
 export function useBoardActions(): BoardActions {
   const ctx = useContext(BoardActionsContext);
-  if (!ctx) throw new Error("useBoardActions must be used within a BoardProvider");
+  if (!ctx)
+    throw new Error("useBoardActions must be used within a BoardProvider");
   return ctx;
 }
 

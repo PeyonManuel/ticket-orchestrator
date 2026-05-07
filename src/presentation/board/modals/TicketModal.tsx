@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Clock, Link2, MessageSquare, Plus, X } from "lucide-react";
+import { Check, ChevronRight, Clock, Link2, MessageSquare, Plus, X } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useQuery, useMutation } from "@apollo/client/react";
 import { useBoardContext } from "@/presentation/board/BoardContext";
@@ -10,12 +10,15 @@ import { LabelDropdown } from "@/presentation/shared/dropdowns/LabelDropdown";
 import { SimpleDropdown } from "@/presentation/shared/dropdowns/SimpleDropdown";
 import { SprintMultiSelect } from "@/presentation/shared/dropdowns/SprintMultiSelect";
 import { WorkflowDropdown } from "@/presentation/shared/dropdowns/WorkflowDropdown";
+import { ParentTicketSelect } from "@/presentation/shared/dropdowns/ParentTicketSelect";
+import { TICKET_TYPE_COLORS } from "@/presentation/shared/utils/ticketTypeColors";
+import { useClickOutside } from "@/presentation/shared/hooks/useClickOutside";
 import {
   GET_TICKET_COMMENTS,
   GET_TICKET_HISTORY,
   ADD_COMMENT,
 } from "@/infrastructure/graphql/operations";
-import type { Comment, TicketHistoryEntry } from "@/domain/analyst";
+import type { Comment, Ticket, TicketHistoryEntry } from "@/domain/analyst";
 
 interface CommentsQueryResult {
   ticket: { id: string; comments: Comment[] } | null;
@@ -32,16 +35,21 @@ export function TicketModal() {
     conflictError,
     closeModal,
     openTicket,
+    selectBoard,
     updateTicketField,
     updateTicketWorkflowState,
     updateTicketStoryPoints,
     updateTicketPriority,
     setTicketAssignee,
+    setTicketParent,
     orgMembers,
+    boards,
     boardColumns,
     linkTickets,
     unlinkTickets,
+    openCreateTicket,
     openCreateTicketLinkedTo,
+    openCreateTicketAsChildOf,
     workflowChoicesOrdered,
     releaseVersions,
     getTicketShareUrl,
@@ -61,7 +69,28 @@ export function TicketModal() {
   const [lastTicketId, setLastTicketId] = useState(selectedTicket?.id);
   const [activityTab, setActivityTab] = useState<"comments" | "history">("comments");
   const [commentDraft, setCommentDraft] = useState("");
+  const [childPickerOpen, setChildPickerOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
+  const childPickerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(childPickerRef, childPickerOpen, () => setChildPickerOpen(false));
+
+  React.useEffect(() => {
+    if (!childPickerOpen || !childPickerRef.current) {
+      setDropdownPos(null);
+      return;
+    }
+    const timer = requestAnimationFrame(() => {
+      if (childPickerRef.current) {
+        const rect = childPickerRef.current.getBoundingClientRect();
+        setDropdownPos({
+          top: rect.bottom + 4,
+          right: window.innerWidth - rect.right,
+        });
+      }
+    });
+    return () => cancelAnimationFrame(timer);
+  }, [childPickerOpen]);
 
   const commentsQuery = useQuery<CommentsQueryResult>(GET_TICKET_COMMENTS, {
     variables: { ticketId: selectedTicket?.id ?? "" },
@@ -73,6 +102,47 @@ export function TicketModal() {
     // Surface freshly-recorded entries without forcing the user to reopen the modal.
     fetchPolicy: "cache-and-network",
   });
+  // Eligible parent epics: same board, not self, hierarchyType === "epic"
+  const epicOptions = useMemo<Ticket[]>(() => {
+    if (!selectedTicket) return [];
+    return allTickets.filter(
+      (t) =>
+        t.boardId === selectedTicket.boardId &&
+        t.hierarchyType === "epic" &&
+        t.id !== selectedTicket.id,
+    );
+  }, [allTickets, selectedTicket]);
+
+  // Children: tickets whose parentTicketId === selected ticket (only relevant for epics)
+  const childTickets = useMemo<Ticket[]>(() => {
+    if (!selectedTicket || selectedTicket.hierarchyType !== "epic") return [];
+    return allTickets.filter((t) => t.parentTicketId === selectedTicket.id);
+  }, [allTickets, selectedTicket]);
+
+  // Tickets on the same board that can be added as children (not already children, not epics)
+  const childCandidates = useMemo<Ticket[]>(() => {
+    if (!selectedTicket || selectedTicket.hierarchyType !== "epic") return [];
+    return allTickets.filter(
+      (t) =>
+        t.boardId === selectedTicket.boardId &&
+        t.id !== selectedTicket.id &&
+        t.hierarchyType !== "epic" &&
+        t.parentTicketId !== selectedTicket.id,
+    );
+  }, [allTickets, selectedTicket]);
+
+  // Parent ticket (for breadcrumb)
+  const parentTicket = useMemo<Ticket | null>(() => {
+    if (!selectedTicket?.parentTicketId) return null;
+    return allTickets.find((t) => t.id === selectedTicket.parentTicketId) ?? null;
+  }, [allTickets, selectedTicket]);
+
+  // Board for breadcrumb
+  const ticketBoard = useMemo(() => {
+    if (!selectedTicket) return null;
+    return boards.find((b) => b.id === selectedTicket.boardId) ?? null;
+  }, [boards, selectedTicket]);
+
   const [addCommentMutation, { loading: addingComment }] = useMutation(ADD_COMMENT, {
     refetchQueries: [
       {
@@ -237,32 +307,80 @@ export function TicketModal() {
         )}
 
         {/* Header */}
-        <div className="mb-3 flex items-start justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-3">
-          <div>
-            <div className="flex items-center gap-2">
-              {renderEditableField("title", "text-2xl font-semibold text-zinc-900 dark:text-zinc-50")}
+        <div className="mb-3 border-b border-zinc-200 dark:border-zinc-800 pb-3">
+          {/* Breadcrumb: board › [parent epic] › current */}
+          <nav className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+            {ticketBoard && (
               <button
-                onClick={copyShareLink}
-                className="rounded-md border border-zinc-300 dark:border-zinc-700 p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
-                title="Copy direct link"
+                type="button"
+                onClick={() => {
+                  selectBoard(ticketBoard.id);
+                  closeModal();
+                }}
+                className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
               >
-                {linkCopied ? (
-                  <Check size={15} className="text-emerald-400" />
-                ) : (
-                  <Link2 size={15} />
-                )}
+                {ticketBoard.name}
               </button>
+            )}
+            {parentTicket ? (
+              <>
+                <ChevronRight size={11} className="text-zinc-400 shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => openTicket(parentTicket.id)}
+                  className={`rounded-md border px-2 py-0.5 font-medium transition-colors hover:opacity-80 ${TICKET_TYPE_COLORS.epic.border} ${TICKET_TYPE_COLORS.epic.bg} ${TICKET_TYPE_COLORS.epic.text}`}
+                  title={parentTicket.title}
+                >
+                  <span className="font-mono opacity-60 mr-1">{parentTicket.ticketNumber}</span>
+                  {parentTicket.title.length > 32
+                    ? parentTicket.title.slice(0, 32) + "…"
+                    : parentTicket.title}
+                </button>
+              </>
+            ) : selectedTicket.hierarchyType !== "epic" ? (
+              <>
+                <ChevronRight size={11} className="text-zinc-400 shrink-0" />
+                <span className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 font-medium text-zinc-400 dark:text-zinc-500">
+                  No parent
+                </span>
+              </>
+            ) : null}
+            <ChevronRight size={11} className="text-zinc-400 shrink-0" />
+            <span
+              className={`rounded-md border px-2 py-0.5 font-medium ${TICKET_TYPE_COLORS[selectedTicket.hierarchyType].border} ${TICKET_TYPE_COLORS[selectedTicket.hierarchyType].bg} ${TICKET_TYPE_COLORS[selectedTicket.hierarchyType].text}`}
+            >
+              <span className="font-mono opacity-60 mr-1">{selectedTicket.ticketNumber}</span>
+              {TICKET_TYPE_COLORS[selectedTicket.hierarchyType].label}
+            </span>
+          </nav>
+
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                {renderEditableField("title", "text-2xl font-semibold text-zinc-900 dark:text-zinc-50")}
+                <button
+                  onClick={copyShareLink}
+                  className="rounded-md border border-zinc-300 dark:border-zinc-700 p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
+                  title="Copy direct link"
+                >
+                  {linkCopied ? (
+                    <Check size={15} className="text-emerald-400" />
+                  ) : (
+                    <Link2 size={15} />
+                  )}
+                </button>
+              </div>
+              <p className="mt-1 text-xs uppercase tracking-wide text-zinc-500 font-semibold">
+                {selectedTicket.ticketNumber} · {selectedTicket.priority}
+              </p>
             </div>
-            <p className="mt-1 text-xs uppercase tracking-wide text-zinc-500 font-semibold">
-              {selectedTicket.ticketNumber} · {selectedTicket.hierarchyType} · {selectedTicket.priority}
-            </p>
+            <button
+              onClick={closeModal}
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-1 text-xs text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+            >
+              Close
+            </button>
           </div>
-          <button
-            onClick={closeModal}
-            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-1 text-xs text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-          >
-            Close
-          </button>
         </div>
 
         {/* 2-col body: description | metadata (assignee folded into metadata as a compact dropdown) */}
@@ -275,8 +393,20 @@ export function TicketModal() {
 
           {/* Metadata */}
           <aside className="grid gap-3 content-start">
-            <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 p-3">
-              <p className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500 font-semibold">Label</p>
+            {selectedTicket.hierarchyType !== "epic" && (
+              <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
+                Parent epic
+                <ParentTicketSelect
+                  value={selectedTicket.parentTicketId}
+                  options={epicOptions}
+                  onChange={(parentId) => setTicketParent(selectedTicket.id, parentId)}
+                  placeholder="No parent"
+                />
+              </div>
+            )}
+
+            <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
+              Label
               <LabelDropdown
                 value={selectedTicket.label}
                 labels={labels}
@@ -363,6 +493,128 @@ export function TicketModal() {
             </div>
           </aside>
         </div>
+
+        {/* Children — only on epics. Same expandable look as backlog sprint sections. */}
+        {selectedTicket.hierarchyType === "epic" && (
+          <section className="mt-4 rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 py-3 bg-white dark:bg-zinc-900/70">
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${TICKET_TYPE_COLORS.epic.bg} ${TICKET_TYPE_COLORS.epic.text}`}
+              >
+                Children
+              </span>
+              <span className="text-xs text-zinc-400">
+                {childTickets.length} ticket{childTickets.length !== 1 ? "s" : ""}
+              </span>
+              <div ref={childPickerRef} className="ml-auto relative">
+                <button
+                  type="button"
+                  onClick={() => setChildPickerOpen((prev) => !prev)}
+                  className="rounded-md border border-indigo-400/40 p-1 text-indigo-600 dark:text-indigo-200 hover:bg-indigo-500/10"
+                  title="Add child ticket"
+                >
+                  <Plus size={14} />
+                </button>
+                {childPickerOpen && dropdownPos && (
+                  <div className="fixed z-50 w-72 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 shadow-xl" style={{ top: `${dropdownPos.top}px`, right: `${dropdownPos.right}px` }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChildPickerOpen(false);
+                        openCreateTicketAsChildOf(selectedTicket.id);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
+                    >
+                      <Plus size={12} />
+                      New ticket
+                    </button>
+                    {childCandidates.length > 0 && (
+                      <div className="border-t border-zinc-100 dark:border-zinc-800 max-h-52 overflow-y-auto p-1">
+                        {childCandidates.map((t) => {
+                          const colors = TICKET_TYPE_COLORS[t.hierarchyType];
+                          return (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => {
+                                setTicketParent(t.id, selectedTicket.id);
+                                setChildPickerOpen(false);
+                              }}
+                              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors"
+                            >
+                              <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${colors.border} ${colors.bg} ${colors.text}`}>
+                                {colors.label}
+                              </span>
+                              <span className="shrink-0 font-mono text-[10px] text-zinc-400">#{t.ticketNumber}</span>
+                              <span className="flex-1 min-w-0 truncate text-zinc-700 dark:text-zinc-300">{t.title}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {childTickets.map((child) => {
+                const colors = TICKET_TYPE_COLORS[child.hierarchyType];
+                const assignee = orgMembers.find((m) => m.userId === child.assigneeIds[0]);
+                return (
+                  <button
+                    key={child.id}
+                    type="button"
+                    onClick={() => openTicket(child.id)}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+                  >
+                    <span
+                      className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${colors.border} ${colors.bg} ${colors.text}`}
+                    >
+                      {colors.label}
+                    </span>
+                    <span className="shrink-0 w-14 font-mono text-[11px] text-zinc-400">
+                      {child.ticketNumber}
+                    </span>
+                    <span className="flex-1 min-w-0 truncate text-sm text-zinc-900 dark:text-zinc-100">
+                      {child.title}
+                    </span>
+                    <span
+                      className="shrink-0 h-2 w-2 rounded-full"
+                      style={{
+                        backgroundColor:
+                          child.priority === "high"
+                            ? "#ef4444"
+                            : child.priority === "medium"
+                              ? "#f59e0b"
+                              : "#22c55e",
+                      }}
+                      title={child.priority}
+                    />
+                    <span className="shrink-0 hidden sm:block max-w-[120px] truncate rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {child.workflowState}
+                    </span>
+                    <div className="shrink-0 h-6 w-6 rounded-full overflow-hidden bg-zinc-200 dark:bg-zinc-700">
+                      {assignee?.imageUrl && (
+                        <img
+                          src={assignee.imageUrl}
+                          alt={assignee.fullName}
+                          title={assignee.fullName}
+                          className="h-full w-full object-cover"
+                        />
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+              {childTickets.length === 0 && (
+                <p className="px-4 py-5 text-center text-xs text-zinc-400">
+                  No children yet. Click the + button to add one.
+                </p>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* Linked tickets */}
         <section className="mt-4 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 p-3">

@@ -4,6 +4,7 @@ import React, { useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, User, Pencil } from "lucide-react";
 import { useBoardActions, useBoardData } from "@/presentation/board/BoardContext";
 import { useIsAdmin } from "@/presentation/shared/hooks/useIsAdmin";
+import { TICKET_TYPE_COLORS } from "@/presentation/shared/utils/ticketTypeColors";
 import type { OrgMember, Sprint, Ticket } from "@/domain/analyst/types";
 
 // ── Ticket row ────────────────────────────────────────────────────────────────
@@ -23,6 +24,7 @@ interface TicketRowProps {
 
 function TicketRow({ ticket, orgMembers, onDragStart, onClick }: TicketRowProps) {
   const assignee = orgMembers.find((m) => m.userId === ticket.assigneeIds[0]) ?? null;
+  const typeColors = TICKET_TYPE_COLORS[ticket.hierarchyType];
 
   return (
     <div
@@ -31,6 +33,11 @@ function TicketRow({ ticket, orgMembers, onDragStart, onClick }: TicketRowProps)
       onClick={onClick}
       className="flex items-center gap-3 px-4 py-2.5 cursor-pointer select-none hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
     >
+      <span
+        className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${typeColors.border} ${typeColors.bg} ${typeColors.text}`}
+      >
+        {typeColors.label}
+      </span>
       <span className="shrink-0 w-14 font-mono text-[11px] text-zinc-400">
         #{ticket.ticketNumber}
       </span>
