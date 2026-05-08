@@ -2,6 +2,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import * as repo from "@/infrastructure/persistence/repository";
 import type { RequestLoaders } from "@/infrastructure/persistence/loaders";
 import type { Ticket, BoardMember } from "@/domain/analyst";
+import type { EpicDraft } from "@/domain/orchestrator/types";
 import { logger } from "@/infrastructure/observability/logger";
 
 export interface GraphQLContext {
@@ -135,6 +136,14 @@ export const resolvers = {
       requireAuth(ctx);
       return repo.getEpicSnapshot(ctx.orgId, epicTicketId);
     },
+    epicDrafts: (_p: unknown, { boardId }: { boardId: string }, ctx: GraphQLContext) => {
+      requireAuth(ctx);
+      return repo.getEpicDrafts(ctx.orgId, boardId);
+    },
+    epicDraft: (_p: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      requireAuth(ctx);
+      return repo.getEpicDraft(ctx.orgId, id);
+    },
   },
 
   Ticket: {
@@ -165,10 +174,10 @@ export const resolvers = {
       const board = await repo.createBoard(ctx.orgId, { name: input.name, type: input.type ?? "scrum" });
       const palette = ["#4f46e5", "#0ea5e9", "#22c55e"];
       const defaults = [
-        { name: "To Do", states: ["todo"], color: palette[0], isDone: false },
-        { name: "In Progress", states: ["inProgress"], color: palette[1], isDone: false },
+        { name: "To Do", states: ["todo"], color: palette[0], isDone: false, protected: true },
+        { name: "In Progress", states: ["inProgress"], color: palette[1], isDone: false, protected: false },
         // Last default column is the board's "done" column — every board needs ≥1.
-        { name: "Done", states: ["done"], color: palette[2], isDone: true },
+        { name: "Done", states: ["done"], color: palette[2], isDone: true, protected: true },
       ];
       for (let i = 0; i < defaults.length; i++) {
         await repo.createColumn(ctx.orgId, { boardId: board.id, ...defaults[i], order: i });
@@ -371,6 +380,50 @@ export const resolvers = {
     ) => {
       requireAdmin(ctx);
       return repo.setMemberRole(ctx.orgId, userId, (role ?? null) as import("@/domain/analyst").OrgMemberRole | null);
+    },
+
+    createEpicDraft: (
+      _p: unknown,
+      { boardId }: { boardId: string },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      return repo.createEpicDraft(ctx.orgId, ctx.userId, boardId);
+    },
+    saveEpicDraft: (
+      _p: unknown,
+      { input }: {
+        input: Omit<EpicDraft, "orgId" | "updatedAt"> & {
+          updatedAt?: string;
+        };
+      },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      // Ownership: a draft can only be saved by someone in its org. We don't
+      // restrict to the original author so any PO in the org can take over.
+      const draft: EpicDraft = {
+        ...input,
+        orgId: ctx.orgId,
+        updatedAt: input.updatedAt ?? new Date().toISOString(),
+      };
+      return repo.saveEpicDraft(ctx.orgId, draft);
+    },
+    deleteEpicDraft: (
+      _p: unknown,
+      { id }: { id: string },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      return repo.softDeleteEpicDraft(ctx.orgId, id);
+    },
+    commitEpicDraft: (
+      _p: unknown,
+      { draftId }: { draftId: string },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      return repo.commitEpicDraft(ctx.orgId, draftId, ctx.userId);
     },
   },
 };

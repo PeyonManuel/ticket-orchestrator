@@ -36,6 +36,7 @@ const operationLoggerPlugin: Plugin<GraphQLContext> = {
 const yoga = createYoga<object, GraphQLContext>({
   schema,
   graphqlEndpoint: "/api/graphql",
+  maskedErrors: false,
   plugins: [operationLoggerPlugin],
   async context(): Promise<GraphQLContext> {
     // Same-origin: Clerk auto-includes the session cookie. `auth()` reads it.

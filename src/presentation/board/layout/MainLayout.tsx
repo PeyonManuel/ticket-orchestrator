@@ -11,6 +11,7 @@ import { CreateSprintModal } from "@/presentation/board/modals/CreateSprintModal
 import { EditSprintModal } from "@/presentation/board/modals/EditSprintModal";
 import { OrchestratorModal } from "@/presentation/board/modals/OrchestratorModal";
 import { SearchModal } from "@/presentation/board/modals/SearchModal";
+import { MembersModal } from "@/presentation/board/modals/MembersModal";
 import { useIsMobile } from "@/presentation/shared/hooks/useIsMobile";
 
 const SIDEBAR_W = 280;
@@ -51,6 +52,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         <EditSprintModal />
         <OrchestratorModal />
         <SearchModal />
+        <MembersModal />
 
         {/* ── Desktop ──────────────────────────────────────────────────── */}
         {!isMobile && (

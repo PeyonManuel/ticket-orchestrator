@@ -22,6 +22,7 @@ export const COLUMN_FIELDS = gql`
     color
     order
     isDone
+    protected
   }
 `;
 
@@ -466,5 +467,139 @@ export const CREATE_EPIC_SNAPSHOT = gql`
 export const SET_MEMBER_ROLE = gql`
   mutation SetMemberRole($userId: ID!, $role: OrgMemberRole) {
     setMemberRole(userId: $userId, role: $role)
+  }
+`;
+
+// ─── Orchestrator Draft Fragments ────────────────────────────────────────────
+
+export const TICKET_PROPOSAL_FIELDS = gql`
+  fragment TicketProposalFields on TicketProposal {
+    id
+    hierarchyType
+    title
+    oneLiner
+    description
+    label
+    acceptanceCriteria
+    storyPoints
+    risks
+    refined
+    transcript {
+      id
+      role
+      text
+      createdAt
+    }
+  }
+`;
+
+export const EPIC_DRAFT_FIELDS = gql`
+  ${TICKET_PROPOSAL_FIELDS}
+  fragment EpicDraftFields on EpicDraft {
+    id
+    orgId
+    boardId
+    authorId
+    createdAt
+    updatedAt
+    phase
+    refinementCursor
+    lastSeenAt
+    transcript {
+      id
+      role
+      text
+      createdAt
+    }
+    blueprintTranscript {
+      id
+      role
+      text
+      createdAt
+    }
+    brainstormSummary {
+      summary
+      goals
+      outOfScope
+    }
+    backlog {
+      epicTitle
+      epicDescription
+      tickets {
+        ...TicketProposalFields
+      }
+    }
+    sprintPlan {
+      assignments { ticketId sprintId assigneeUserId }
+      reasoning
+    }
+    plannerTranscript { id role text createdAt }
+    planningSprints { id name startDate endDate capacityPoints status }
+    planningMembers { userId fullName role }
+  }
+`;
+
+export const EPIC_DRAFT_INDEX_FIELDS = gql`
+  fragment EpicDraftIndexFields on EpicDraftIndexEntry {
+    id
+    title
+    phase
+    updatedAt
+  }
+`;
+
+// ─── Orchestrator Draft Queries ──────────────────────────────────────────────
+
+export const GET_EPIC_DRAFTS = gql`
+  ${EPIC_DRAFT_INDEX_FIELDS}
+  query GetEpicDrafts($boardId: ID!) {
+    epicDrafts(boardId: $boardId) {
+      ...EpicDraftIndexFields
+    }
+  }
+`;
+
+export const GET_EPIC_DRAFT = gql`
+  ${EPIC_DRAFT_FIELDS}
+  query GetEpicDraft($id: ID!) {
+    epicDraft(id: $id) {
+      ...EpicDraftFields
+    }
+  }
+`;
+
+// ─── Orchestrator Draft Mutations ────────────────────────────────────────────
+
+export const CREATE_EPIC_DRAFT = gql`
+  ${EPIC_DRAFT_FIELDS}
+  mutation CreateEpicDraft($boardId: ID!) {
+    createEpicDraft(boardId: $boardId) {
+      ...EpicDraftFields
+    }
+  }
+`;
+
+export const SAVE_EPIC_DRAFT = gql`
+  ${EPIC_DRAFT_FIELDS}
+  mutation SaveEpicDraft($input: SaveEpicDraftInput!) {
+    saveEpicDraft(input: $input) {
+      ...EpicDraftFields
+    }
+  }
+`;
+
+export const DELETE_EPIC_DRAFT = gql`
+  mutation DeleteEpicDraft($id: ID!) {
+    deleteEpicDraft(id: $id)
+  }
+`;
+
+export const COMMIT_EPIC_DRAFT = gql`
+  mutation CommitEpicDraft($draftId: ID!) {
+    commitEpicDraft(draftId: $draftId) {
+      epicTicketId
+      createdTicketIds
+      snapshotId
+    }
   }
 `;

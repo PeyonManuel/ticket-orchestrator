@@ -21,6 +21,18 @@ import type {
   EpicSnapshot,
   OrgMemberRole,
 } from "@/domain/analyst";
+import {
+  type BacklogProposal,
+  type BrainstormSummary,
+  type BrainstormTurn,
+  type EpicDraft,
+  type EpicDraftIndexEntry,
+  type MemberSnapshot,
+  type OrchestratorPhase,
+  type SprintPlan,
+  type SprintSnapshot,
+  epicDraftSchema,
+} from "@/domain/orchestrator/types";
 import clientPromise from "./mongo";
 import {
   BoardSchema,
@@ -76,6 +88,7 @@ interface ColumnDoc {
   _id: string; orgId: string; boardId: string; name: string;
   states: string[]; color: string; order: number;
   isDone?: boolean;
+  protected?: boolean;
 }
 interface TicketDoc {
   _id: string; orgId: string; ticketNumber: string; boardId: string; columnId: string;
@@ -286,6 +299,7 @@ function parseColumn(d: ColumnDoc): BoardColumn {
     color: d.color,
     order: d.order ?? 0,
     isDone: d.isDone ?? false,
+    protected: d.protected ?? false,
   });
 }
 
@@ -345,6 +359,9 @@ export async function deleteColumn(orgId: string, id: string): Promise<boolean> 
   const col = await coll<ColumnDoc>("columns");
   const target = await col.findOne({ _id: id, orgId });
   if (!target) return false;
+  if (target.protected === true) {
+    throw new Error("Cannot delete a protected column.");
+  }
   if (target.isDone === true) {
     const doneCount = await countDoneColumns(orgId, target.boardId);
     if (doneCount <= 1) {
@@ -447,7 +464,7 @@ export async function createTicket(
     parentTicketId: input.parentTicketId ?? null,
     linkedTicketIds: [],
     assigneeIds: input.assigneeIds ?? [],
-    sprintIds: [],
+    sprintIds: input.sprintIds ?? [],
     version: 0,
   };
   await col.insertOne(doc);
@@ -1121,6 +1138,256 @@ export async function createEpicSnapshot(
   const doc: EpicSnapshotDoc = { _id: id, orgId, epicTicketId, createdAt, planJson };
   await col.insertOne(doc);
   return parseEpicSnapshot(doc);
+}
+
+// ─── Epic Drafts (Orchestrator) ───────────────────────────────────────────────
+
+/**
+ * Mongo doc shape for an epic draft. `_id` is the same UUID as `EpicDraft.id`.
+ * Soft-delete via `deletedAt: Date` mirrors the Boards pattern.
+ */
+interface EpicDraftDoc {
+  _id: string;
+  orgId: string;
+  boardId: string;
+  authorId: string;
+  createdAt: string;
+  updatedAt: string;
+  phase: OrchestratorPhase;
+  transcript: BrainstormTurn[];
+  blueprintTranscript?: BrainstormTurn[];
+  brainstormSummary: BrainstormSummary | null;
+  backlog: BacklogProposal | null;
+  refinementCursor: number;
+  sprintPlan?: SprintPlan | null;
+  plannerTranscript?: BrainstormTurn[];
+  planningSprints?: SprintSnapshot[];
+  planningMembers?: MemberSnapshot[];
+  lastSeenAt: string;
+  deletedAt?: Date | null;
+}
+
+function parseEpicDraft(d: EpicDraftDoc): EpicDraft {
+  return epicDraftSchema.parse({
+    id: d._id,
+    orgId: d.orgId,
+    boardId: d.boardId,
+    authorId: d.authorId,
+    createdAt: d.createdAt,
+    updatedAt: d.updatedAt,
+    phase: d.phase,
+    transcript: d.transcript ?? [],
+    blueprintTranscript: d.blueprintTranscript ?? [],
+    brainstormSummary: d.brainstormSummary ?? null,
+    backlog: d.backlog ? {
+      ...d.backlog,
+      tickets: d.backlog.tickets.map((t) => ({
+        ...t,
+        transcript: t.transcript ?? [],
+      })),
+    } : null,
+    refinementCursor: d.refinementCursor ?? 0,
+    sprintPlan: d.sprintPlan ?? null,
+    plannerTranscript: d.plannerTranscript ?? [],
+    planningSprints: d.planningSprints ?? [],
+    planningMembers: d.planningMembers ?? [],
+    lastSeenAt: d.lastSeenAt ?? d.updatedAt,
+  });
+}
+
+function toIndexEntry(d: EpicDraftDoc): EpicDraftIndexEntry {
+  const fallbackTitle =
+    d.backlog?.epicTitle?.trim() ||
+    d.transcript.find((t) => t.role === "user")?.text?.slice(0, 60) ||
+    "Untitled draft";
+  return {
+    id: d._id,
+    title: fallbackTitle,
+    phase: d.phase,
+    updatedAt: d.updatedAt,
+  };
+}
+
+export async function getEpicDrafts(
+  orgId: string,
+  boardId: string,
+): Promise<EpicDraftIndexEntry[]> {
+  const col = await coll<EpicDraftDoc>("epicDrafts");
+  const docs = await col
+    .find({ orgId, boardId, deletedAt: null })
+    .sort({ updatedAt: -1 })
+    .toArray();
+  return docs.map(toIndexEntry);
+}
+
+export async function getEpicDraft(
+  orgId: string,
+  id: string,
+): Promise<EpicDraft | null> {
+  const col = await coll<EpicDraftDoc>("epicDrafts");
+  const doc = await col.findOne({ _id: id, orgId, deletedAt: null });
+  return doc ? parseEpicDraft(doc) : null;
+}
+
+/**
+ * Create a fresh draft. The orchestrator machine seeds it; this just persists
+ * the initial empty state so the draft has an id the rest of the flow keys off.
+ */
+export async function createEpicDraft(
+  orgId: string,
+  authorId: string,
+  boardId: string,
+): Promise<EpicDraft> {
+  const col = await coll<EpicDraftDoc>("epicDrafts");
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const doc: EpicDraftDoc = {
+    _id: id,
+    orgId,
+    boardId,
+    authorId,
+    createdAt: now,
+    updatedAt: now,
+    phase: "phase1Brainstorming",
+    transcript: [],
+    blueprintTranscript: [],
+    brainstormSummary: null,
+    backlog: null,
+    refinementCursor: 0,
+    lastSeenAt: now,
+    deletedAt: null,
+  };
+  await col.insertOne(doc);
+  return parseEpicDraft(doc);
+}
+
+/**
+ * Replace the draft with a new state. The orchestrator machine is the single
+ * writer, so a full overwrite is simpler and avoids subtle merge bugs across
+ * nested arrays (transcript, backlog.tickets). Always bumps `updatedAt`.
+ */
+export async function saveEpicDraft(
+  orgId: string,
+  draft: EpicDraft,
+): Promise<EpicDraft> {
+  const col = await coll<EpicDraftDoc>("epicDrafts");
+  const updatedAt = new Date().toISOString();
+  const next: EpicDraftDoc = {
+    _id: draft.id,
+    orgId,
+    boardId: draft.boardId,
+    authorId: draft.authorId,
+    createdAt: draft.createdAt,
+    updatedAt,
+    phase: draft.phase,
+    transcript: draft.transcript,
+    blueprintTranscript: draft.blueprintTranscript,
+    brainstormSummary: draft.brainstormSummary,
+    backlog: draft.backlog,
+    refinementCursor: draft.refinementCursor,
+    sprintPlan: draft.sprintPlan,
+    plannerTranscript: draft.plannerTranscript,
+    planningSprints: draft.planningSprints,
+    planningMembers: draft.planningMembers,
+    lastSeenAt: draft.lastSeenAt,
+    deletedAt: null,
+  };
+  await col.updateOne(
+    { _id: draft.id, orgId },
+    { $set: next },
+    { upsert: true },
+  );
+  return parseEpicDraft(next);
+}
+
+/**
+ * Soft-delete: keeps the document for audit/restore, removed from list queries.
+ * Matches the Boards pattern.
+ */
+export async function softDeleteEpicDraft(
+  orgId: string,
+  id: string,
+): Promise<boolean> {
+  const col = await coll<EpicDraftDoc>("epicDrafts");
+  const result = await col.updateOne(
+    { _id: id, orgId, deletedAt: null },
+    { $set: { deletedAt: new Date() } },
+  );
+  return result.modifiedCount > 0;
+}
+
+/**
+ * Commit a draft to the board:
+ *  1. Creates the Epic ticket.
+ *  2. Creates child story/task tickets with parentTicketId pointing at the Epic.
+ *  3. Creates an EpicSnapshot capturing the plan JSON.
+ *  4. Marks the draft committed.
+ *
+ * All tickets land in the board's first column (lowest `order`).
+ */
+export async function commitEpicDraft(
+  orgId: string,
+  draftId: string,
+  actorId: string,
+): Promise<{ epicTicketId: string; createdTicketIds: string[]; snapshotId: string }> {
+  const draft = await getEpicDraft(orgId, draftId);
+  if (!draft) throw new Error("Draft not found");
+  if (!draft.backlog) throw new Error("Draft has no backlog to commit");
+
+  const columns = await getBoardColumns(orgId, draft.boardId);
+  if (columns.length === 0) throw new Error("Board has no columns");
+  const backlogColumn = columns[0];
+
+  const epicTicket = await createTicket(orgId, actorId, {
+    boardId: draft.boardId,
+    columnId: backlogColumn.id,
+    hierarchyType: "epic",
+    parentTicketId: null,
+    title: draft.backlog.epicTitle,
+    description: draft.backlog.epicDescription,
+    label: "planning",
+    fixVersion: "",
+    workflowState: backlogColumn.states[0] ?? "backlog",
+    priority: "medium",
+    storyPoints: 1,
+    assigneeIds: [],
+  });
+
+  const planAssignments = draft.sprintPlan?.assignments ?? [];
+
+  const createdTicketIds: string[] = [];
+  for (const proposal of draft.backlog.tickets) {
+    const assignment = planAssignments.find((a) => a.ticketId === proposal.id);
+    const child = await createTicket(orgId, actorId, {
+      boardId: draft.boardId,
+      columnId: backlogColumn.id,
+      hierarchyType: proposal.hierarchyType,
+      parentTicketId: epicTicket.id,
+      title: proposal.title,
+      description: proposal.description,
+      label: proposal.label,
+      fixVersion: "",
+      workflowState: backlogColumn.states[0] ?? "backlog",
+      priority: "medium",
+      storyPoints: proposal.storyPoints ?? 1,
+      assigneeIds: assignment?.assigneeUserId ? [assignment.assigneeUserId] : [],
+    });
+    if (assignment?.sprintId) {
+      const ticketsCol = await coll<{ _id: string; sprintIds: string[]; version: number }>("tickets");
+      await ticketsCol.updateOne(
+        { _id: child.id, orgId },
+        { $set: { sprintIds: [assignment.sprintId] }, $inc: { version: 1 } },
+      );
+    }
+    createdTicketIds.push(child.id);
+  }
+
+  const planJson = JSON.stringify(draft.backlog);
+  const snapshot = await createEpicSnapshot(orgId, epicTicket.id, planJson);
+
+  await saveEpicDraft(orgId, { ...draft, phase: "committed" });
+
+  return { epicTicketId: epicTicket.id, createdTicketIds, snapshotId: snapshot.id };
 }
 
 // ─── Member Roles ─────────────────────────────────────────────────────────────

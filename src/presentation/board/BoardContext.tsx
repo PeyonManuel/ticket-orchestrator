@@ -80,7 +80,8 @@ export type ActiveModal =
   | "search"
   | "createVersion"
   | "createSprint"
-  | "editSprint";
+  | "editSprint"
+  | "members";
 
 /**
  * Board kanban view modes.
@@ -243,6 +244,7 @@ export interface BoardActions {
   selectSprint: (sprintId: string) => void;
   openCreateSprint: () => void;
   openEditSprint: (sprintId: string) => void;
+  openMembers: () => void;
   /** Add or remove a ticket from a sprint. */
   setTicketSprints: (ticketId: string, sprintIds: string[]) => Promise<void>;
 }
@@ -1159,6 +1161,11 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       openCreateSprint: () => {
         setActiveModal("createSprint");
         updateUrlParams({ ticketId: null, modal: "create-sprint" });
+      },
+
+      openMembers: () => {
+        setActiveModal("members");
+        updateUrlParams({ ticketId: null, modal: "members" });
       },
 
       openEditSprint: (sprintId) => {

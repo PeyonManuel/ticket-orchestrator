@@ -15,6 +15,7 @@ export function CreateTicketModal() {
     activeBoardId,
     boardColumns,
     releaseVersions,
+    sprints,
     createModalOpen,
     createTicket,
     closeModal,
@@ -38,6 +39,19 @@ export function CreateTicketModal() {
     [selectedBoardId, boardColumns],
   );
 
+  const sprintsForBoard = useMemo(
+    () => sprints.filter((s) => s.boardId === selectedBoardId && s.status !== "completed"),
+    [sprints, selectedBoardId],
+  );
+
+  const defaultSprintId = useMemo(
+    () =>
+      sprintsForBoard.find((s) => s.status === "active")?.id ??
+      sprintsForBoard.find((s) => s.status === "planning")?.id ??
+      null,
+    [sprintsForBoard],
+  );
+
   const [form, setForm] = useState<{
     title: string;
     description: string;
@@ -48,6 +62,7 @@ export function CreateTicketModal() {
     priority: "low" | "medium" | "high";
     columnId: string;
     parentTicketId: string | null;
+    sprintId: string | null;
   }>({
     title: "",
     description: "",
@@ -58,6 +73,7 @@ export function CreateTicketModal() {
     priority: "medium",
     columnId: columnsForBoard[0]?.id ?? "",
     parentTicketId: null,
+    sprintId: defaultSprintId,
   });
 
   // Eligible parents: epics on the selected board.
@@ -68,6 +84,13 @@ export function CreateTicketModal() {
       ),
     [allTickets, selectedBoardId],
   );
+
+  // Sync sprint default whenever the modal opens or the active sprint changes.
+  React.useEffect(() => {
+    if (createModalOpen) {
+      setForm((prev) => ({ ...prev, sprintId: defaultSprintId }));
+    }
+  }, [createModalOpen, defaultSprintId]);
 
   // When the modal is opened "as child of <epic>", pre-fill the parent ID.
   // Default to story (the more common child type) when a parent is preset.
@@ -143,6 +166,7 @@ export function CreateTicketModal() {
             workflowState: chosenColumn?.states[0] ?? "todo",
             priority: form.priority,
             storyPoints: form.storyPoints,
+            sprintIds: form.sprintId ? [form.sprintId] : [],
           });
           setForm((prev) => ({ ...prev, title: "", description: "" }));
         }}
@@ -257,6 +281,21 @@ export function CreateTicketModal() {
               onChange={(v) => setForm((prev) => ({ ...prev, columnId: v }))}
             />
           )}
+
+          <SimpleDropdown
+            value={form.sprintId ?? ""}
+            options={[
+              { label: "Backlog", value: "" },
+              ...sprintsForBoard.map((s) => ({
+                label: s.name,
+                value: s.id,
+              })),
+            ]}
+            onChange={(v) =>
+              setForm((prev) => ({ ...prev, sprintId: v || null }))
+            }
+            placeholder="Sprint"
+          />
 
           {form.hierarchyType !== "epic" && (
             <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">

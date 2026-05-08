@@ -138,10 +138,12 @@ function SprintSection({
       }`}
     >
       {/* Header */}
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-2.5 px-4 py-3 bg-white dark:bg-zinc-900/70 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors text-left"
+        onKeyDown={(e) => e.key === "Enter" && setOpen((o) => !o)}
+        className="w-full flex items-center gap-2.5 px-4 py-3 bg-white dark:bg-zinc-900/70 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors text-left cursor-pointer select-none"
       >
         {open ? (
           <ChevronDown size={14} className="shrink-0 text-zinc-400" />
@@ -178,7 +180,7 @@ function SprintSection({
             </button>
           )}
         </span>
-      </button>
+      </div>
 
       {/* Ticket list */}
       {open && (

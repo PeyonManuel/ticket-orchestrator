@@ -215,7 +215,7 @@ function ColumnCardImpl(props: ColumnCardProps) {
               />
             )}
 
-            {isAdmin && (
+            {isAdmin && !column.protected && (
             <button
               type="button"
               onClick={() => onDeleteColumn(column.id)}

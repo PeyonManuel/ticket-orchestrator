@@ -56,6 +56,12 @@ export async function ensureIndexes(): Promise<void> {
         { orgId: 1, userId: 1 },
         { unique: true }
       ),
+      // EpicDrafts: list per board, newest activity first; soft-deleted ones excluded.
+      db.collection("epicDrafts").createIndex({ orgId: 1, boardId: 1, updatedAt: -1 }),
+      db.collection("epicDrafts").createIndex(
+        { orgId: 1, deletedAt: 1 },
+        { partialFilterExpression: { deletedAt: { $type: "date" } } },
+      ),
     ]),
   );
 

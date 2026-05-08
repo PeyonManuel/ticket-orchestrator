@@ -3,7 +3,7 @@ export const typeDefs = /* GraphQL */ `
   enum HierarchyType { epic story task }
   enum Priority { low medium high }
   enum BoardRole { member admin }
-  enum OrgMemberRole { developer designer qa po admin }
+  enum OrgMemberRole { developer ux tester po }
   enum SprintStatus { planning active completed }
   enum HistoryEntryKind {
     created
@@ -34,6 +34,8 @@ export const typeDefs = /* GraphQL */ `
     order: Int!
     """Tickets in a column with isDone=true count as completed for velocity, drift, and rollover."""
     isDone: Boolean!
+    """Protected columns cannot be deleted (e.g. the default To Do and Done columns)."""
+    protected: Boolean!
   }
 
   type BoardMember {
@@ -147,6 +149,196 @@ export const typeDefs = /* GraphQL */ `
     planJson: String!
   }
 
+  # ── Orchestrator drafts ───────────────────────────────────────────────
+  enum OrchestratorPhase {
+    phase1Brainstorming
+    phase2Structuring
+    phase3Refining
+    phase4SprintPlanning
+    committing
+    committed
+    abandoned
+  }
+  enum BrainstormRole { user analyst }
+  enum ProposalLabel {
+    frontend backend qa infra ux ai api devops security observability
+  }
+  enum ProposalHierarchyType { story task }
+
+  type BrainstormTurn {
+    id: ID!
+    role: BrainstormRole!
+    text: String!
+    createdAt: String!
+  }
+
+  type BrainstormSummary {
+    summary: String!
+    goals: [String!]!
+    outOfScope: [String!]!
+  }
+
+  type TicketProposal {
+    id: ID!
+    hierarchyType: ProposalHierarchyType!
+    title: String!
+    oneLiner: String!
+    description: String!
+    label: ProposalLabel!
+    acceptanceCriteria: [String!]!
+    """null until the Controller has refined this ticket."""
+    storyPoints: Int
+    risks: [String!]!
+    refined: Boolean!
+    """Per-ticket refinement chat with the AI in Phase 3."""
+    transcript: [BrainstormTurn!]!
+  }
+
+  type BacklogProposal {
+    epicTitle: String!
+    epicDescription: String!
+    tickets: [TicketProposal!]!
+  }
+
+  """Persistent in-flight Epic draft. Never commits to the board until COMMIT_EPIC."""
+  type EpicDraft {
+    id: ID!
+    orgId: ID!
+    boardId: ID!
+    authorId: ID!
+    createdAt: String!
+    updatedAt: String!
+    phase: OrchestratorPhase!
+    transcript: [BrainstormTurn!]!
+    """Phase 2 refinement chat between PO and AI about the backlog structure."""
+    blueprintTranscript: [BrainstormTurn!]!
+    brainstormSummary: BrainstormSummary
+    backlog: BacklogProposal
+    refinementCursor: Int!
+    sprintPlan: SprintPlan
+    plannerTranscript: [BrainstormTurn!]!
+    planningSprints: [SprintSnapshot!]!
+    planningMembers: [MemberSnapshot!]!
+    lastSeenAt: String!
+  }
+
+  type CommitEpicDraftResult {
+    epicTicketId: ID!
+    createdTicketIds: [ID!]!
+    snapshotId: ID!
+  }
+
+  type TicketAssignment {
+    ticketId: ID!
+    sprintId: ID
+    assigneeUserId: ID
+  }
+
+  type SprintPlan {
+    assignments: [TicketAssignment!]!
+    reasoning: String!
+  }
+
+  type SprintSnapshot {
+    id: ID!
+    name: String!
+    startDate: String!
+    endDate: String!
+    capacityPoints: Int!
+    status: String!
+  }
+
+  type MemberSnapshot {
+    userId: ID!
+    fullName: String!
+    role: OrgMemberRole!
+  }
+
+  """Lightweight draft listing entry — used by the resume picker."""
+  type EpicDraftIndexEntry {
+    id: ID!
+    title: String!
+    phase: OrchestratorPhase!
+    updatedAt: String!
+  }
+
+  input BrainstormTurnInput {
+    id: ID!
+    role: BrainstormRole!
+    text: String!
+    createdAt: String!
+  }
+
+  input BrainstormSummaryInput {
+    summary: String!
+    goals: [String!]!
+    outOfScope: [String!]!
+  }
+
+  input TicketProposalInput {
+    id: ID!
+    hierarchyType: ProposalHierarchyType!
+    title: String!
+    oneLiner: String!
+    description: String!
+    label: ProposalLabel!
+    acceptanceCriteria: [String!]!
+    storyPoints: Int
+    risks: [String!]!
+    refined: Boolean!
+    transcript: [BrainstormTurnInput!]!
+  }
+
+  input BacklogProposalInput {
+    epicTitle: String!
+    epicDescription: String!
+    tickets: [TicketProposalInput!]!
+  }
+
+  input TicketAssignmentInput {
+    ticketId: ID!
+    sprintId: ID
+    assigneeUserId: ID
+  }
+
+  input SprintPlanInput {
+    assignments: [TicketAssignmentInput!]!
+    reasoning: String!
+  }
+
+  input SprintSnapshotInput {
+    id: ID!
+    name: String!
+    startDate: String!
+    endDate: String!
+    capacityPoints: Int!
+    status: String!
+  }
+
+  input MemberSnapshotInput {
+    userId: ID!
+    fullName: String!
+    role: OrgMemberRole!
+  }
+
+  input SaveEpicDraftInput {
+    id: ID!
+    boardId: ID!
+    authorId: ID!
+    createdAt: String!
+    phase: OrchestratorPhase!
+    transcript: [BrainstormTurnInput!]!
+    blueprintTranscript: [BrainstormTurnInput!]!
+    brainstormSummary: BrainstormSummaryInput
+    backlog: BacklogProposalInput
+    refinementCursor: Int!
+    sprintPlan: SprintPlanInput
+    plannerTranscript: [BrainstormTurnInput!]!
+    planningSprints: [SprintSnapshotInput!]!
+    planningMembers: [MemberSnapshotInput!]!
+    lastSeenAt: String!
+  }
+
   # ── Cursor pagination for tickets ────────────────────────────────────
   # Stable, concurrent-write-safe (unlike offset pagination).
   type PageInfo {
@@ -195,6 +387,10 @@ export const typeDefs = /* GraphQL */ `
     sprints(boardId: ID!): [Sprint!]!
     sprintAssignments(sprintId: ID!): [SprintAssignment!]!
     epicSnapshot(epicTicketId: ID!): EpicSnapshot
+    """In-flight Epic drafts on a board, newest activity first."""
+    epicDrafts(boardId: ID!): [EpicDraftIndexEntry!]!
+    """Hydrate a single draft by id."""
+    epicDraft(id: ID!): EpicDraft
   }
 
   input CreateBoardInput { name: String!, type: BoardType }
@@ -287,6 +483,15 @@ export const typeDefs = /* GraphQL */ `
 
     """Set (or clear) the functional planning role for an org member."""
     setMemberRole(userId: ID!, role: OrgMemberRole): Boolean!
+
+    """Create a fresh empty Epic draft scoped to the active org and given board."""
+    createEpicDraft(boardId: ID!): EpicDraft!
+    """Persist the full draft state. The orchestrator machine is the single writer."""
+    saveEpicDraft(input: SaveEpicDraftInput!): EpicDraft!
+    """Soft-delete a draft. Removes it from the resume picker but keeps the audit trail."""
+    deleteEpicDraft(id: ID!): Boolean!
+    """Commit an Epic draft to the board: creates the Epic ticket, all child tickets, and an EpicSnapshot. Returns IDs of everything created."""
+    commitEpicDraft(draftId: ID!): CommitEpicDraftResult!
   }
 
   input CreateSprintInput {

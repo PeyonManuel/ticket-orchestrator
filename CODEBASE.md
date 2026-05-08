@@ -41,8 +41,15 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 
 | File | Purpose |
 |---|---|
-| `types.ts` | ALL domain types — single source of truth for Board, Ticket, Sprint, etc. |
-| `machines/aiOrchestrator.machine.ts` | XState machine: idle→researching→awaitingHumanApproval→approved\|rejected |
+| `types.ts` | ALL board domain types — Board, Ticket, Sprint, EpicSnapshot, etc. |
+| `index.ts` | Re-exports |
+
+### `src/domain/orchestrator/` — Orchestrator domain (pure TS)
+
+| File | Purpose |
+|---|---|
+| `types.ts` | EpicDraft, BrainstormTurn/Summary, BacklogProposal, TicketProposal, DraftStore boundary, Zod schemas |
+| `machines/orchestrator.machine.ts` | Hierarchical XState machine: `phase1Brainstorming` → `phase2Structuring` → `phase3Refining` → `committing`/`abandoned`. Actor stubs (`analystActor`, `architectActor`, `controllerActor`) injected at runtime. |
 | `index.ts` | Re-exports |
 
 ### `src/infrastructure/graphql/`
@@ -70,6 +77,8 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 | File | Purpose |
 |---|---|
 | `driftDetection.ts` | Sprint drift + velocity calculation (uses `isDone` columns) |
+| `mockAi.ts` | Mock implementations of `runAnalystTurn` / `runArchitectBacklog` / `runControllerRefinement` — same signatures the LangGraph backend will expose. 600–1400ms simulated latency. |
+| `draftStore.ts` | Apollo-backed `DraftStore` adapter — list / load / save / remove / create EpicDrafts via GQL. |
 
 ### `src/infrastructure/observability/`
 
@@ -97,13 +106,26 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 | `modals/TicketModal.tsx` | Full ticket edit: fields, comments, history, conflict resolution UI |
 | `modals/CreateTicketModal.tsx` | New ticket form |
 | `modals/CreateSprintModal.tsx` | New sprint form [sprint arch] |
-| `modals/OrchestratorModal.tsx` | AI orchestrator UI — **stub, not implemented** |
+| `modals/OrchestratorModal.tsx` | Full-height sheet hosting the orchestrator — defers to `presentation/orchestrator/OrchestratorRoot` |
 | `modals/SearchModal.tsx` | Fuzzy search |
 | `modals/DeleteBoardModal.tsx` | Soft-delete confirmation |
 | `modals/RestoreBoardModal.tsx` | Restore from trash |
 | `shared/dropdowns/SprintMultiSelect.tsx` | Sprint picker dropdown [sprint arch] |
 | `shared/dropdowns/LabelDropdown.tsx` | Label picker |
 | `shared/hooks/useIsAdmin.ts` | Clerk org role check |
+
+### `src/presentation/orchestrator/` — AI Orchestrator UI
+
+| File | Purpose |
+|---|---|
+| `OrchestratorRoot.tsx` | Entry shell: switches between draft picker and active session |
+| `DraftPicker.tsx` | "New Epic" + resumable in-progress drafts + history (uses `GET_EPIC_DRAFTS`) |
+| `OrchestratorSession.tsx` | Hosts the running machine, swaps phase panes via `AnimatePresence` |
+| `useOrchestrator.ts` | Hook: instantiates machine with mock actors, debounced save (1500ms), unmount flush |
+| `PhaseHeader.tsx` | Top bar: 3-dot phase progress, save/discard/close, "Saving…" indicator |
+| `Phase1Brainstorm.tsx` | Chat with Analyst — bubbles, typing dots, summary card, "Continue to backlog" CTA |
+| `Phase2BulkList.tsx` | Bulk-edit backlog: inline title, label dropdown, ↑↓ reorder, ✕ delete, + add |
+| `Phase3Wizard.tsx` | One-by-one ticket refinement + Controller risks sidebar + final commit summary |
 
 ---
 
@@ -146,6 +168,32 @@ interface SprintAssignment { sprintId: string; memberId: string; allocatedPoints
 // Optimistic concurrency
 type UpdateTicketResult = Ticket | ConflictError;
 interface ConflictError { currentState: Ticket; conflictedFields: string[]; message: string; }
+
+// AI Orchestrator (full types in src/domain/orchestrator/types.ts)
+type OrchestratorPhase =
+  | "phase1Brainstorming" | "phase2Structuring" | "phase3Refining"
+  | "committing" | "committed" | "abandoned";
+
+interface EpicDraft {
+  id: string; orgId: string; boardId: string; authorId: string;
+  createdAt: string; updatedAt: string; phase: OrchestratorPhase;
+  transcript: BrainstormTurn[];           // append-only chat history with the Analyst
+  brainstormSummary: BrainstormSummary | null;
+  backlog: BacklogProposal | null;        // mutable until phase 3 begins
+  refinementCursor: number;               // index into backlog.tickets (phase 3)
+  lastSeenAt: string;
+}
+
+interface BrainstormTurn { id: string; role: "user" | "analyst"; text: string; createdAt: string; }
+interface BrainstormSummary { summary: string; goals: string[]; outOfScope: string[]; }
+interface BacklogProposal { epicTitle: string; epicDescription: string; tickets: TicketProposal[]; }
+interface TicketProposal {
+  id: string; hierarchyType: "story" | "task";
+  title: string; oneLiner: string; description: string;
+  label: ProposalLabel; acceptanceCriteria: string[];
+  storyPoints: 1 | 2 | 3 | 5 | 8 | 13 | null;  // null until Controller refines it
+  risks: string[]; refined: boolean;
+}
 ```
 
 ---
@@ -190,12 +238,13 @@ CSS `transition-transform` on the `[sidebar | content]` row. Never Framer Motion
 - Deep links (`/tickets/[ticketNumber]`), URL param persistence
 - Board soft-delete + restore
 - Structured logging, orgId-scoped indexes
+- **AI Orchestrator (frontend slice)** — full XState machine, 3-phase UI (chat / bulk / wizard), mock AI actors, durable Mongo-backed drafts (`epicDrafts` collection, GQL queries/mutations), debounced auto-save, drafts picker
 
 ### Not Built
-- **AI orchestrator wiring** — `aiOrchestrator.machine.ts` exists, `OrchestratorModal.tsx` is a stub
-- **E2E tests** — Playwright required per AGENTS.md, none written
+- **LangGraph backend integration** — mock AI actors in `mockAi.ts` will be swapped for real adapters of the same shape
+- **Commit-to-board action** — phase 3's "Commit Epic" currently just marks the draft `committed`; next slice writes real tickets + EpicSnapshot
+- **E2E tests** — Playwright required per AGENTS.md, none written (orchestrator approve/reject branches especially)
 - **Conflict UI for drag-and-drop** — `moveTicketToColumn` can return `ConflictError` but no UI handles it
-- **LangGraph backend integration**
 
 ---
 

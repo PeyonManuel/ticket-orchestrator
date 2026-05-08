@@ -19,6 +19,8 @@ export interface BoardColumn {
    * Invariant: every board must have ≥1 column with `isDone: true`.
    */
   isDone: boolean;
+  /** Cannot be deleted by the user — set on the default To Do and Done columns. Defaults false. */
+  protected?: boolean;
 }
 
 export interface Board {
@@ -65,6 +67,7 @@ export interface CreateTicketInput {
   priority: "low" | "medium" | "high";
   storyPoints: 1 | 2 | 3 | 5 | 8 | 13;
   assigneeIds?: string[];
+  sprintIds?: string[];
 }
 
 export interface BoardMember {
@@ -85,7 +88,7 @@ export interface OrgMember {
 }
 
 /** Functional role used for capacity planning and persona-based estimation. */
-export type OrgMemberRole = "developer" | "designer" | "qa" | "po" | "admin";
+export type OrgMemberRole = "developer" | "ux" | "tester" | "po";
 
 export interface Sprint {
   id: string;
@@ -175,13 +178,6 @@ export interface ReleaseVersion {
   releaseDate: string;
 }
 
-export interface OrchestratorSuggestion {
-  id: string;
-  summary: string;
-  riskLevel: "low" | "medium" | "high";
-  suggestedAction: "accept" | "revise" | "deScope";
-}
-
 export type ActiveModal =
   | "none"
   | "ticket"
@@ -216,15 +212,6 @@ export interface DriftReport {
   /** 0–100: what percent of snapshot tickets are in a done-like state. */
   completionPercent: number;
   hasDrift: boolean;
-}
-
-export interface AiOrchestratorContext {
-  requirement: string;
-  refinementDraft: string | null;
-  planDraft: string | null;
-  controllerAlert: string | null;
-  suggestion: OrchestratorSuggestion | null;
-  rejectionReason: string | null;
 }
 
 export type SeedBoard = Omit<Board, "orgId">;

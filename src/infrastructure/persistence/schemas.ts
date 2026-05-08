@@ -24,6 +24,8 @@ export const BoardColumnSchema = z.object({
   order: z.number().int().nonnegative().default(0),
   /** Default false so column docs created before this field still parse. */
   isDone: z.boolean().default(false),
+  /** Default false so existing columns are not retroactively protected. */
+  protected: z.boolean().default(false),
 });
 
 export const TicketSchema = z.object({
@@ -133,7 +135,7 @@ export const UpdateTicketInputSchema = z.object({
   expectedVersion: z.number().int().nonnegative(),
 });
 
-export const OrgMemberRoleSchema = z.enum(["developer", "designer", "qa", "po", "admin"]);
+export const OrgMemberRoleSchema = z.enum(["developer", "ux", "tester", "po"]);
 
 export const SprintSchema = z.object({
   id: z.string(),

@@ -86,8 +86,7 @@ function emitBrowser(level: LogLevel, scope: LogScope, msg: string, data?: unkno
 
   // Has payload — open a collapsed group so the page log stays scannable.
   console.groupCollapsed(tag, tagStyle, msgStyle);
-  if (level === "error") console.error(data);
-  else console.log(data);
+  console.log(data);
   console.groupEnd();
 }
 

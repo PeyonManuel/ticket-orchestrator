@@ -2,11 +2,12 @@
 
 import React, { useEffect } from "react";
 import Link from "next/link";
-import { PanelLeftClose, PanelLeftOpen, Search, Plus, Sun, Moon } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Search, Plus, Sun, Moon, Users } from "lucide-react";
 import { dark } from "@clerk/themes";
 import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
 import { useBoardActions } from "@/presentation/board/BoardContext";
 import { useTheme } from "@/presentation/shared/ThemeProvider";
+import { useIsAdmin } from "@/presentation/shared/hooks/useIsAdmin";
 
 interface TopbarProps {
   onToggleSidebar: () => void;
@@ -14,8 +15,9 @@ interface TopbarProps {
 }
 
 export default function Topbar({ onToggleSidebar, isSidebarOpen }: TopbarProps) {
-  const { openCreateTicket, openSearch } = useBoardActions();
+  const { openCreateTicket, openSearch, openMembers } = useBoardActions();
   const { theme, toggle } = useTheme();
+  const isAdmin = useIsAdmin();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -77,6 +79,18 @@ export default function Topbar({ onToggleSidebar, isSidebarOpen }: TopbarProps) 
 
       {/* ── Right: theme + org switcher + user ───────────────────── */}
       <div className="flex items-center gap-1.5 md:gap-3 shrink-0">
+        {isAdmin && (
+          <button
+            onClick={openMembers}
+            className="flex items-center gap-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+            title="Manage team members"
+            aria-label="Team members"
+          >
+            <Users size={14} />
+            <span className="hidden sm:inline">Team</span>
+          </button>
+        )}
+
         <button
           onClick={toggle}
           className="p-2 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
