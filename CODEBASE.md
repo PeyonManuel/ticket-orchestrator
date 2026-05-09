@@ -14,7 +14,7 @@ Quick-load orientation for Claude. Updated: May 2026. Verify before acting on an
 | State (board data) | Apollo Client | 4.1.9 |
 | GQL server | graphql-yoga | 5.21 |
 | Auth / multi-tenant | Clerk (orgs) | 7.2.7 |
-| DB | MongoDB via Mongoose | inferred |
+| DB | MongoDB native driver (`mongodb` package) | 6.x |
 | Validation | Zod | 4.x |
 | Animation | Framer Motion | 12.x |
 | Styling | Tailwind CSS | 4.x |
@@ -48,8 +48,8 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 
 | File | Purpose |
 |---|---|
-| `types.ts` | EpicDraft, BrainstormTurn/Summary, BacklogProposal, TicketProposal, DraftStore boundary, Zod schemas |
-| `machines/orchestrator.machine.ts` | Hierarchical XState machine: `phase1Brainstorming` → `phase2Structuring` → `phase3Refining` → `committing`/`abandoned`. Actor stubs (`analystActor`, `architectActor`, `controllerActor`) injected at runtime. |
+| `types.ts` | EpicDraft, BrainstormTurn/Summary, BacklogProposal, TicketProposal, SprintPlan, SprintSnapshot, MemberSnapshot, DraftStore boundary, Zod schemas. Phase 4 actor I/O contracts (`PlannerInput/Output`, `PlannerChatInput/Output`). |
+| `machines/orchestrator.machine.ts` | Hierarchical XState machine: `phase1Brainstorming` → `phase2Structuring` → `phase3Refining` → `phase4SprintPlanning` → `committing`/`abandoned`. Actor stubs (`analystActor`, `architectActor`, `controllerActor`, `blueprintChatActor`, `refinementChatActor`, `plannerActor`, `plannerChatActor`) injected at runtime. |
 | `index.ts` | Re-exports |
 
 ### `src/infrastructure/graphql/`
@@ -66,9 +66,9 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 
 | File | Purpose |
 |---|---|
-| `mongo.ts` | Mongoose connection singleton |
-| `schemas.ts` | Mongoose model schemas (Board, Ticket, Sprint, Comment, etc.) |
-| `repository.ts` | All DB read/write functions — always scoped by `orgId` |
+| `mongo.ts` | `MongoClient` connection singleton (native driver, **not** Mongoose). |
+| `schemas.ts` | **Zod** validation schemas (Board, Ticket, Sprint, Comment, EpicSnapshot, etc.) — used by `repository.ts` to parse Mongo docs at the boundary. |
+| `repository.ts` | All DB read/write functions — always scoped by `orgId`. Includes `commitEpicDraft` flow that creates Epic ticket + child tickets + EpicSnapshot. |
 | `indexes.ts` | Compound indexes (orgId-first) |
 | `loaders.ts` | DataLoader instances — comment batching (no N+1) |
 
@@ -76,9 +76,9 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 
 | File | Purpose |
 |---|---|
-| `driftDetection.ts` | Sprint drift + velocity calculation (uses `isDone` columns) |
-| `mockAi.ts` | Mock implementations of `runAnalystTurn` / `runArchitectBacklog` / `runControllerRefinement` — same signatures the LangGraph backend will expose. 600–1400ms simulated latency. |
-| `draftStore.ts` | Apollo-backed `DraftStore` adapter — list / load / save / remove / create EpicDrafts via GQL. |
+| `driftDetection.ts` | Sprint drift + velocity calculation (uses `isDone` columns). Currently parses `EpicSnapshot.planJson` — will be refactored to typed fields in Slice A.2. |
+| `mockAi.ts` | Mock implementations of all orchestrator actors (`runAnalystTurn`, `runArchitectBacklog`, `runControllerRefinement`, `runBlueprintChat`, `runRefinementChat`, `runSprintPlanner`, `runPlannerChat`). Same signatures the LangGraph backend will expose. 600–1400ms simulated latency. |
+| `draftStore.ts` | Apollo-backed `DraftStore` adapter — list / load / save / remove / create EpicDrafts via GQL (server stores in Mongo `epicDrafts` collection). |
 
 ### `src/infrastructure/observability/`
 
@@ -124,8 +124,9 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 | `useOrchestrator.ts` | Hook: instantiates machine with mock actors, debounced save (1500ms), unmount flush |
 | `PhaseHeader.tsx` | Top bar: 3-dot phase progress, save/discard/close, "Saving…" indicator |
 | `Phase1Brainstorm.tsx` | Chat with Analyst — bubbles, typing dots, summary card, "Continue to backlog" CTA |
-| `Phase2BulkList.tsx` | Bulk-edit backlog: inline title, label dropdown, ↑↓ reorder, ✕ delete, + add |
-| `Phase3Wizard.tsx` | One-by-one ticket refinement + Controller risks sidebar + final commit summary |
+| `Phase2BulkList.tsx` | Bulk-edit backlog: inline title, label dropdown, ↑↓ reorder, ✕ delete, + add. Includes Phase 2 chat with the AI about backlog structure. |
+| `Phase3Wizard.tsx` | One-by-one ticket refinement + Controller risks sidebar + per-ticket refinement chat |
+| `Phase4SprintPlan.tsx` | Sprint planning view — capacity overview, ticket→sprint→assignee assignments, planner chat, "Commit Epic" CTA |
 
 ---
 
@@ -169,18 +170,33 @@ interface SprintAssignment { sprintId: string; memberId: string; allocatedPoints
 type UpdateTicketResult = Ticket | ConflictError;
 interface ConflictError { currentState: Ticket; conflictedFields: string[]; message: string; }
 
+// Org member functional role — used by orchestrator planner + capacity policies.
+type OrgMemberRole = "developer" | "ux" | "tester" | "po";
+
+// EpicSnapshot — currently a thin "drift baseline" record. Slice A.2 will refactor this into
+// the rich orchestrator commit record (typed frozen 4-phase artifacts + ticketIds + boardId).
+interface EpicSnapshot {
+  id: string; orgId: string; epicTicketId: string;
+  createdAt: string; planJson: string;  // JSON-encoded plan (legacy shape)
+}
+
 // AI Orchestrator (full types in src/domain/orchestrator/types.ts)
 type OrchestratorPhase =
   | "phase1Brainstorming" | "phase2Structuring" | "phase3Refining"
-  | "committing" | "committed" | "abandoned";
+  | "phase4SprintPlanning" | "committing" | "committed" | "abandoned";
 
 interface EpicDraft {
   id: string; orgId: string; boardId: string; authorId: string;
   createdAt: string; updatedAt: string; phase: OrchestratorPhase;
-  transcript: BrainstormTurn[];           // append-only chat history with the Analyst
+  transcript: BrainstormTurn[];               // Phase 1 chat with Analyst
+  blueprintTranscript: BrainstormTurn[];      // Phase 2 chat about backlog structure
   brainstormSummary: BrainstormSummary | null;
-  backlog: BacklogProposal | null;        // mutable until phase 3 begins
-  refinementCursor: number;               // index into backlog.tickets (phase 3)
+  backlog: BacklogProposal | null;
+  refinementCursor: number;                   // index into backlog.tickets (Phase 3)
+  sprintPlan: SprintPlan | null;              // Phase 4 output
+  plannerTranscript: BrainstormTurn[];        // Phase 4 chat with planner
+  planningSprints: SprintSnapshot[];          // Phase 4 frozen sprint context
+  planningMembers: MemberSnapshot[];          // Phase 4 frozen member context
   lastSeenAt: string;
 }
 
@@ -191,9 +207,17 @@ interface TicketProposal {
   id: string; hierarchyType: "story" | "task";
   title: string; oneLiner: string; description: string;
   label: ProposalLabel; acceptanceCriteria: string[];
-  storyPoints: 1 | 2 | 3 | 5 | 8 | 13 | null;  // null until Controller refines it
+  storyPoints: 1 | 2 | 3 | 5 | 8 | 13 | null;
   risks: string[]; refined: boolean;
+  transcript: BrainstormTurn[];               // Per-ticket Phase 3 refinement chat
+  // Slice A.1 additions (optional): discipline, dependencies
 }
+
+// Phase 4 types
+interface SprintSnapshot { id: string; name: string; startDate: string; endDate: string; capacityPoints: number; status: "planning" | "active" | "completed"; }
+interface MemberSnapshot { userId: string; fullName: string; role: OrgMemberRole; }
+interface TicketAssignment { ticketId: string; sprintId: string | null; assigneeUserId: string | null; }
+interface SprintPlan { assignments: TicketAssignment[]; reasoning: string; /* Slice A.1: optional overflow + bufferRule */ }
 ```
 
 ---
@@ -238,11 +262,14 @@ CSS `transition-transform` on the `[sidebar | content]` row. Never Framer Motion
 - Deep links (`/tickets/[ticketNumber]`), URL param persistence
 - Board soft-delete + restore
 - Structured logging, orgId-scoped indexes
-- **AI Orchestrator (frontend slice)** — full XState machine, 3-phase UI (chat / bulk / wizard), mock AI actors, durable Mongo-backed drafts (`epicDrafts` collection, GQL queries/mutations), debounced auto-save, drafts picker
+- **AI Orchestrator (4 phases built)** — XState machine with `phase1Brainstorming → phase2Structuring → phase3Refining → phase4SprintPlanning → committing → committed`. Mock AI actors for all phases (analyst, architect, controller, blueprint chat, refinement chat, planner, planner chat). Durable Mongo-backed drafts (`epicDrafts` collection, GQL queries/mutations), debounced auto-save (1.5s), drafts picker.
+- **Commit-to-board** — `commitEpicDraft` GQL mutation + repository function exist. Creates Epic-type ticket + child tickets + `EpicSnapshot` record (currently with JSON-encoded `planJson`). Slice A.2 will refactor the snapshot to typed fields.
+- **Org member roles** — `OrgMemberRole = "developer" | "ux" | "tester" | "po"` set in org settings via `setMemberRole` mutation; consumed by Phase 4 planner.
 
 ### Not Built
 - **LangGraph backend integration** — mock AI actors in `mockAi.ts` will be swapped for real adapters of the same shape
-- **Commit-to-board action** — phase 3's "Commit Epic" currently just marks the draft `committed`; next slice writes real tickets + EpicSnapshot
+- **Phase 5 Inspector** — post-commit chat over committed Epics with persistent transcript + AI memory. Plan in `ORION_PLAN.md`.
+- **Capacity-aware Phase 4 slicing** — current planner produces `SprintPlan` but doesn't enforce 80% buffer, doesn't model overflow, doesn't respect dependency ordering. Slice B work.
 - **E2E tests** — Playwright required per AGENTS.md, none written (orchestrator approve/reject branches especially)
 - **Conflict UI for drag-and-drop** — `moveTicketToColumn` can return `ConflictError` but no UI handles it
 

@@ -15,11 +15,11 @@ Build a state-managed AI factory that turns a PO's high-level vision into a capa
 
 | Layer | Built | Gap |
 |---|---|---|
-| Domain machine | `phase1Brainstorming → phase2Structuring → phase3Refining → committing → committed` | `committing` is a stub; no Inspector machine |
-| Domain types | `EpicDraft`, `BrainstormTurn`, `BacklogProposal`, `TicketProposal` | `EpicSnapshot`, `TeamMemberCapacity`, `SprintSlice`, typed `TicketLink`, discipline, `InspectorTranscript`, `EpicMemory` |
-| Infrastructure | `mockAi.ts` (3 actors), `draftStore.ts`, GQL CRUD for drafts | `snapshotStore`, `capacityProvider`, `commitAdapter`, `inspectorMemoryStore`, Phase 4/5 mock actors |
-| Presentation | `Phase1Brainstorm`, `Phase2BulkList`, `Phase3Wizard`, `DraftPicker` | `Phase4ScrumMaster`, `Phase5Inspector`; extend `DraftPicker` with committed-Epic list |
-| Backend | All AI is mocked in-process | Real LangGraph + FastAPI + Gemini + RAG — explicitly deferred to a later slice |
+| Domain machine | `phase1Brainstorming → phase2Structuring → phase3Refining → phase4SprintPlanning → committing → committed`, with planner sub-states (`generatingPlan / reviewingPlan / awaitingPlannerReply`) | No Inspector (Phase 5) machine; Phase 4 has no capacity policy, no overflow, no dependency-aware ordering |
+| Domain types | `EpicDraft`, `BrainstormTurn`, `BacklogProposal`, `TicketProposal`, `SprintPlan`, `SprintSnapshot`, `MemberSnapshot`, `TicketAssignment`, `OrgMemberRole`. Existing thin `EpicSnapshot` (`{ id, orgId, epicTicketId, createdAt, planJson }`) used by drift detection. | `discipline` on proposals, typed dependencies, capacity-aware extensions on `SprintPlan` (overflow + bufferRule), Inspector types (`InspectorTranscript`, `EpicMemory`), refactored rich `EpicSnapshot` |
+| Infrastructure | `mockAi.ts` (7 actors: analyst / architect / controller / blueprint chat / refinement chat / planner / planner chat), `draftStore.ts`, GQL CRUD for drafts, `commitEpicDraft` repository + resolver, `driftDetection.ts` | `capacityProvider`, `inspectorMemoryStore`, Phase 5 mock actor + memory tool |
+| Presentation | `Phase1Brainstorm`, `Phase2BulkList`, `Phase3Wizard`, `Phase4SprintPlan`, `DraftPicker`, `OrchestratorRoot`, `OrchestratorSession`, `useOrchestrator` | `Phase5Inspector`; extend `DraftPicker` with committed-Epic list; capacity panel + slice preview enrichments on `Phase4SprintPlan` |
+| Backend | All AI is mocked in-process | Real LangGraph + FastAPI + Gemini + RAG — explicitly deferred to slice H |
 | E2E | None | Mandatory per AGENTS.md for approve/reject branches |
 
 ---
@@ -31,10 +31,10 @@ Build a state-managed AI factory that turns a PO's high-level vision into a capa
 | 1 Analyst | Strategic Consultant | `phase1Brainstorming` | Built. RAG hook deferred to backend slice. |
 | 2 Drafter | Technical Planner | `phase2Structuring` | Built. Add `discipline` tag to proposals. |
 | 3 Jira Master | QA/Documentation | `phase3Refining` | Built. Add full typed dependency model. |
-| 4 Scrum Master | Team Protector | `committing` (stub) | **Expand into capacity → slicing → approve → sync sub-machine.** |
+| 4 Scrum Master | Team Protector | `phase4SprintPlanning` | **Built (basic).** Planner actor + chat exist, produce `SprintPlan`. **Augment** with capacity policy (80% buffer per discipline), overflow/slicing concept, dependency-aware ordering. |
 | 5 Inspector | Living Memory | (new) | **New machine**, entered when opening a committed Epic. |
 
-Phase 4 and 5 are this blueprint's net-new work; Phases 1–3 need targeted refinements, not rewrites.
+Phase 5 is fully net-new. Phases 1–4 need targeted enrichments, not rewrites — Phase 4 in particular is built but capacity-naive.
 
 ---
 
@@ -44,14 +44,17 @@ Phase 4 and 5 are this blueprint's net-new work; Phases 1–3 need targeted refi
 
 ```
 machines/
-  orchestrator.machine.ts     [EXPAND] phase4 sub-machine replaces stub `committing`
-  inspector.machine.ts        [NEW]    post-commit chat over snapshot + live ticket state
+  orchestrator.machine.ts     [AUGMENT] feed capacity into existing planner actor input;
+                                        no new states, just richer guards + actor I/O
+  inspector.machine.ts        [NEW]     post-commit chat over snapshot + live ticket state
 policies/
-  capacityPolicy.ts           [NEW]    80% buffer rule, per-discipline availability
-  slicingPolicy.ts            [NEW]    fit-first, slide-rest sprint allocation
-  dependencyPolicy.ts         [NEW]    cycle detection on `blockedBy`, topological order
-types.ts                      [EXTEND] EpicSnapshot, TeamMemberCapacity, SprintSlice, TicketLink,
-                                       discipline, InspectorTranscript, EpicMemory
+  capacityPolicy.ts           [NEW]     80% buffer rule, per-discipline availability
+  slicingPolicy.ts            [NEW]     fit-first, slide-rest sprint allocation, overflow producer
+  dependencyPolicy.ts         [NEW]     cycle detection on `blockedBy`, topological order
+types.ts                      [EXTEND]  discipline + ProposalDependency on TicketProposal,
+                                        overflow + bufferRule on SprintPlan,
+                                        TicketLink, InspectorTranscript, EpicMemory,
+                                        rich EpicSnapshot (refactored from analyst/types.ts in A.2)
 ```
 
 ### 4.2 Infrastructure layer (`src/infrastructure/orchestrator/`)
@@ -91,24 +94,26 @@ schemas.ts                    EpicSnapshot, EpicMemory, InspectorTranscript Mong
 ### 5.1 Current
 
 ```
-idle → phase1Brainstorming → phase2Structuring → phase3Refining → committing → committed
-                                                                              ↘ abandoned
+idle → phase1Brainstorming → phase2Structuring → phase3Refining → phase4SprintPlanning → committing → committed
+                                                                                                    ↘ abandoned
+
+phase4SprintPlanning sub-states: generatingPlan → reviewingPlan ↔ awaitingPlannerReply
 ```
 
-### 5.2 Target
+### 5.2 Target enrichments
+
+Phase 4 is augmented in place — the existing sub-machine stays; we add capacity-awareness as **guarded transitions** and **policy-driven actor inputs**, not new states:
 
 ```
 idle
-  → phase1Brainstorming               (Analyst chat, awaiting PO approval to advance)
-  → phase2Structuring                 (Drafter backlog, bulk-edit + discipline, awaiting approval)
-  → phase3Refining                    (Jira Master 1-by-1 wizard + deps, awaiting approval)
-  → phase4ScrumMaster                 [NEW SUB-MACHINE]
-       ├── gatheringCapacity          (capacityProvider derives per-discipline availability)
-       ├── proposingSlice             (Scrum Master actor produces SprintSlice)
-       ├── awaitingHumanApproval      (PO reviews fit / overflow + explanation)
-       │     ├── HUMAN_APPROVED → committingToBoard
-       │     └── REVISION_REQUESTED → proposingSlice
-       └── committingToBoard          (commitAdapter: write tickets + EpicSnapshot atomically)
+  → phase1Brainstorming               (unchanged)
+  → phase2Structuring                 (unchanged + discipline tag on proposals)
+  → phase3Refining                    (unchanged + dependencies on proposals)
+  → phase4SprintPlanning              (existing — augmented)
+       ├── generatingPlan             (planner actor input now includes per-discipline capacity from capacityPolicy)
+       ├── reviewingPlan              (PO can approve, request revision, or override placements; reviews overflow explanation)
+       └── awaitingPlannerReply       (chat with planner — same as today)
+  → committing                        (existing — commitEpicDraft writes tickets + rich EpicSnapshot)
   → committed
        └── (separate) inspector machine — see 5.3
   → abandoned
@@ -131,14 +136,18 @@ Inspector is **not** nested in the orchestrator machine — it's a sibling state
 
 > **`EpicDraft` (existing, unchanged):** mutable single doc per Epic, auto-saved every 1.5s during phases 1–4. After commit, transitions to `phase: "committed"` and becomes effectively read-only — the snapshot supersedes it as Phase 5's source of truth. Draft and snapshot coexist; the draft is the historical working state that produced the snapshot.
 
-### 6.1 `EpicSnapshot` (NEW, immutable, **one per Epic**)
+### 6.1 `EpicSnapshot` (REFACTOR existing — Slice A.2)
 
-- `id`, `orgId`, `boardId`, `draftId`
-- `createdAt`, `createdBy`
-- **Frozen 4-phase artifacts:** `transcript`, `brainstormSummary`, `backlog`, `refinedTickets`, `sprintSlice`, `capacityPlanAtCommit`
-- `ticketIds: string[]` — back-refs to live `Ticket` records created from this Epic
+Existing shape (in `src/domain/analyst/types.ts`): `{ id, orgId, epicTicketId, createdAt, planJson: string }`. Used by `driftDetection.ts` and `commitEpicDraft`.
 
-No versioning, no parent lineage, no mid-flow save points — one snapshot per Epic, written once at Phase 4 commit, never mutated.
+Target shape (one per Epic, immutable):
+
+- `id`, `orgId`, `boardId` (NEW), `epicTicketId`, `draftId` (NEW)
+- `createdAt`, `createdBy` (NEW)
+- **Frozen 4-phase artifacts (NEW typed fields, replacing `planJson`):** `transcript`, `blueprintTranscript`, `brainstormSummary`, `backlog`, `plannerTranscript`, `sprintPlan`, `planningSprints`, `planningMembers`
+- `ticketIds: string[]` (NEW) — back-refs to live `Ticket` records created from this Epic
+
+No versioning, no parent lineage. One snapshot per Epic, written once at Phase 4 commit, never mutated. `driftDetection.ts` updated to read typed fields. `commitEpicDraft` resolver updated to populate typed fields instead of JSON-stringifying.
 
 ### 6.2 `TeamMemberCapacity` (NEW, computed at runtime, not stored)
 
@@ -149,24 +158,32 @@ No versioning, no parent lineage, no mid-flow save points — one snapshot per E
 
 Computed by `capacityProvider.ts`. Not PO-editable. Cold-start strategy (when no completed sprints exist) is an open question parked for slice B.
 
-### 6.3 `SprintSlice` (NEW — Phase 4 output, frozen into snapshot at commit)
+### 6.3 `SprintPlan` extension (existing type — additive Slice A.1)
 
-- `proposedAt`, `assignments: Array<{ ticketId, sprintId, memberIds[] }>`
-- `overflow: TicketProposal[]` — couldn't fit, sliding to N+1/N+2
-- `explanation: string` — Scrum Master's narrative for the PO ("Sprint 12 UX is 100% allocated, ticket #5 slides to Sprint 13")
-- `bufferRule: { percent: 80, applied: true }`
+Existing shape: `{ assignments: TicketAssignment[], reasoning: string }`.
 
-### 6.4 `TicketLink` (NEW — replaces existing `Ticket.linkedTicketIds`)
+Add **optional** fields (so existing instances still parse):
 
-- `kind: "blockedBy" | "relatedTo" | "duplicates"`
-- `targetTicketId: string`
-- Validated by `dependencyPolicy.ts`: `blockedBy` cycles rejected; `relatedTo` and `duplicates` are documentation links.
-- **Migration:** `Ticket.linkedTicketIds: string[]` → `Ticket.links: TicketLink[]`. Existing entries default to `kind: "relatedTo"`. Same shape on `TicketProposal.dependencies` so the commit step is a clean copy, not a shape-shift.
+- `overflow?: TicketProposal[]` — couldn't fit in target sprints, sliding to later
+- `bufferRule?: { percent: number, applied: boolean }` — records that the 80% rule was honored
+- `reasoning` already covers narrative explanation — keep as-is
 
-### 6.5 `TicketProposal.discipline` (extend existing)
+This avoids a new `SprintSlice` type; the existing planner UI already consumes `SprintPlan`.
 
-- `discipline: "ux" | "dev" | "po-spike"` — drives Phase 4 assignment + capacity matching
-- Pure metadata; minimal UI chrome (small chip in Phase 2 list)
+### 6.4 Typed dependencies (NEW)
+
+Two parallel types, same `LinkKind` enum:
+
+- `LinkKind = "blockedBy" | "relatedTo" | "duplicates"`
+- `TicketLink = { kind: LinkKind, targetTicketId: string }` — for live `Ticket` records (Slice A.2 migration: `Ticket.linkedTicketIds: string[]` → `Ticket.links: TicketLink[]`, existing entries default to `kind: "relatedTo"`)
+- `ProposalDependency = { kind: LinkKind, targetProposalId: string }` — for `TicketProposal` (within-draft scope)
+
+Validated by `dependencyPolicy.ts`: `blockedBy` cycles rejected; `relatedTo` / `duplicates` are documentation links. At commit time, `ProposalDependency.targetProposalId` is translated to `TicketLink.targetTicketId`.
+
+### 6.5 `TicketProposal.discipline` (NEW — Slice A.1)
+
+- `discipline?: OrgMemberRole` — reuses existing `OrgMemberRole = "developer" | "ux" | "tester" | "po"` (defined in `src/domain/analyst/types.ts`). Same enum as `MemberSnapshot.role` so capacity matching is direct equality.
+- Optional in Slice A.1 to avoid breaking existing draft data; AI populates going forward. Pure metadata; minimal UI chrome.
 
 ### 6.6 `InspectorTranscript` (NEW — Phase 5)
 
@@ -256,10 +273,11 @@ Computed by `capacityProvider.ts`. Not PO-editable. Cold-start strategy (when no
 
 | Slice | Scope | Gates |
 |---|---|---|
-| **A** | Data contracts (TS + Zod) for `EpicSnapshot`, `TeamMemberCapacity`, `SprintSlice`, `TicketLink`, discipline, `InspectorTranscript`, `EpicMemory`; Mongoose models; GQL schema additions; `Ticket.linkedTicketIds → links` migration | Type-check passes; no UI yet |
-| **B** | Phase 4 domain: capacity policy, slicing policy, machine expansion, mock `runScrumMasterPlanning`. Resolve cold-start velocity question. | Domain unit tests |
-| **C** | Phase 4 presentation: capacity panel, slice preview, approve/revise UI | Manual test in browser |
-| **D** | Commit pipeline: `commitAdapter` writes tickets + snapshot atomically; `epicSnapshotId` back-refs populated; `DraftPicker` shows committed Epics | E2E commit happy path |
+| **A.1** | **Additive** new types only (no migrations): `discipline`, `ProposalDependency` on `TicketProposal`; `overflow` + `bufferRule` on `SprintPlan`; new `TicketLink` (typed but not yet wired to `Ticket`); new Inspector types (`InspectorTurn`, `InspectorTranscript`, `EpicMemory`). Zod schemas + GQL schema additions (types only). Doc updates. | Type-check passes; existing flows untouched |
+| **A.2** | **Migrations**: `Ticket.linkedTicketIds: string[]` → `Ticket.links: TicketLink[]` across types/Zod/repository/GQL/UI. `EpicSnapshot` shape refactor (drop `planJson`, add typed frozen artifacts + `ticketIds` + `boardId` + `draftId`). Update `driftDetection.ts` to read typed fields. Update `commitEpicDraft` resolver/repository to populate typed snapshot fields. One-shot migration script for existing snapshot/ticket records. | Type-check + manual smoke test of board + commit flow |
+| **B** | **Seed data** + Phase 4 capacity policy + slicing policy + planner enrichment. Mock `runSprintPlanner` enhanced to consume capacity + emit overflow. `capacityProvider.ts` (runtime per-discipline derivation). Resolve cold-start velocity question. | Domain unit tests; capacity computed against seeded data |
+| **C** | Phase 4 presentation enrichments: capacity panel, overflow callouts, approve/revise UI on existing `Phase4SprintPlan` | Manual test in browser |
+| **D** | Inspector hooks into commit: rich snapshot already populated (Slice A.2); `DraftPicker` extended with committed-Epic list; click → routes to Phase 5 | E2E commit happy path |
 | **E** | Phase 5 domain: inspector machine, mock `runInspectorTurn` + `saveInsight` tool, `inspectorContextProvider`, `inspectorMemoryStore` | Domain unit tests |
 | **F** | Phase 5 presentation: chat pane, ticket diff view, transcript persistence | Manual test |
 | **G** | E2E: Phase 4 approve/revise/over-capacity, Phase 5 chat + memory persistence | Mandatory per AGENTS.md |
