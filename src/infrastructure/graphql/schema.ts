@@ -165,6 +165,18 @@ export const typeDefs = /* GraphQL */ `
     ticketIds: [ID!]!
   }
 
+  """Lightweight projection of EpicSnapshot for picker / list views."""
+  type EpicSnapshotIndexEntry {
+    id: ID!
+    epicTicketId: ID!
+    boardId: ID!
+    title: String!
+    createdAt: String!
+    createdBy: ID
+    """Total tickets (epic + children) created at commit."""
+    ticketCount: Int!
+  }
+
   # ── Orchestrator drafts ───────────────────────────────────────────────
   enum OrchestratorPhase {
     phase1Brainstorming
@@ -498,6 +510,10 @@ export const typeDefs = /* GraphQL */ `
     sprints(boardId: ID!): [Sprint!]!
     sprintAssignments(sprintId: ID!): [SprintAssignment!]!
     epicSnapshot(epicTicketId: ID!): EpicSnapshot
+    """Hydrate a single committed-Epic snapshot by id."""
+    epicSnapshotById(id: ID!): EpicSnapshot
+    """Committed Epics on a board, newest first. Sourced from EpicSnapshot."""
+    committedEpics(boardId: ID!): [EpicSnapshotIndexEntry!]!
     """In-flight Epic drafts on a board, newest activity first."""
     epicDrafts(boardId: ID!): [EpicDraftIndexEntry!]!
     """Hydrate a single draft by id."""

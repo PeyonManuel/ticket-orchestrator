@@ -27,6 +27,7 @@ import {
   type EpicDraft,
   type EpicDraftIndexEntry,
   type EpicSnapshot,
+  type EpicSnapshotIndexEntry,
   type MemberSnapshot,
   type OrchestratorPhase,
   type SprintPlan,
@@ -1180,6 +1181,39 @@ export async function getEpicSnapshot(
   const col = await coll<EpicSnapshotDoc>("epicSnapshots");
   const doc = await col.findOne({ orgId, epicTicketId });
   return doc ? parseEpicSnapshot(doc) : null;
+}
+
+export async function getEpicSnapshotById(
+  orgId: string, id: string
+): Promise<EpicSnapshot | null> {
+  const col = await coll<EpicSnapshotDoc>("epicSnapshots");
+  const doc = await col.findOne({ _id: id, orgId });
+  return doc ? parseEpicSnapshot(doc) : null;
+}
+
+/**
+ * Lightweight projection used by the orchestrator picker. Returns
+ * committed Epics for a board, newest first. Legacy snapshots that
+ * predate the `boardId` field are intentionally skipped — they can't
+ * be attributed to a specific board.
+ */
+export async function listCommittedEpicsByBoard(
+  orgId: string, boardId: string,
+): Promise<EpicSnapshotIndexEntry[]> {
+  const col = await coll<EpicSnapshotDoc>("epicSnapshots");
+  const docs = await col
+    .find({ orgId, boardId })
+    .sort({ createdAt: -1 })
+    .toArray();
+  return docs.map((d) => ({
+    id: d._id,
+    epicTicketId: d.epicTicketId,
+    boardId: d.boardId ?? "",
+    title: d.backlog?.epicTitle?.trim() || "Untitled Epic",
+    createdAt: d.createdAt,
+    createdBy: d.createdBy ?? null,
+    ticketCount: d.ticketIds?.length ?? 0,
+  }));
 }
 
 /**

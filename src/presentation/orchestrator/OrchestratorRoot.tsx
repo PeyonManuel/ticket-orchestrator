@@ -1,22 +1,25 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { useBoardData } from "@/presentation/board/BoardContext";
 import { DraftPicker } from "./DraftPicker";
 import { OrchestratorSession } from "./OrchestratorSession";
+import { Phase5InspectorPlaceholder } from "./Phase5InspectorPlaceholder";
 
 interface Props {
   onClose: () => void;
 }
 
 /**
- * Top-level orchestrator entry. Picks between the drafts list and an active
- * session. The "active draft id" lives in local state (not the URL) — drafts
- * are durable in Mongo, so a refresh just lands the user back on the picker.
+ * Top-level orchestrator entry. Picks between the drafts list, an active
+ * Phase 1-4 session, and the Phase 5 inspector for a committed Epic.
+ * Selection lives in local state (not the URL) — drafts and snapshots are
+ * durable in Mongo, so a refresh just lands the user back on the picker.
  */
 export function OrchestratorRoot({ onClose }: Props) {
   const { activeBoardId } = useBoardData();
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [activeSnapshotId, setActiveSnapshotId] = useState<string | null>(null);
 
   if (!activeBoardId) {
     return (
@@ -26,21 +29,32 @@ export function OrchestratorRoot({ onClose }: Props) {
     );
   }
 
-  if (!activeDraftId) {
+  if (activeSnapshotId) {
     return (
-      <DraftPicker
-        boardId={activeBoardId}
-        onSelect={setActiveDraftId}
+      <Phase5InspectorPlaceholder
+        snapshotId={activeSnapshotId}
         onClose={onClose}
+        onBackToPicker={() => setActiveSnapshotId(null)}
+      />
+    );
+  }
+
+  if (activeDraftId) {
+    return (
+      <OrchestratorSession
+        draftId={activeDraftId}
+        onClose={onClose}
+        onBackToPicker={() => setActiveDraftId(null)}
       />
     );
   }
 
   return (
-    <OrchestratorSession
-      draftId={activeDraftId}
+    <DraftPicker
+      boardId={activeBoardId}
+      onSelect={setActiveDraftId}
+      onOpenCommittedEpic={setActiveSnapshotId}
       onClose={onClose}
-      onBackToPicker={() => setActiveDraftId(null)}
     />
   );
 }

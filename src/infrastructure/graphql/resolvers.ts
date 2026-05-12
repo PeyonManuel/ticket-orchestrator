@@ -136,6 +136,14 @@ export const resolvers = {
       requireAuth(ctx);
       return repo.getEpicSnapshot(ctx.orgId, epicTicketId);
     },
+    epicSnapshotById: (_p: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      requireAuth(ctx);
+      return repo.getEpicSnapshotById(ctx.orgId, id);
+    },
+    committedEpics: (_p: unknown, { boardId }: { boardId: string }, ctx: GraphQLContext) => {
+      requireAuth(ctx);
+      return repo.listCommittedEpicsByBoard(ctx.orgId, boardId);
+    },
     epicDrafts: (_p: unknown, { boardId }: { boardId: string }, ctx: GraphQLContext) => {
       requireAuth(ctx);
       return repo.getEpicDrafts(ctx.orgId, boardId);

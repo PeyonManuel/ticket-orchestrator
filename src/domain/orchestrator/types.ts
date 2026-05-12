@@ -298,6 +298,22 @@ export interface EpicSnapshot {
   ticketIds: string[];
 }
 
+/**
+ * Lightweight projection of `EpicSnapshot` used by picker / list views.
+ * Avoids hydrating the full frozen-artifact payload when all we need is
+ * a card. The full snapshot is fetched by id on click.
+ */
+export interface EpicSnapshotIndexEntry {
+  id: string;
+  epicTicketId: string;
+  boardId: string;
+  title: string;
+  createdAt: string;
+  createdBy: string | null;
+  /** Total tickets (epic + children) created at commit. */
+  ticketCount: number;
+}
+
 // ── Phase 5 Inspector ────────────────────────────────────────────────
 
 export type InspectorTurnRole = "user" | "inspector";

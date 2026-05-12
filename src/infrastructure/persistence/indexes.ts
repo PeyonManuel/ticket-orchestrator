@@ -51,6 +51,10 @@ export async function ensureIndexes(): Promise<void> {
         { orgId: 1, epicTicketId: 1 },
         { unique: true }
       ),
+      // Per-board committed-Epic listing (newest first) for the orchestrator picker.
+      db.collection("epicSnapshots").createIndex(
+        { orgId: 1, boardId: 1, createdAt: -1 },
+      ),
       // MemberRoles: one role per user per org
       db.collection("memberRoles").createIndex(
         { orgId: 1, userId: 1 },

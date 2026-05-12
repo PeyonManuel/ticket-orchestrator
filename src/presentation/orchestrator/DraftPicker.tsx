@@ -5,12 +5,14 @@ import { motion } from "framer-motion";
 import { useQuery, useMutation } from "@apollo/client/react";
 import {
   GET_EPIC_DRAFTS,
+  GET_COMMITTED_EPICS,
   CREATE_EPIC_DRAFT,
   DELETE_EPIC_DRAFT,
 } from "@/infrastructure/graphql/operations";
 import type {
   EpicDraft,
   EpicDraftIndexEntry,
+  EpicSnapshotIndexEntry,
   OrchestratorPhase,
 } from "@/domain/orchestrator/types";
 
@@ -37,25 +39,35 @@ const PHASE_COLOR: Record<OrchestratorPhase, string> = {
 interface Props {
   boardId: string;
   onSelect: (draftId: string) => void;
+  onOpenCommittedEpic: (snapshotId: string) => void;
   onClose: () => void;
 }
 
-export function DraftPicker({ boardId, onSelect, onClose }: Props) {
+export function DraftPicker({ boardId, onSelect, onOpenCommittedEpic, onClose }: Props) {
   const { data, loading, refetch } = useQuery<{ epicDrafts: EpicDraftIndexEntry[] }>(
     GET_EPIC_DRAFTS,
     { variables: { boardId }, fetchPolicy: "cache-and-network" },
   );
+  const { data: committedData, loading: committedLoading } = useQuery<{
+    committedEpics: EpicSnapshotIndexEntry[];
+  }>(GET_COMMITTED_EPICS, {
+    variables: { boardId },
+    fetchPolicy: "cache-and-network",
+  });
   const [createDraft, { loading: creating }] = useMutation<{
     createEpicDraft: EpicDraft;
   }>(CREATE_EPIC_DRAFT);
   const [deleteDraft] = useMutation(DELETE_EPIC_DRAFT);
 
+  // Committed drafts are now represented by their snapshot in the dedicated
+  // "Committed" section — keep History to abandoned drafts only.
   const drafts = (data?.epicDrafts ?? []).filter(
     (d) => d.phase !== "committed" && d.phase !== "abandoned",
   );
   const archived = (data?.epicDrafts ?? []).filter(
-    (d) => d.phase === "committed" || d.phase === "abandoned",
+    (d) => d.phase === "abandoned",
   );
+  const committed = committedData?.committedEpics ?? [];
 
   const handleNew = async () => {
     const result = await createDraft({
@@ -145,6 +157,23 @@ export function DraftPicker({ boardId, onSelect, onClose }: Props) {
             </div>
           )}
 
+          {!committedLoading && committed.length > 0 && (
+            <div className="mt-8">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-3">
+                Committed Epics · {committed.length}
+              </h2>
+              <div className="space-y-2">
+                {committed.map((e) => (
+                  <CommittedEpicRow
+                    key={e.id}
+                    entry={e}
+                    onOpen={onOpenCommittedEpic}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
           {!loading && archived.length > 0 && (
             <details className="mt-8">
               <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-3 hover:text-zinc-700 dark:hover:text-zinc-200">
@@ -164,7 +193,7 @@ export function DraftPicker({ boardId, onSelect, onClose }: Props) {
             </details>
           )}
 
-          {!loading && drafts.length === 0 && archived.length === 0 && (
+          {!loading && drafts.length === 0 && archived.length === 0 && committed.length === 0 && (
             <p className="mt-8 text-xs text-zinc-400 text-center">
               No drafts yet. Start your first Epic above.
             </p>
@@ -220,6 +249,44 @@ function DraftRow({
           ✕
         </button>
       </div>
+    </motion.div>
+  );
+}
+
+function CommittedEpicRow({
+  entry,
+  onOpen,
+}: {
+  entry: EpicSnapshotIndexEntry;
+  onOpen: (snapshotId: string) => void;
+}) {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+      className="group rounded-lg border border-emerald-200/60 dark:border-emerald-900/30 bg-emerald-50/40 dark:bg-emerald-950/10 px-4 py-3 hover:border-emerald-400 dark:hover:border-emerald-700 transition-colors"
+    >
+      <button
+        onClick={() => onOpen(entry.id)}
+        className="w-full text-left min-w-0"
+      >
+        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">
+          {entry.title}
+        </p>
+        <div className="flex items-center gap-2 mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span>Committed</span>
+          <span>·</span>
+          <span>
+            {entry.ticketCount} ticket{entry.ticketCount === 1 ? "" : "s"}
+          </span>
+          <span>·</span>
+          <span>{relativeTime(entry.createdAt)}</span>
+        </div>
+      </button>
     </motion.div>
   );
 }

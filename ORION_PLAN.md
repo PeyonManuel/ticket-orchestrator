@@ -281,6 +281,8 @@ Validated by `dependencyPolicy.ts`: `blockedBy` cycles rejected; `relatedTo` / `
 | **E** | Phase 5 domain: inspector machine, mock `runInspectorTurn` + `saveInsight` tool, `inspectorContextProvider`, `inspectorMemoryStore` | Domain unit tests |
 | **F** | Phase 5 presentation: chat pane, ticket diff view, transcript persistence | Manual test |
 | **G** | E2E: Phase 4 approve/revise/over-capacity, Phase 5 chat + memory persistence | Mandatory per AGENTS.md |
+| **I** | Phase back-navigation: back-transitions in the XState machine, styled "going back" confirmation modal, artifact-clear + transcript-append pattern, remove REGENERATE_PLAN / Revise Plan button | Manual test all back paths |
+| **J** | Proposal label simplification: `ProposalLabel` → `"ux" \| "developer" \| "po" \| "qa"`, UI chip updates, on-read backcompat for old draft data | Type-check; existing drafts still load |
 | **H** *(later)* | Swap mock actors for real LangGraph adapters; same signatures | Integration tests |
 
 Each slice ends in a working app — no half-finished states across slice boundaries.
@@ -296,6 +298,8 @@ Each slice ends in a working app — no half-finished states across slice bounda
 | 3 | Phase 4 capacity granularity | Per-discipline `{ ux, dev, poSpike }`. Computed at runtime by `capacityProvider`, not stored. SP/capacity is orchestrator-internal — not exposed in regular board UI (see §13 follow-up). |
 | 4 | Snapshot model | One immutable `EpicSnapshot` per Epic at commit. No versioning, no rollback. Phase 5 chat history persists in separate `InspectorTranscript`; AI-curated insights persist in separate `EpicMemory` collection. |
 | 5 | Phase 5 entry point | Extend `DraftPicker` with a committed-Epic list section; click → Inspector. No URL plumbing. |
+| 6 | Back-navigation between phases | PO can navigate back from any phase to the previous one. On back: **clear the stale artifact** for the phase being exited (e.g. `sprintPlan` cleared when leaving Phase 4, `refinementCursor` reset when leaving Phase 3) but **keep all transcripts** — they are the auditable conversation record. A `BrainstormTurn` with role `analyst` and a note like "PO returned to phase N to revise…" is appended to the relevant transcript so the AI has context on the next re-entry. No browser `confirm()` — use a styled app modal. Remove the `REGENERATE_PLAN` / "Revise plan" button from Phase 4 (back-navigation supersedes it). |
+| 7 | Proposal label simplification | `ProposalLabel` is too granular (observability, security, devops…) for Phase 2. POs shouldn't be categorizing at that level during discovery. Simplify to four discipline-aligned values: `"ux" \| "developer" \| "po" \| "qa"`. These map directly to `OrgMemberRole`. Old labels collapse on next save. Defer to a follow-up slice after Phase 2 UX review — but do NOT add new specific labels in the meantime. |
 
 ---
 

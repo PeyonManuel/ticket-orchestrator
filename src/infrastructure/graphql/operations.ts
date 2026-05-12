@@ -521,6 +521,47 @@ export const EPIC_DRAFT_INDEX_FIELDS = gql`
   }
 `;
 
+export const EPIC_SNAPSHOT_INDEX_FIELDS = gql`
+  fragment EpicSnapshotIndexFields on EpicSnapshotIndexEntry {
+    id
+    epicTicketId
+    boardId
+    title
+    createdAt
+    createdBy
+    ticketCount
+  }
+`;
+
+export const EPIC_SNAPSHOT_FIELDS = gql`
+  ${TICKET_PROPOSAL_FIELDS}
+  fragment EpicSnapshotFields on EpicSnapshot {
+    id
+    orgId
+    boardId
+    epicTicketId
+    draftId
+    createdAt
+    createdBy
+    transcript { id role text createdAt }
+    blueprintTranscript { id role text createdAt }
+    brainstormSummary { summary goals outOfScope }
+    backlog {
+      epicTitle
+      epicDescription
+      tickets { ...TicketProposalFields }
+    }
+    plannerTranscript { id role text createdAt }
+    sprintPlan {
+      assignments { ticketId sprintId assigneeUserId }
+      reasoning
+    }
+    planningSprints { id name startDate endDate capacityPoints status }
+    planningMembers { userId fullName role }
+    ticketIds
+  }
+`;
+
 // ─── Orchestrator Draft Queries ──────────────────────────────────────────────
 
 export const GET_EPIC_DRAFTS = gql`
@@ -528,6 +569,24 @@ export const GET_EPIC_DRAFTS = gql`
   query GetEpicDrafts($boardId: ID!) {
     epicDrafts(boardId: $boardId) {
       ...EpicDraftIndexFields
+    }
+  }
+`;
+
+export const GET_COMMITTED_EPICS = gql`
+  ${EPIC_SNAPSHOT_INDEX_FIELDS}
+  query GetCommittedEpics($boardId: ID!) {
+    committedEpics(boardId: $boardId) {
+      ...EpicSnapshotIndexFields
+    }
+  }
+`;
+
+export const GET_EPIC_SNAPSHOT_BY_ID = gql`
+  ${EPIC_SNAPSHOT_FIELDS}
+  query GetEpicSnapshotById($id: ID!) {
+    epicSnapshotById(id: $id) {
+      ...EpicSnapshotFields
     }
   }
 `;
