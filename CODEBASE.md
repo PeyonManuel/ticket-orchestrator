@@ -36,6 +36,7 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 | `tickets/[ticketNumber]/page.tsx` | Deep-link redirect → `/?board=X&modal=ticket&ticket=X` |
 | `api/graphql/route.ts` | graphql-yoga endpoint |
 | `api/internal/cleanup-deleted-boards/route.ts` | Cron: hard-delete soft-deleted boards after TTL |
+| `api/internal/seed-orchestrator-fixtures/route.ts` | Dev-only POST endpoint that seeds a board with 6 completed sprints + done-column tickets + role assignments on the Clerk org's members, so the Phase 4 planner has real velocity history to compute against. Auth via `X-Seed-Secret` header (`SEED_SECRET` env). Idempotent on `"{boardName} (Seeded)"`. |
 
 ### `src/domain/analyst/` — Domain layer (pure TS, no React/infra)
 
@@ -48,8 +49,11 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 
 | File | Purpose |
 |---|---|
-| `types.ts` | EpicDraft, BrainstormTurn/Summary, BacklogProposal, TicketProposal, SprintPlan, SprintSnapshot, MemberSnapshot, DraftStore boundary, Zod schemas. Phase 4 actor I/O contracts (`PlannerInput/Output`, `PlannerChatInput/Output`). |
+| `types.ts` | EpicDraft, BrainstormTurn/Summary, BacklogProposal, TicketProposal (with `discipline` + typed `dependencies`), SprintPlan (with `overflow` + `bufferRule`), SprintSnapshot, MemberSnapshot, rich `EpicSnapshot`, Inspector types (`InspectorTranscript`, `EpicMemory`), DraftStore/InspectorStore boundaries, Zod schemas. Phase 4 actor I/O contracts (`PlannerInput/Output`, `PlannerChatInput/Output`). |
 | `machines/orchestrator.machine.ts` | Hierarchical XState machine: `phase1Brainstorming` → `phase2Structuring` → `phase3Refining` → `phase4SprintPlanning` → `committing`/`abandoned`. Actor stubs (`analystActor`, `architectActor`, `controllerActor`, `blueprintChatActor`, `refinementChatActor`, `plannerActor`, `plannerChatActor`) injected at runtime. |
+| `policies/dependencyPolicy.ts` | Pure: topological sort + cycle detection over `TicketProposal.dependencies` (`blockedBy` only). |
+| `policies/capacityPolicy.ts` | Pure: 80% buffer rule, per-discipline capacity aggregation, cold-start velocity defaults (`developer: 8 / ux: 5 / tester: 5 / po: 3`), `TeamMemberCapacity` type. |
+| `policies/slicingPolicy.ts` | Pure: `produceSprintPlan` — fit-first, slide-rest. Respects dep topo-order + per-discipline 80% buffer. Emits `overflow[]` for tickets that don't fit. Used by the planner mock + (later) the real LangGraph adapter. |
 | `index.ts` | Re-exports |
 
 ### `src/infrastructure/graphql/`
@@ -76,8 +80,9 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 
 | File | Purpose |
 |---|---|
-| `driftDetection.ts` | Sprint drift + velocity calculation (uses `isDone` columns). Currently parses `EpicSnapshot.planJson` — will be refactored to typed fields in Slice A.2. |
-| `mockAi.ts` | Mock implementations of all orchestrator actors (`runAnalystTurn`, `runArchitectBacklog`, `runControllerRefinement`, `runBlueprintChat`, `runRefinementChat`, `runSprintPlanner`, `runPlannerChat`). Same signatures the LangGraph backend will expose. 600–1400ms simulated latency. |
+| `driftDetection.ts` | Drift report from a rich `EpicSnapshot` vs current ticket state. Reads typed frozen `backlog.tickets`; tracks `title` + `storyPoints` diffs (the fields both proposals and tickets carry). |
+| `capacityProvider.ts` | Derives `TeamMemberCapacity[]` from real velocity history — looks at the last 5 completed sprints, sums done-column tickets per member, falls back to `defaultCapacityFor` when history is empty. |
+| `mockAi.ts` | Mock implementations of all orchestrator actors. `runSprintPlanner` delegates to `produceSprintPlan` (pure slicing policy) using default capacities derived from `MemberSnapshot[]` — real-velocity capacities flow in when the machine is wired to `capacityProvider` (later slice). 600–1400ms simulated latency. |
 | `draftStore.ts` | Apollo-backed `DraftStore` adapter — list / load / save / remove / create EpicDrafts via GQL (server stores in Mongo `epicDrafts` collection). |
 
 ### `src/infrastructure/observability/`
@@ -269,7 +274,8 @@ CSS `transition-transform` on the `[sidebar | content]` row. Never Framer Motion
 ### Not Built
 - **LangGraph backend integration** — mock AI actors in `mockAi.ts` will be swapped for real adapters of the same shape
 - **Phase 5 Inspector** — post-commit chat over committed Epics with persistent transcript + AI memory. Plan in `ORION_PLAN.md`.
-- **Capacity-aware Phase 4 slicing** — current planner produces `SprintPlan` but doesn't enforce 80% buffer, doesn't model overflow, doesn't respect dependency ordering. Slice B work.
+- **Capacity-aware planner wiring** — `capacityProvider` exists but the orchestrator machine hasn't been wired to call it yet; the planner mock still uses default per-discipline velocity until Slice C threads real capacities through `PlannerInput`. Algorithm (80% buffer, overflow, dep-aware topo sort) is fully implemented in `slicingPolicy`.
+- **Phase 4 capacity UI** — capacity panel, overflow callouts, approve/revise affordances on `Phase4SprintPlan.tsx`. Slice C work.
 - **E2E tests** — Playwright required per AGENTS.md, none written (orchestrator approve/reject branches especially)
 - **Conflict UI for drag-and-drop** — `moveTicketToColumn` can return `ConflictError` but no UI handles it
 

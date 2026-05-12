@@ -29,6 +29,7 @@ export type LogScope =
   | "version"     // release version CRUD
   | "ai"          // AI orchestrator state-machine transitions + node IO
   | "cleanup"     // scheduled purges (EventBridge → /api/internal/*)
+  | "seed"        // dev fixtures endpoint (POST /api/internal/seed-orchestrator-fixtures)
   | "infra";      // mongo connect/index, etc.
 
 const SCOPE_COLOR: Record<LogScope, string> = {
@@ -43,6 +44,7 @@ const SCOPE_COLOR: Record<LogScope, string> = {
   version: "#f472b6",
   ai:      "#f87171",
   cleanup: "#fb923c",
+  seed:    "#84cc16",
   infra:   "#64748b",
 };
 

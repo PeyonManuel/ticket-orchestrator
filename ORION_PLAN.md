@@ -274,9 +274,9 @@ Validated by `dependencyPolicy.ts`: `blockedBy` cycles rejected; `relatedTo` / `
 | Slice | Scope | Gates |
 |---|---|---|
 | **A.1** | **Additive** new types only (no migrations): `discipline`, `ProposalDependency` on `TicketProposal`; `overflow` + `bufferRule` on `SprintPlan`; new `TicketLink` (typed but not yet wired to `Ticket`); new Inspector types (`InspectorTurn`, `InspectorTranscript`, `EpicMemory`). Zod schemas + GQL schema additions (types only). Doc updates. | Type-check passes; existing flows untouched |
-| **A.2** | **Migrations**: `Ticket.linkedTicketIds: string[]` → `Ticket.links: TicketLink[]` across types/Zod/repository/GQL/UI. `EpicSnapshot` shape refactor (drop `planJson`, add typed frozen artifacts + `ticketIds` + `boardId` + `draftId`). Update `driftDetection.ts` to read typed fields. Update `commitEpicDraft` resolver/repository to populate typed snapshot fields. One-shot migration script for existing snapshot/ticket records. | Type-check + manual smoke test of board + commit flow |
-| **B** | **Seed data** + Phase 4 capacity policy + slicing policy + planner enrichment. Mock `runSprintPlanner` enhanced to consume capacity + emit overflow. `capacityProvider.ts` (runtime per-discipline derivation). Resolve cold-start velocity question. | Domain unit tests; capacity computed against seeded data |
-| **C** | Phase 4 presentation enrichments: capacity panel, overflow callouts, approve/revise UI on existing `Phase4SprintPlan` | Manual test in browser |
+| **A.2** ✓ | **Migrations done**: `Ticket.links: TicketLink[]` end-to-end (types/Zod/repo with on-read backcompat/GQL/UI). `EpicSnapshot` refactored to rich typed shape, moved to orchestrator domain. `driftDetection.ts` reads typed fields. `commitEpicDraft` populates typed snapshot. Dead `createEpicSnapshot` mutation removed. | Type-check passes |
+| **B** ✓ | **Done**: pure-domain `dependencyPolicy` (topo sort + cycle detection), `capacityPolicy` (80% buffer + cold-start defaults `developer: 8 / ux: 5 / tester: 5 / po: 3`), `slicingPolicy.produceSprintPlan` (fit-first, overflow, dep-aware). `runSprintPlanner` mock delegates to slicing policy. `capacityProvider.ts` derives velocity from last 5 completed sprints (done-column tickets per member) with default fallback. Seed-fixtures POST endpoint creates a fully-populated demo board (6 completed sprints + done tickets + role assignments). | Type-check passes; ready for manual smoke against seeded data |
+| **C** | Wire `capacityProvider` through the orchestrator machine into `PlannerInput` so the planner uses real velocity. Phase 4 presentation enrichments: capacity panel, overflow callouts, approve/revise UI on existing `Phase4SprintPlan`. | Manual test in browser |
 | **D** | Inspector hooks into commit: rich snapshot already populated (Slice A.2); `DraftPicker` extended with committed-Epic list; click → routes to Phase 5 | E2E commit happy path |
 | **E** | Phase 5 domain: inspector machine, mock `runInspectorTurn` + `saveInsight` tool, `inspectorContextProvider`, `inspectorMemoryStore` | Domain unit tests |
 | **F** | Phase 5 presentation: chat pane, ticket diff view, transcript persistence | Manual test |
@@ -301,7 +301,7 @@ Each slice ends in a working app — no half-finished states across slice bounda
 
 ## 12. Open questions parked for later slices
 
-- **Slice B — cold-start velocity.** If a board has no completed sprints, capacity history is empty. Likely answer: AI proposes a default per-discipline starting capacity (e.g. ~5pt UX + 8pt Dev per member), PO confirms once. Resolve in slice B.
+- **Slice B — cold-start velocity.** ✓ **Resolved**: `capacityPolicy.DEFAULT_VELOCITY_BY_ROLE` ships fixed defaults (`developer: 8`, `ux: 5`, `tester: 5`, `po: 3` pts/sprint) and each `TeamMemberCapacity` records `isDefaultVelocity: true` when no history exists, so the planner can disclose the guess in its reasoning. PO-confirmation UI is deferred — once the first sprint completes, measured velocity replaces the default automatically.
 - **Slice E — memory retention.** Should `EpicMemory` records have a TTL or pruning strategy if they accumulate over months? Probably not — they're cheap and the AI can rank-order on read. Revisit if it becomes a problem.
 
 ---

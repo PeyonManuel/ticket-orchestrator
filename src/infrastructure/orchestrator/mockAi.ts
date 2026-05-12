@@ -32,9 +32,10 @@ import type {
   ProposalStoryPoints,
   RefinementChatInput,
   RefinementChatOutput,
-  TicketAssignment,
   TicketProposal,
 } from "@/domain/orchestrator/types";
+import { defaultCapacityFor } from "@/domain/orchestrator/policies/capacityPolicy";
+import { produceSprintPlan } from "@/domain/orchestrator/policies/slicingPolicy";
 
 const MIN_LATENCY_MS = 600;
 const MAX_LATENCY_MS = 1400;
@@ -403,6 +404,13 @@ export async function runBlueprintChat(
 
 // ─── Sprint Planner ──────────────────────────────────────────────────
 
+/**
+ * Mock sprint planner — delegates to the pure `produceSprintPlan` policy so the
+ * mock and the future real backend share the same algorithm. Capacities are
+ * derived from `MemberSnapshot[]` using cold-start defaults (one default value
+ * per discipline). When the real `capacityProvider` is wired through the
+ * machine, this mock will receive computed velocities instead.
+ */
 export async function runSprintPlanner(
   input: PlannerInput,
 ): Promise<PlannerOutput> {
@@ -410,72 +418,12 @@ export async function runSprintPlanner(
 
   const { backlog, sprints, members } = input;
 
-  const ROLE_FOR_LABEL: Record<string, string> = {
-    frontend: "developer",
-    backend: "developer",
-    api: "developer",
-    infra: "developer",
-    devops: "developer",
-    ai: "developer",
-    security: "developer",
-    ux: "ux",
-    qa: "tester",
-    observability: "developer",
-  };
+  const capacities = members.map((m) =>
+    defaultCapacityFor({ memberId: m.userId, fullName: m.fullName, role: m.role }),
+  );
 
-  const byRole = (role: string) => members.filter((m) => m.role === role);
-
-  const targetSprints = sprints
-    .filter((s) => s.status !== "completed")
-    .sort((a, b) => a.startDate.localeCompare(b.startDate));
-
-  if (targetSprints.length === 0) {
-    return {
-      assignments: backlog.tickets.map((t) => ({
-        ticketId: t.id,
-        sprintId: null,
-        assigneeUserId: null,
-      })),
-      reasoning:
-        "No active or planning sprints found. All tickets placed in the backlog.",
-    };
-  }
-
-  const usedCapacity: Record<string, number> = {};
-  for (const s of targetSprints) usedCapacity[s.id] = 0;
-
-  const roleIndexes: Record<string, number> = {};
-
-  const assignments: TicketAssignment[] = backlog.tickets.map((ticket) => {
-    const preferredRole = ROLE_FOR_LABEL[ticket.label] ?? "developer";
-    const candidates = byRole(preferredRole);
-
-    const sp = ticket.storyPoints ?? 3;
-    const targetSprint =
-      targetSprints.find((s) => usedCapacity[s.id] + sp <= s.capacityPoints) ??
-      targetSprints[targetSprints.length - 1];
-
-    usedCapacity[targetSprint.id] = (usedCapacity[targetSprint.id] ?? 0) + sp;
-
-    const idx = roleIndexes[preferredRole] ?? 0;
-    const assignee = candidates[idx % Math.max(candidates.length, 1)] ?? null;
-    roleIndexes[preferredRole] = idx + 1;
-
-    return {
-      ticketId: ticket.id,
-      sprintId: targetSprint.id,
-      assigneeUserId: assignee?.userId ?? null,
-    };
-  });
-
-  const sprintSummary = targetSprints
-    .map((s) => `${s.name} (${usedCapacity[s.id] ?? 0}/${s.capacityPoints} SP)`)
-    .join(", ");
-
-  return {
-    assignments,
-    reasoning: `Allocated ${backlog.tickets.length} tickets across ${targetSprints.length} sprint(s): ${sprintSummary}. Tickets were matched to team members by label (frontend/backend/api → developers, ux → UX designers, qa → testers) using round-robin within each role group.`,
-  };
+  const { plan } = produceSprintPlan({ backlog, sprints, capacities });
+  return plan;
 }
 
 export async function runPlannerChat(
