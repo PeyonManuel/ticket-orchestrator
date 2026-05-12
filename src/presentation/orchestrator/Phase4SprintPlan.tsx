@@ -1,24 +1,56 @@
 "use client";
 
 import React, { useRef, useState } from "react";
-import { CalendarDays, Users, Zap, MessageSquare, Send, Loader2 } from "lucide-react";
+import {
+  CalendarDays,
+  Users,
+  Zap,
+  Send,
+  Loader2,
+  AlertTriangle,
+  RotateCcw,
+  Gauge,
+  Info,
+} from "lucide-react";
 import type {
   BrainstormTurn,
   EpicDraft,
   MemberSnapshot,
   SprintSnapshot,
+  TeamMemberCapacity,
   TicketAssignment,
+  TicketProposal,
 } from "@/domain/orchestrator/types";
 import type { OrchestratorEvent } from "@/domain/orchestrator";
+import type { OrgMemberRole } from "@/domain/analyst";
+import {
+  DEFAULT_BUFFER_PERCENT,
+  disciplineCapacity,
+} from "@/domain/orchestrator/policies/capacityPolicy";
 
 interface Props {
   draft: EpicDraft;
+  capacities: TeamMemberCapacity[];
   isGeneratingPlan: boolean;
   isAwaitingPlannerReply: boolean;
   send: (event: OrchestratorEvent) => void;
   onCommit: () => void;
   isCommitting?: boolean;
 }
+
+const ROLE_LABEL: Record<OrgMemberRole, string> = {
+  developer: "Dev",
+  ux: "UX",
+  tester: "QA",
+  po: "PO",
+};
+
+const ROLE_BADGE: Record<OrgMemberRole, string> = {
+  developer: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
+  ux: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
+  tester: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  po: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+};
 
 const LABEL_COLOR: Record<string, string> = {
   frontend: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
@@ -42,6 +74,7 @@ function uid(prefix: string): string {
 
 export function Phase4SprintPlan({
   draft,
+  capacities,
   isGeneratingPlan,
   isAwaitingPlannerReply,
   send,
@@ -61,6 +94,8 @@ export function Phase4SprintPlan({
   }
 
   const assignments = sprintPlan.assignments;
+  const overflow: TicketProposal[] = sprintPlan.overflow ?? [];
+  const bufferPercent = sprintPlan.bufferRule?.percent ?? DEFAULT_BUFFER_PERCENT;
 
   const ticketsForSprint = (sprintId: string | null) =>
     assignments
@@ -77,6 +112,18 @@ export function Phase4SprintPlan({
   const backlogTickets = ticketsForSprint(null);
   const memberById = (userId: string | null): MemberSnapshot | undefined =>
     planningMembers.find((m) => m.userId === userId);
+
+  const handleRegenerate = () => {
+    if (isAwaitingPlannerReply) return;
+    if (
+      !confirm(
+        "Discard the current plan and regenerate from the refined backlog? Your planner chat will be preserved.",
+      )
+    ) {
+      return;
+    }
+    send({ type: "REGENERATE_PLAN", now: now() });
+  };
 
   return (
     <div className="flex h-full">
@@ -113,6 +160,12 @@ export function Phase4SprintPlan({
         {/* Sprint lanes */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           <div className="max-w-3xl mx-auto space-y-4">
+            {/* Capacity panel — per-discipline budget at the buffer rule */}
+            <CapacityPanel capacities={capacities} bufferPercent={bufferPercent} />
+
+            {/* Overflow callout — tickets the planner couldn't fit */}
+            {overflow.length > 0 && <OverflowBanner overflow={overflow} />}
+
             {planningSprints.map((sprint) => {
               const used = sprintUsedSP(sprint.id);
               const pct = sprint.capacityPoints > 0 ? Math.min((used / sprint.capacityPoints) * 100, 100) : 0;
@@ -148,19 +201,32 @@ export function Phase4SprintPlan({
           </div>
         </div>
 
-        {/* Commit footer */}
+        {/* Commit footer — approve (commit) + revise (regenerate) pair */}
         <div className="border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-6 py-4 shrink-0">
           <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Tickets will be created and assigned to sprints.
+              {overflow.length > 0
+                ? `Plan has ${overflow.length} overflow ticket${overflow.length === 1 ? "" : "s"} — review before approving.`
+                : "Tickets will be created and assigned to sprints."}
             </p>
-            <button
-              onClick={onCommit}
-              disabled={isCommitting}
-              className="rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-zinc-300 disabled:to-zinc-300 dark:disabled:from-zinc-700 dark:disabled:to-zinc-700 px-5 py-2 text-sm font-semibold text-white disabled:text-zinc-500 transition-all"
-            >
-              {isCommitting ? "Committing…" : "Commit Epic →"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRegenerate}
+                disabled={isCommitting || isAwaitingPlannerReply}
+                className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5 transition-colors"
+                title="Discard plan and regenerate from refined backlog"
+              >
+                <RotateCcw size={12} />
+                Revise plan
+              </button>
+              <button
+                onClick={onCommit}
+                disabled={isCommitting}
+                className="rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-zinc-300 disabled:to-zinc-300 dark:disabled:from-zinc-700 dark:disabled:to-zinc-700 px-5 py-2 text-sm font-semibold text-white disabled:text-zinc-500 transition-all"
+              >
+                {isCommitting ? "Committing…" : "Approve & commit →"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -171,6 +237,120 @@ export function Phase4SprintPlan({
         isThinking={isAwaitingPlannerReply}
         send={send}
       />
+    </div>
+  );
+}
+
+function CapacityPanel({
+  capacities,
+  bufferPercent,
+}: {
+  capacities: TeamMemberCapacity[];
+  bufferPercent: number;
+}) {
+  if (capacities.length === 0) {
+    return (
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4">
+        <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+          <Info size={12} />
+          No team capacity available. Assign roles to org members to plan against real velocity.
+        </div>
+      </div>
+    );
+  }
+
+  const roles: OrgMemberRole[] = ["developer", "ux", "tester", "po"];
+  const anyDefault = capacities.some((c) => c.isDefaultVelocity);
+
+  return (
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+      <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800 flex items-center gap-2">
+        <Gauge size={13} className="text-indigo-500 shrink-0" />
+        <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          Capacity per sprint
+        </span>
+        <span className="text-[11px] text-zinc-400">
+          at {bufferPercent}% buffer
+        </span>
+        {anyDefault && (
+          <span
+            title="Some members have no completed-sprint history — cold-start defaults applied"
+            className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+          >
+            <Info size={10} />
+            using defaults
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-4 gap-px bg-zinc-100 dark:bg-zinc-800">
+        {roles.map((role) => {
+          const roleMembers = capacities.filter((c) => c.role === role);
+          const budget = disciplineCapacity(capacities, role, bufferPercent);
+          const memberCount = roleMembers.length;
+          return (
+            <div
+              key={role}
+              className="bg-white dark:bg-zinc-900 px-3 py-2.5 flex flex-col gap-1"
+            >
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${ROLE_BADGE[role]}`}
+                >
+                  {ROLE_LABEL[role]}
+                </span>
+                <span className="text-[10px] text-zinc-400 tabular-nums">
+                  {memberCount} {memberCount === 1 ? "member" : "members"}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                  {budget}
+                </span>
+                <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                  SP / sprint
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function OverflowBanner({ overflow }: { overflow: TicketProposal[] }) {
+  const totalSP = overflow.reduce((sum, t) => sum + (t.storyPoints ?? 0), 0);
+  return (
+    <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 overflow-hidden">
+      <div className="px-4 py-3 border-b border-amber-200 dark:border-amber-900/40 flex items-center gap-2">
+        <AlertTriangle size={13} className="text-amber-600 dark:text-amber-400 shrink-0" />
+        <span className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+          Sliding to later sprints
+        </span>
+        <span className="text-[11px] text-amber-700 dark:text-amber-400 ml-auto tabular-nums">
+          {overflow.length} ticket{overflow.length === 1 ? "" : "s"} · {totalSP} SP
+        </span>
+      </div>
+      <ul className="divide-y divide-amber-200/60 dark:divide-amber-900/40">
+        {overflow.map((t) => (
+          <li
+            key={t.id}
+            className="flex items-center gap-3 px-4 py-2 text-xs text-amber-900 dark:text-amber-200"
+          >
+            <span className="flex-1 truncate">{t.title}</span>
+            <span className="text-amber-700 dark:text-amber-400 tabular-nums shrink-0">
+              {t.storyPoints ?? "—"} SP
+            </span>
+            {t.discipline && (
+              <span
+                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${ROLE_BADGE[t.discipline]}`}
+              >
+                {ROLE_LABEL[t.discipline]}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

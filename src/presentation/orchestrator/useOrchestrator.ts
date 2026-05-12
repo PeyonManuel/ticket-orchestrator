@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMachine } from "@xstate/react";
 import { useApolloClient } from "@apollo/client/react";
 import { orchestratorMachine } from "@/domain/orchestrator";
-import type { EpicDraft } from "@/domain/orchestrator/types";
+import type { EpicDraft, TeamMemberCapacity } from "@/domain/orchestrator/types";
 import {
   runAnalystTurn,
   runArchitectBacklog,
@@ -31,7 +31,10 @@ type SaveStatus = "idle" | "pending" | "saving";
  * When the LangGraph backend lands, swap the three `fromPromise` calls below
  * for adapter functions of the same shape.
  */
-export function useOrchestrator(initialDraft: EpicDraft) {
+export function useOrchestrator(
+  initialDraft: EpicDraft,
+  initialCapacities: TeamMemberCapacity[] = [],
+) {
   const apollo = useApolloClient();
   const draftStore = useMemo(
     () => createApolloDraftStore({ apollo, boardId: initialDraft.boardId }),
@@ -55,7 +58,7 @@ export function useOrchestrator(initialDraft: EpicDraft) {
   );
 
   const [state, send, actorRef] = useMachine(machineWithActors, {
-    input: { draft: initialDraft },
+    input: { draft: initialDraft, capacities: initialCapacities },
   });
 
   // Status drives the "Saving…" indicator in the header.

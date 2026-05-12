@@ -303,6 +303,7 @@ Each slice ends in a working app — no half-finished states across slice bounda
 
 - **Slice B — cold-start velocity.** ✓ **Resolved**: `capacityPolicy.DEFAULT_VELOCITY_BY_ROLE` ships fixed defaults (`developer: 8`, `ux: 5`, `tester: 5`, `po: 3` pts/sprint) and each `TeamMemberCapacity` records `isDefaultVelocity: true` when no history exists, so the planner can disclose the guess in its reasoning. PO-confirmation UI is deferred — once the first sprint completes, measured velocity replaces the default automatically.
 - **Slice E — memory retention.** Should `EpicMemory` records have a TTL or pruning strategy if they accumulate over months? Probably not — they're cheap and the AI can rank-order on read. Revisit if it becomes a problem.
+- **Post-Slice C — large-board capacity caching (200+ tickets).** Slice C caches capacities in ephemeral machine context, recomputing fresh on session resume + on every `REFRESH_CAPACITIES` (board data change). For small boards (<100 tickets) this is negligible (pure client-side compute, no tokens). For large boards (200+), repeated recomputation during active Phase 4 could accumulate (CPU cycles, not tokens). Consider persisting `capacities` on `EpicDraft` with a TTL (e.g., refresh if >5min old) to amortize cost. Trade-off: adds Zod/GQL/Mongo plumbing; gain is avoiding redundant iteration on stable velocity. Defer unless profiling shows jank.
 
 ---
 

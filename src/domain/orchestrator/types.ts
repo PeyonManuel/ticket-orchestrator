@@ -7,6 +7,9 @@
 
 import { z } from "zod";
 import type { OrgMemberRole } from "../analyst/types";
+import type { TeamMemberCapacity } from "./policies/capacityPolicy";
+
+export type { TeamMemberCapacity } from "./policies/capacityPolicy";
 
 export type DraftId = string;
 export type ProposalId = string;
@@ -237,6 +240,13 @@ export interface PlannerInput {
   backlog: BacklogProposal;
   sprints: SprintSnapshot[];
   members: MemberSnapshot[];
+  /**
+   * Per-member velocity derived from board history (or cold-start defaults
+   * when no completed sprints exist). Threaded into `PlannerInput` so the
+   * planner — mock today, LangGraph later — operates on real capacity
+   * instead of re-deriving defaults from `members`.
+   */
+  capacities: TeamMemberCapacity[];
 }
 
 export type PlannerOutput = SprintPlan;
@@ -247,6 +257,8 @@ export interface PlannerChatInput {
   backlog: BacklogProposal;
   sprints: SprintSnapshot[];
   members: MemberSnapshot[];
+  /** Same capacity context as `PlannerInput` so revisions stay budget-aware. */
+  capacities: TeamMemberCapacity[];
   userMessage: string;
 }
 

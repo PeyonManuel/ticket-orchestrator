@@ -32,6 +32,7 @@ import type {
   RefinementChatInput,
   RefinementChatOutput,
   SprintSnapshot,
+  TeamMemberCapacity,
   TicketProposal,
 } from "../types";
 
@@ -85,8 +86,16 @@ export type OrchestratorEvent =
   | { type: "PREVIOUS_TICKET"; now: string }
   | { type: "BACK_TO_BULK"; now: string }
   // Phase 4
-  | { type: "ADVANCE_TO_PLANNING"; now: string; sprints: SprintSnapshot[]; members: MemberSnapshot[] }
+  | {
+      type: "ADVANCE_TO_PLANNING";
+      now: string;
+      sprints: SprintSnapshot[];
+      members: MemberSnapshot[];
+      capacities: TeamMemberCapacity[];
+    }
+  | { type: "REFRESH_CAPACITIES"; capacities: TeamMemberCapacity[] }
   | { type: "PLANNER_USER_MESSAGE"; text: string; now: string; turnId: string }
+  | { type: "REGENERATE_PLAN"; now: string }
   | { type: "BACK_TO_REFINE"; now: string }
   // Commit / lifecycle
   | { type: "COMMIT_EPIC"; now: string }
@@ -99,10 +108,20 @@ export interface OrchestratorContext {
   draft: EpicDraft;
   /** Last error message; cleared on RETRY. */
   error: string | null;
+  /**
+   * Per-member velocity for Phase 4 planning. Ephemeral (not persisted on the
+   * draft): recomputed by the presentation layer from current board state when
+   * entering or resuming Phase 4, then dispatched in `ADVANCE_TO_PLANNING` or
+   * `REFRESH_CAPACITIES`. Always-fresh velocity is desirable; persisting it
+   * would risk planning against stale numbers across long-lived sessions.
+   */
+  capacities: TeamMemberCapacity[];
 }
 
 export interface OrchestratorInput {
   draft: EpicDraft;
+  /** Seeded by the presentation layer when resuming a Phase 4+ draft. */
+  capacities?: TeamMemberCapacity[];
 }
 
 // ── Helpers (pure) ──────────────────────────────────────────────────
@@ -311,6 +330,24 @@ export const orchestratorMachine = setup({
           planningSprints: event.sprints,
           planningMembers: event.members,
         }, event.now),
+        capacities: event.capacities,
+      };
+    }),
+
+    refreshCapacities: assign(({ event }) => {
+      if (event.type !== "REFRESH_CAPACITIES") return {};
+      return { capacities: event.capacities };
+    }),
+
+    clearPlanForRegeneration: assign(({ context, event }) => {
+      if (event.type !== "REGENERATE_PLAN") return {};
+      return {
+        draft: {
+          ...context.draft,
+          sprintPlan: null,
+          updatedAt: event.now,
+        },
+        error: null,
       };
     }),
 
@@ -570,6 +607,7 @@ export const orchestratorMachine = setup({
   context: ({ input }) => ({
     draft: input.draft,
     error: null,
+    capacities: input.capacities ?? [],
   }),
 
   states: {
@@ -887,6 +925,9 @@ export const orchestratorMachine = setup({
 
         // ── Phase 4 ────────────────────────────────────────────────
         phase4SprintPlanning: {
+          on: {
+            REFRESH_CAPACITIES: { actions: "refreshCapacities" },
+          },
           initial: "generatingPlan",
           states: {
             generatingPlan: {
@@ -899,6 +940,7 @@ export const orchestratorMachine = setup({
                   backlog: context.draft.backlog!,
                   sprints: context.draft.planningSprints,
                   members: context.draft.planningMembers,
+                  capacities: context.capacities,
                 }),
                 onDone: {
                   target: "reviewingPlan",
@@ -931,6 +973,10 @@ export const orchestratorMachine = setup({
                   target: "awaitingPlannerReply",
                   actions: "appendPlannerUserTurn",
                 },
+                REGENERATE_PLAN: {
+                  target: "generatingPlan",
+                  actions: "clearPlanForRegeneration",
+                },
                 COMMIT_EPIC: {
                   target: "#orchestrator.workflow.committing",
                   actions: "markCommitting",
@@ -950,6 +996,7 @@ export const orchestratorMachine = setup({
                   backlog: context.draft.backlog!,
                   sprints: context.draft.planningSprints,
                   members: context.draft.planningMembers,
+                  capacities: context.capacities,
                   userMessage:
                     context.draft.plannerTranscript
                       .filter((t) => t.role === "user")

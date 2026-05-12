@@ -406,23 +406,34 @@ export async function runBlueprintChat(
 
 /**
  * Mock sprint planner — delegates to the pure `produceSprintPlan` policy so the
- * mock and the future real backend share the same algorithm. Capacities are
- * derived from `MemberSnapshot[]` using cold-start defaults (one default value
- * per discipline). When the real `capacityProvider` is wired through the
- * machine, this mock will receive computed velocities instead.
+ * mock and the future real backend share the same algorithm. Capacities flow in
+ * via `input.capacities` (computed from real velocity history by the presentation
+ * layer or, server-side, by `capacityProvider`). Falls back to per-member
+ * cold-start defaults only when the caller omits capacities entirely.
  */
 export async function runSprintPlanner(
   input: PlannerInput,
 ): Promise<PlannerOutput> {
   await delay();
 
-  const { backlog, sprints, members } = input;
+  const { backlog, sprints, members, capacities } = input;
 
-  const capacities = members.map((m) =>
-    defaultCapacityFor({ memberId: m.userId, fullName: m.fullName, role: m.role }),
-  );
+  const resolvedCapacities =
+    capacities.length > 0
+      ? capacities
+      : members.map((m) =>
+          defaultCapacityFor({
+            memberId: m.userId,
+            fullName: m.fullName,
+            role: m.role,
+          }),
+        );
 
-  const { plan } = produceSprintPlan({ backlog, sprints, capacities });
+  const { plan } = produceSprintPlan({
+    backlog,
+    sprints,
+    capacities: resolvedCapacities,
+  });
   return plan;
 }
 

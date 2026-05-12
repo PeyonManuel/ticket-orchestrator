@@ -1,11 +1,17 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@apollo/client/react";
 import { GET_EPIC_DRAFT } from "@/infrastructure/graphql/operations";
-import type { EpicDraft, MemberSnapshot, SprintSnapshot } from "@/domain/orchestrator/types";
+import type {
+  EpicDraft,
+  MemberSnapshot,
+  SprintSnapshot,
+  TeamMemberCapacity,
+} from "@/domain/orchestrator/types";
 import { draftDisplayTitle } from "@/domain/orchestrator/types";
+import { computeCapacities } from "@/domain/orchestrator/policies/capacityPolicy";
 import { useOrchestrator } from "./useOrchestrator";
 import { PhaseHeader } from "./PhaseHeader";
 import { Phase1Brainstorm } from "./Phase1Brainstorm";
@@ -68,8 +74,34 @@ function ActiveSession({
   onClose: () => void;
   onBackToPicker: () => void;
 }) {
-  const { state, send, flush, commitDraft, draft, error, saveStatus } = useOrchestrator(initialDraft);
-  const { sprints, orgMembers } = useBoardData();
+  const { sprints, orgMembers, allTickets, boardColumns } = useBoardData();
+
+  /**
+   * Seed capacities at machine init for resumed Phase 4+ drafts so the planner
+   * chat actor has real velocity from the first user message. For fresh Phase 1
+   * drafts these are unused until `ADVANCE_TO_PLANNING` re-dispatches them.
+   */
+  const initialCapacities = useMemo<TeamMemberCapacity[]>(() => {
+    const phase = initialDraft.phase;
+    const needsCapacities =
+      phase === "phase4SprintPlanning" ||
+      phase === "committing" ||
+      phase === "committed";
+    if (!needsCapacities) return [];
+    if (initialDraft.planningMembers.length === 0) return [];
+    return computeCapacities({
+      members: initialDraft.planningMembers,
+      sprints,
+      tickets: allTickets,
+      columns: boardColumns,
+    });
+    // initialDraft is captured once; subsequent capacity refreshes flow through
+    // REFRESH_CAPACITIES below as sprints/tickets/columns change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const { state, send, flush, commitDraft, draft, error, saveStatus } =
+    useOrchestrator(initialDraft, initialCapacities);
   const saving = saveStatus !== "idle";
 
   const phase = draft.phase;
@@ -146,13 +178,44 @@ function ActiveSession({
         role: m.role as MemberSnapshot["role"],
       }));
 
+    const capacities = computeCapacities({
+      members: memberSnapshots,
+      sprints,
+      tickets: allTickets,
+      columns: boardColumns,
+    });
+
     send({
       type: "ADVANCE_TO_PLANNING",
       now: new Date().toISOString(),
       sprints: sprintSnapshots,
       members: memberSnapshots,
+      capacities,
     });
   };
+
+  /**
+   * Keep machine context capacities in sync with the live board: if a sprint
+   * completes or a ticket moves to Done while the user is in Phase 4, the
+   * next planner chat reply should reflect updated velocity.
+   */
+  useEffect(() => {
+    if (draft.planningMembers.length === 0) return;
+    if (
+      draft.phase !== "phase4SprintPlanning" &&
+      draft.phase !== "committing" &&
+      draft.phase !== "committed"
+    ) {
+      return;
+    }
+    const refreshed = computeCapacities({
+      members: draft.planningMembers,
+      sprints,
+      tickets: allTickets,
+      columns: boardColumns,
+    });
+    send({ type: "REFRESH_CAPACITIES", capacities: refreshed });
+  }, [draft.phase, draft.planningMembers, sprints, allTickets, boardColumns, send]);
 
   const handleAbandon = async () => {
     if (!confirm("Abandon this draft? It will be removed from your active drafts.")) return;
@@ -233,6 +296,7 @@ function ActiveSession({
             <PhasePane key="p4">
               <Phase4SprintPlan
                 draft={draft}
+                capacities={state.context.capacities}
                 isGeneratingPlan={isPhase4Generating}
                 isAwaitingPlannerReply={isAwaitingPlannerReply}
                 send={send}
