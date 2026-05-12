@@ -61,7 +61,8 @@ export const typeDefs = /* GraphQL */ `
     storyPoints: Int!
     workflowState: String!
     priority: Priority!
-    linkedTicketIds: [ID!]!
+    """Typed dependency / documentation links to other tickets."""
+    links: [TicketLink!]!
     assigneeIds: [ID!]!
     """Sprints this ticket is part of. Tickets can live in multiple sprints."""
     sprintIds: [ID!]!
@@ -140,13 +141,28 @@ export const typeDefs = /* GraphQL */ `
     availableHours: Float!
   }
 
-  """Immutable baseline snapshot of an AI-generated Epic plan. Used for drift detection."""
+  """Immutable record of a committed Epic. One per Epic, written once at Phase 4 commit, never mutated. Captures the frozen 4-phase artifacts and back-refs to the live Ticket records created from this Epic."""
   type EpicSnapshot {
     id: ID!
     orgId: ID!
+    boardId: ID!
     epicTicketId: ID!
+    """Source draft this snapshot was committed from."""
+    draftId: ID
     createdAt: String!
-    planJson: String!
+    """User id of the PO who pressed Commit."""
+    createdBy: ID
+    # Frozen 4-phase artifacts:
+    transcript: [BrainstormTurn!]!
+    blueprintTranscript: [BrainstormTurn!]!
+    brainstormSummary: BrainstormSummary
+    backlog: BacklogProposal
+    plannerTranscript: [BrainstormTurn!]!
+    sprintPlan: SprintPlan
+    planningSprints: [SprintSnapshot!]!
+    planningMembers: [MemberSnapshot!]!
+    """Back-refs to live Ticket records created at commit (epic + children)."""
+    ticketIds: [ID!]!
   }
 
   # ── Orchestrator drafts ───────────────────────────────────────────────
@@ -164,6 +180,20 @@ export const typeDefs = /* GraphQL */ `
     frontend backend qa infra ux ai api devops security observability
   }
   enum ProposalHierarchyType { story task }
+
+  """Kind of link between two tickets / proposals. Drives dependency reasoning + UI semantics."""
+  enum LinkKind { blockedBy relatedTo duplicates }
+
+  """Pre-commit dependency between two proposals within the same draft."""
+  type ProposalDependency {
+    kind: LinkKind!
+    targetProposalId: ID!
+  }
+
+  input ProposalDependencyInput {
+    kind: LinkKind!
+    targetProposalId: ID!
+  }
 
   type BrainstormTurn {
     id: ID!
@@ -192,6 +222,10 @@ export const typeDefs = /* GraphQL */ `
     refined: Boolean!
     """Per-ticket refinement chat with the AI in Phase 3."""
     transcript: [BrainstormTurn!]!
+    """Functional discipline — drives Phase 4 capacity matching. Same enum as MemberSnapshot.role."""
+    discipline: OrgMemberRole
+    """Within-draft dependency edges. blockedBy participates in topo-sort during Phase 4."""
+    dependencies: [ProposalDependency!]
   }
 
   type BacklogProposal {
@@ -234,9 +268,24 @@ export const typeDefs = /* GraphQL */ `
     assigneeUserId: ID
   }
 
+  """Records that the planner honored the buffer rule (e.g. 80%) when producing the plan."""
+  type SprintPlanBufferRule {
+    percent: Float!
+    applied: Boolean!
+  }
+
+  input SprintPlanBufferRuleInput {
+    percent: Float!
+    applied: Boolean!
+  }
+
   type SprintPlan {
     assignments: [TicketAssignment!]!
     reasoning: String!
+    """Tickets that didn't fit at the buffer rule and are sliding to a later sprint."""
+    overflow: [TicketProposal!]
+    """Buffer policy applied during planning. Populated by Slice B's slicingPolicy."""
+    bufferRule: SprintPlanBufferRule
   }
 
   type SprintSnapshot {
@@ -260,6 +309,64 @@ export const typeDefs = /* GraphQL */ `
     title: String!
     phase: OrchestratorPhase!
     updatedAt: String!
+  }
+
+  # ── Typed ticket links ───────────────────────────────────────────────
+  """Typed link between two live Tickets — populates Ticket.links (replaced legacy linkedTicketIds)."""
+  type TicketLink {
+    kind: LinkKind!
+    targetTicketId: ID!
+  }
+
+  input TicketLinkInput {
+    kind: LinkKind!
+    targetTicketId: ID!
+  }
+
+  # ── Phase 5 Inspector ─────────────────────────────────────────────────
+  enum InspectorTurnRole { user inspector }
+
+  type InspectorTurn {
+    id: ID!
+    role: InspectorTurnRole!
+    text: String!
+    createdAt: String!
+  }
+
+  input InspectorTurnInput {
+    id: ID!
+    role: InspectorTurnRole!
+    text: String!
+    createdAt: String!
+  }
+
+  """Per-Epic chat transcript that persists across all Phase 5 sessions. One per epicSnapshotId."""
+  type InspectorTranscript {
+    id: ID!
+    orgId: ID!
+    epicSnapshotId: ID!
+    turns: [InspectorTurn!]!
+    updatedAt: String!
+  }
+
+  enum EpicMemorySource { chat ticketEvolution }
+
+  """AI-curated insight about a committed Epic. Append-only, written by the Inspector via saveInsight."""
+  type EpicMemory {
+    id: ID!
+    orgId: ID!
+    epicSnapshotId: ID!
+    content: String!
+    tags: [String!]!
+    source: EpicMemorySource!
+    createdAt: String!
+  }
+
+  input SaveEpicMemoryInput {
+    epicSnapshotId: ID!
+    content: String!
+    tags: [String!]!
+    source: EpicMemorySource!
   }
 
   input BrainstormTurnInput {
@@ -287,6 +394,8 @@ export const typeDefs = /* GraphQL */ `
     risks: [String!]!
     refined: Boolean!
     transcript: [BrainstormTurnInput!]!
+    discipline: OrgMemberRole
+    dependencies: [ProposalDependencyInput!]
   }
 
   input BacklogProposalInput {
@@ -304,6 +413,8 @@ export const typeDefs = /* GraphQL */ `
   input SprintPlanInput {
     assignments: [TicketAssignmentInput!]!
     reasoning: String!
+    overflow: [TicketProposalInput!]
+    bufferRule: SprintPlanBufferRuleInput
   }
 
   input SprintSnapshotInput {
@@ -433,7 +544,7 @@ export const typeDefs = /* GraphQL */ `
     fixVersion: String
     priority: Priority
     storyPoints: Int
-    linkedTicketIds: [ID!]
+    links: [TicketLinkInput!]
     assigneeIds: [ID!]
     sprintIds: [ID!]
     hierarchyType: HierarchyType
@@ -477,9 +588,6 @@ export const typeDefs = /* GraphQL */ `
 
     upsertSprintAssignment(input: UpsertSprintAssignmentInput!): SprintAssignment!
     removeSprintAssignment(sprintId: ID!, userId: ID!): Boolean!
-
-    """Creates or replaces the immutable AI-generated plan baseline for an Epic."""
-    createEpicSnapshot(epicTicketId: ID!, planJson: String!): EpicSnapshot!
 
     """Set (or clear) the functional planning role for an org member."""
     setMemberRole(userId: ID!, role: OrgMemberRole): Boolean!

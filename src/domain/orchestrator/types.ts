@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import type { OrgMemberRole } from "../analyst/types";
 
 export type DraftId = string;
 export type ProposalId = string;
@@ -55,6 +56,23 @@ export type ProposalLabel =
 
 export type ProposalStoryPoints = 1 | 2 | 3 | 5 | 8 | 13;
 
+/**
+ * Typed link between two tickets / proposals. Same enum drives both
+ * `Ticket.links` (post-commit, see analyst/types.ts) and
+ * `TicketProposal.dependencies` (pre-commit, within-draft scope).
+ */
+export type LinkKind = "blockedBy" | "relatedTo" | "duplicates";
+
+/**
+ * Pre-commit dependency between two proposals in the same draft.
+ * `blockedBy` participates in topological sort + cycle check during Phase 4 slicing;
+ * `relatedTo` and `duplicates` are documentation-only links.
+ */
+export interface ProposalDependency {
+  kind: LinkKind;
+  targetProposalId: ProposalId;
+}
+
 export interface TicketProposal {
   id: ProposalId;
   hierarchyType: "story" | "task";
@@ -69,6 +87,17 @@ export interface TicketProposal {
   refined: boolean;
   /** Phase 3 per-ticket chat with the AI for refinement discussion. */
   transcript: BrainstormTurn[];
+  /**
+   * Functional discipline — drives Phase 4 capacity matching and assignment.
+   * Same enum as `MemberSnapshot.role` so capacity comparison is direct equality.
+   * Optional during the A.1 rollout; AI populates going forward.
+   */
+  discipline?: OrgMemberRole;
+  /**
+   * Within-draft dependency edges. Empty/absent means "no declared dependencies".
+   * `blockedBy` cycles are rejected by `dependencyPolicy.ts` (Slice B).
+   */
+  dependencies?: ProposalDependency[];
 }
 
 export interface BacklogProposal {
@@ -183,9 +212,25 @@ export interface TicketAssignment {
   assigneeUserId: string | null;
 }
 
+/**
+ * Records that the 80% buffer rule was honored when producing the plan.
+ * `applied: false` means the planner deliberately exceeded the rule (e.g. PO override).
+ */
+export interface SprintPlanBufferRule {
+  percent: number;
+  applied: boolean;
+}
+
 export interface SprintPlan {
   assignments: TicketAssignment[];
   reasoning: string;
+  /**
+   * Tickets the planner could not fit into any in-scope sprint at the buffer rule.
+   * UI surfaces these as "sliding to a later sprint" — populated by Slice B's slicingPolicy.
+   */
+  overflow?: TicketProposal[];
+  /** Records the buffer policy applied during planning. Populated by Slice B. */
+  bufferRule?: SprintPlanBufferRule;
 }
 
 export interface PlannerInput {
@@ -210,6 +255,77 @@ export interface PlannerChatOutput {
   updatedPlan: SprintPlan | null;
 }
 
+// ── Commit artifact (Phase 4 → committed) ────────────────────────────
+
+/**
+ * Immutable record of a committed Epic. One per Epic, written once at Phase 4 commit,
+ * never mutated. Captures the frozen 4-phase artifacts and back-references to the live
+ * `Ticket` records created from this Epic. Consumed by drift detection ("plan vs live")
+ * and by the Phase 5 Inspector (chat over committed Epic context).
+ */
+export interface EpicSnapshot {
+  id: string;
+  orgId: string;
+  boardId: string;
+  epicTicketId: string;
+  /** Source draft this snapshot was committed from. Null if reconstructed from legacy data. */
+  draftId: string | null;
+  createdAt: string;
+  /** User id of the PO who pressed Commit. Null when written by a system migration. */
+  createdBy: string | null;
+  // Frozen 4-phase artifacts (immutable copies of the draft state at commit):
+  transcript: BrainstormTurn[];
+  blueprintTranscript: BrainstormTurn[];
+  brainstormSummary: BrainstormSummary | null;
+  backlog: BacklogProposal | null;
+  plannerTranscript: BrainstormTurn[];
+  sprintPlan: SprintPlan | null;
+  planningSprints: SprintSnapshot[];
+  planningMembers: MemberSnapshot[];
+  /** Back-refs to live `Ticket` records created at commit (epic + children). */
+  ticketIds: string[];
+}
+
+// ── Phase 5 Inspector ────────────────────────────────────────────────
+
+export type InspectorTurnRole = "user" | "inspector";
+
+export interface InspectorTurn {
+  id: string;
+  role: InspectorTurnRole;
+  text: string;
+  createdAt: string;
+}
+
+/**
+ * Per-Epic chat transcript that persists across all Phase 5 sessions.
+ * One document per `epicSnapshotId`; turns are appended in order.
+ */
+export interface InspectorTranscript {
+  id: string;
+  orgId: string;
+  epicSnapshotId: string;
+  turns: InspectorTurn[];
+  updatedAt: string;
+}
+
+export type EpicMemorySource = "chat" | "ticketEvolution";
+
+/**
+ * AI-curated insight about a committed Epic. Append-only — written by the Inspector
+ * via the `saveInsight` tool when something meaningful surfaces. Read on each new
+ * Inspector turn so accumulated knowledge folds into context.
+ */
+export interface EpicMemory {
+  id: string;
+  orgId: string;
+  epicSnapshotId: string;
+  content: string;
+  tags: string[];
+  source: EpicMemorySource;
+  createdAt: string;
+}
+
 // ── Persistence boundary ─────────────────────────────────────────────
 
 export interface DraftStore {
@@ -217,6 +333,17 @@ export interface DraftStore {
   load(id: DraftId): Promise<EpicDraft | null>;
   save(draft: EpicDraft): Promise<void>;
   remove(id: DraftId): Promise<void>;
+}
+
+/**
+ * Persistence boundary for Phase 5 transcript + memory. Same shape rules
+ * as `DraftStore` — Apollo-backed adapter on the client, GQL → Mongo on the server.
+ */
+export interface InspectorStore {
+  loadTranscript(epicSnapshotId: string): Promise<InspectorTranscript | null>;
+  appendTurn(epicSnapshotId: string, turn: InspectorTurn): Promise<InspectorTranscript>;
+  listMemories(epicSnapshotId: string): Promise<EpicMemory[]>;
+  saveMemory(memory: EpicMemory): Promise<void>;
 }
 
 // ── Zod schemas (validate AI / persisted payloads at boundaries) ─────
@@ -256,6 +383,15 @@ export const brainstormSummarySchema = z.object({
   outOfScope: z.array(z.string()),
 });
 
+export const linkKindSchema = z.enum(["blockedBy", "relatedTo", "duplicates"]);
+
+export const proposalDependencySchema = z.object({
+  kind: linkKindSchema,
+  targetProposalId: z.string().min(1),
+});
+
+const orgMemberRoleSchema = z.enum(["developer", "ux", "tester", "po"]);
+
 export const ticketProposalSchema = z.object({
   id: z.string().min(1),
   hierarchyType: z.enum(["story", "task"]),
@@ -268,6 +404,9 @@ export const ticketProposalSchema = z.object({
   risks: z.array(z.string()),
   refined: z.boolean(),
   transcript: z.array(brainstormTurnSchema).default([]),
+  // Slice A.1 additions — optional so existing draft documents still parse cleanly.
+  discipline: orgMemberRoleSchema.optional(),
+  dependencies: z.array(proposalDependencySchema).optional(),
 });
 
 export const backlogProposalSchema = z.object({
@@ -309,9 +448,65 @@ const ticketAssignmentSchema = z.object({
   assigneeUserId: z.string().nullable(),
 });
 
+const sprintPlanBufferRuleSchema = z.object({
+  percent: z.number(),
+  applied: z.boolean(),
+});
+
 const sprintPlanSchema = z.object({
   assignments: z.array(ticketAssignmentSchema),
   reasoning: z.string(),
+  // Slice A.1 additions — optional so existing plans still parse.
+  overflow: z.array(ticketProposalSchema).optional(),
+  bufferRule: sprintPlanBufferRuleSchema.optional(),
+});
+
+// ── EpicSnapshot schema ──────────────────────────────────────────────
+
+export const epicSnapshotSchema = z.object({
+  id: z.string().min(1),
+  orgId: z.string(),
+  boardId: z.string(),
+  epicTicketId: z.string(),
+  draftId: z.string().nullable(),
+  createdAt: z.string(),
+  createdBy: z.string().nullable(),
+  transcript: z.array(brainstormTurnSchema).default([]),
+  blueprintTranscript: z.array(brainstormTurnSchema).default([]),
+  brainstormSummary: brainstormSummarySchema.nullable(),
+  backlog: backlogProposalSchema.nullable(),
+  plannerTranscript: z.array(brainstormTurnSchema).default([]),
+  sprintPlan: sprintPlanSchema.nullable(),
+  planningSprints: z.array(sprintSnapshotSchema).default([]),
+  planningMembers: z.array(memberSnapshotSchema).default([]),
+  ticketIds: z.array(z.string()).default([]),
+});
+
+// ── Phase 5 Inspector schemas ────────────────────────────────────────
+
+export const inspectorTurnSchema = z.object({
+  id: z.string().min(1),
+  role: z.enum(["user", "inspector"]),
+  text: z.string(),
+  createdAt: z.string(),
+});
+
+export const inspectorTranscriptSchema = z.object({
+  id: z.string().min(1),
+  orgId: z.string(),
+  epicSnapshotId: z.string().min(1),
+  turns: z.array(inspectorTurnSchema).default([]),
+  updatedAt: z.string(),
+});
+
+export const epicMemorySchema = z.object({
+  id: z.string().min(1),
+  orgId: z.string(),
+  epicSnapshotId: z.string().min(1),
+  content: z.string().min(1),
+  tags: z.array(z.string()).default([]),
+  source: z.enum(["chat", "ticketEvolution"]),
+  createdAt: z.string(),
 });
 
 export const epicDraftSchema = z.object({

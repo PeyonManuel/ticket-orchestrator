@@ -42,7 +42,10 @@ export const TICKET_FIELDS = gql`
     storyPoints
     workflowState
     priority
-    linkedTicketIds
+    links {
+      kind
+      targetTicketId
+    }
     assigneeIds
     sprintIds
     version
@@ -200,16 +203,6 @@ export const SPRINT_ASSIGNMENT_FIELDS = gql`
   }
 `;
 
-export const EPIC_SNAPSHOT_FIELDS = gql`
-  fragment EpicSnapshotFields on EpicSnapshot {
-    id
-    orgId
-    epicTicketId
-    createdAt
-    planJson
-  }
-`;
-
 export const GET_SPRINTS = gql`
   ${SPRINT_FIELDS}
   query GetSprints($boardId: ID!) {
@@ -224,15 +217,6 @@ export const GET_SPRINT_ASSIGNMENTS = gql`
   query GetSprintAssignments($sprintId: ID!) {
     sprintAssignments(sprintId: $sprintId) {
       ...SprintAssignmentFields
-    }
-  }
-`;
-
-export const GET_EPIC_SNAPSHOT = gql`
-  ${EPIC_SNAPSHOT_FIELDS}
-  query GetEpicSnapshot($epicTicketId: ID!) {
-    epicSnapshot(epicTicketId: $epicTicketId) {
-      ...EpicSnapshotFields
     }
   }
 `;
@@ -448,17 +432,6 @@ export const UPSERT_SPRINT_ASSIGNMENT = gql`
 export const REMOVE_SPRINT_ASSIGNMENT = gql`
   mutation RemoveSprintAssignment($sprintId: ID!, $userId: ID!) {
     removeSprintAssignment(sprintId: $sprintId, userId: $userId)
-  }
-`;
-
-// ─── Epic Snapshot Mutations ──────────────────────────────────────────────────
-
-export const CREATE_EPIC_SNAPSHOT = gql`
-  ${EPIC_SNAPSHOT_FIELDS}
-  mutation CreateEpicSnapshot($epicTicketId: ID!, $planJson: String!) {
-    createEpicSnapshot(epicTicketId: $epicTicketId, planJson: $planJson) {
-      ...EpicSnapshotFields
-    }
   }
 `;
 

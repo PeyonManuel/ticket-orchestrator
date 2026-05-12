@@ -28,6 +28,13 @@ export const BoardColumnSchema = z.object({
   protected: z.boolean().default(false),
 });
 
+export const LinkKindSchema = z.enum(["blockedBy", "relatedTo", "duplicates"]);
+
+export const TicketLinkSchema = z.object({
+  kind: LinkKindSchema,
+  targetTicketId: z.string(),
+});
+
 export const TicketSchema = z.object({
   id: z.string(),
   orgId: z.string(),
@@ -43,7 +50,7 @@ export const TicketSchema = z.object({
   storyPoints: StoryPointsSchema,
   workflowState: z.string(),
   priority: z.enum(["low", "medium", "high"]),
-  linkedTicketIds: z.array(z.string()),
+  links: z.array(TicketLinkSchema),
   assigneeIds: z.array(z.string()),
   /** Default empty so ticket docs predating multi-sprint membership still parse. */
   sprintIds: z.array(z.string()).default([]),
@@ -126,7 +133,7 @@ export const UpdateTicketInputSchema = z.object({
   fixVersion: z.string().optional(),
   priority: z.enum(["low", "medium", "high"]).optional(),
   storyPoints: StoryPointsSchema.optional(),
-  linkedTicketIds: z.array(z.string()).optional(),
+  links: z.array(TicketLinkSchema).optional(),
   assigneeIds: z.array(z.string()).optional(),
   sprintIds: z.array(z.string()).optional(),
   hierarchyType: z.enum(["epic", "story", "task"]).optional(),
@@ -157,14 +164,6 @@ export const SprintAssignmentSchema = z.object({
   sprintId: z.string(),
   userId: z.string(),
   availableHours: z.number().nonnegative(),
-});
-
-export const EpicSnapshotSchema = z.object({
-  id: z.string(),
-  orgId: z.string(),
-  epicTicketId: z.string(),
-  createdAt: z.string(),
-  planJson: z.string(),
 });
 
 export const CreateSprintInputSchema = z.object({

@@ -18,7 +18,6 @@ import type {
   BoardMember,
   Sprint,
   SprintAssignment,
-  EpicSnapshot,
   OrgMemberRole,
 } from "@/domain/analyst";
 import {
@@ -27,11 +26,13 @@ import {
   type BrainstormTurn,
   type EpicDraft,
   type EpicDraftIndexEntry,
+  type EpicSnapshot,
   type MemberSnapshot,
   type OrchestratorPhase,
   type SprintPlan,
   type SprintSnapshot,
   epicDraftSchema,
+  epicSnapshotSchema,
 } from "@/domain/orchestrator/types";
 import clientPromise from "./mongo";
 import {
@@ -45,7 +46,6 @@ import {
   UpdateTicketInputSchema,
   SprintSchema,
   SprintAssignmentSchema,
-  EpicSnapshotSchema,
   OrgMemberRoleSchema,
 } from "./schemas";
 import { ensureIndexes } from "./indexes";
@@ -95,7 +95,11 @@ interface TicketDoc {
   hierarchyType: "epic" | "story" | "task"; parentTicketId: string | null;
   title: string; description: string; label: string; fixVersion: string;
   storyPoints: 1 | 2 | 3 | 5 | 8 | 13; workflowState: string;
-  priority: "low" | "medium" | "high"; linkedTicketIds: string[];
+  priority: "low" | "medium" | "high";
+  /** Typed links replacing legacy `linkedTicketIds: string[]`. Old docs are migrated on read. */
+  links?: { kind: "blockedBy" | "relatedTo" | "duplicates"; targetTicketId: string }[];
+  /** Legacy field — read-only, auto-migrated to `links` (kind: "relatedTo") in `parseTicket`. */
+  linkedTicketIds?: string[];
   assigneeIds: string[]; sprintIds?: string[]; version: number;
 }
 interface VersionDoc { _id: string; orgId: string; boardId: string; name: string; releaseDate: string }
@@ -390,7 +394,19 @@ export async function reorderColumns(
 
 // ─── Tickets ─────────────────────────────────────────────────────────────────
 
+/**
+ * Parses a Mongo ticket doc into the typed `Ticket`.
+ * Backcompat: docs that still carry the legacy `linkedTicketIds: string[]` are
+ * lifted to typed `links` with `kind: "relatedTo"`. Old docs self-migrate on next write.
+ */
 function parseTicket(d: Record<string, unknown>): Ticket {
+  const rawLinks = d.links;
+  const legacyIds = d.linkedTicketIds;
+  const links = Array.isArray(rawLinks)
+    ? rawLinks
+    : Array.isArray(legacyIds)
+      ? (legacyIds as string[]).map((id) => ({ kind: "relatedTo" as const, targetTicketId: id }))
+      : [];
   return TicketSchema.parse({
     id: d._id,
     orgId: d.orgId,
@@ -406,7 +422,7 @@ function parseTicket(d: Record<string, unknown>): Ticket {
     storyPoints: d.storyPoints,
     workflowState: d.workflowState,
     priority: d.priority,
-    linkedTicketIds: d.linkedTicketIds ?? [],
+    links,
     assigneeIds: d.assigneeIds ?? [],
     sprintIds: d.sprintIds ?? [],
     version: d.version ?? 0,
@@ -462,7 +478,7 @@ export async function createTicket(
     ticketNumber,
     ...input,
     parentTicketId: input.parentTicketId ?? null,
-    linkedTicketIds: [],
+    links: [],
     assigneeIds: input.assigneeIds ?? [],
     sprintIds: input.sprintIds ?? [],
     version: 0,
@@ -880,7 +896,7 @@ export async function seedBoardIfEmpty(
         storyPoints: t.storyPoints,
         workflowState: t.workflowState,
         priority: t.priority,
-        linkedTicketIds: t.linkedTicketIds,
+        links: t.links,
         assigneeIds: t.assigneeIds ?? [],
         version: 0,
       }))
@@ -1110,14 +1126,51 @@ export async function removeSprintAssignment(
 
 // ─── EpicSnapshot ─────────────────────────────────────────────────────────────
 
+/**
+ * Mongo doc shape for EpicSnapshot — rich typed frozen artifacts.
+ * `planJson` is a legacy field carried for read-time backcompat; old documents
+ * that have it (and lack the typed fields) will still parse, with empty
+ * frozen artifacts. Old data should be re-committed to populate fully.
+ */
 interface EpicSnapshotDoc {
-  _id: string; orgId: string; epicTicketId: string; createdAt: string; planJson: string;
+  _id: string;
+  orgId: string;
+  boardId?: string;
+  epicTicketId: string;
+  draftId?: string | null;
+  createdAt: string;
+  createdBy?: string | null;
+  transcript?: BrainstormTurn[];
+  blueprintTranscript?: BrainstormTurn[];
+  brainstormSummary?: BrainstormSummary | null;
+  backlog?: BacklogProposal | null;
+  plannerTranscript?: BrainstormTurn[];
+  sprintPlan?: SprintPlan | null;
+  planningSprints?: SprintSnapshot[];
+  planningMembers?: MemberSnapshot[];
+  ticketIds?: string[];
+  /** Legacy: pre-A.2 documents stored a JSON-encoded plan blob here. */
+  planJson?: string;
 }
 
 function parseEpicSnapshot(d: EpicSnapshotDoc): EpicSnapshot {
-  return EpicSnapshotSchema.parse({
-    id: d._id, orgId: d.orgId, epicTicketId: d.epicTicketId,
-    createdAt: d.createdAt, planJson: d.planJson,
+  return epicSnapshotSchema.parse({
+    id: d._id,
+    orgId: d.orgId,
+    boardId: d.boardId ?? "",
+    epicTicketId: d.epicTicketId,
+    draftId: d.draftId ?? null,
+    createdAt: d.createdAt,
+    createdBy: d.createdBy ?? null,
+    transcript: d.transcript ?? [],
+    blueprintTranscript: d.blueprintTranscript ?? [],
+    brainstormSummary: d.brainstormSummary ?? null,
+    backlog: d.backlog ?? null,
+    plannerTranscript: d.plannerTranscript ?? [],
+    sprintPlan: d.sprintPlan ?? null,
+    planningSprints: d.planningSprints ?? [],
+    planningMembers: d.planningMembers ?? [],
+    ticketIds: d.ticketIds ?? [],
   });
 }
 
@@ -1129,13 +1182,50 @@ export async function getEpicSnapshot(
   return doc ? parseEpicSnapshot(doc) : null;
 }
 
+/**
+ * Writes a single EpicSnapshot. Called once per Epic by `commitEpicDraft`.
+ * Inputs are the typed frozen artifacts captured from the draft at commit time
+ * plus the live ticket ids created by the commit pipeline.
+ */
 export async function createEpicSnapshot(
-  orgId: string, epicTicketId: string, planJson: string
+  orgId: string,
+  input: {
+    boardId: string;
+    epicTicketId: string;
+    draftId: string | null;
+    createdBy: string | null;
+    transcript: BrainstormTurn[];
+    blueprintTranscript: BrainstormTurn[];
+    brainstormSummary: BrainstormSummary | null;
+    backlog: BacklogProposal | null;
+    plannerTranscript: BrainstormTurn[];
+    sprintPlan: SprintPlan | null;
+    planningSprints: SprintSnapshot[];
+    planningMembers: MemberSnapshot[];
+    ticketIds: string[];
+  },
 ): Promise<EpicSnapshot> {
   const col = await coll<EpicSnapshotDoc>("epicSnapshots");
   const id = crypto.randomUUID();
   const createdAt = new Date().toISOString();
-  const doc: EpicSnapshotDoc = { _id: id, orgId, epicTicketId, createdAt, planJson };
+  const doc: EpicSnapshotDoc = {
+    _id: id,
+    orgId,
+    boardId: input.boardId,
+    epicTicketId: input.epicTicketId,
+    draftId: input.draftId,
+    createdAt,
+    createdBy: input.createdBy,
+    transcript: input.transcript,
+    blueprintTranscript: input.blueprintTranscript,
+    brainstormSummary: input.brainstormSummary,
+    backlog: input.backlog,
+    plannerTranscript: input.plannerTranscript,
+    sprintPlan: input.sprintPlan,
+    planningSprints: input.planningSprints,
+    planningMembers: input.planningMembers,
+    ticketIds: input.ticketIds,
+  };
   await col.insertOne(doc);
   return parseEpicSnapshot(doc);
 }
@@ -1382,8 +1472,21 @@ export async function commitEpicDraft(
     createdTicketIds.push(child.id);
   }
 
-  const planJson = JSON.stringify(draft.backlog);
-  const snapshot = await createEpicSnapshot(orgId, epicTicket.id, planJson);
+  const snapshot = await createEpicSnapshot(orgId, {
+    boardId: draft.boardId,
+    epicTicketId: epicTicket.id,
+    draftId: draft.id,
+    createdBy: actorId,
+    transcript: draft.transcript,
+    blueprintTranscript: draft.blueprintTranscript,
+    brainstormSummary: draft.brainstormSummary,
+    backlog: draft.backlog,
+    plannerTranscript: draft.plannerTranscript,
+    sprintPlan: draft.sprintPlan,
+    planningSprints: draft.planningSprints,
+    planningMembers: draft.planningMembers,
+    ticketIds: [epicTicket.id, ...createdTicketIds],
+  });
 
   await saveEpicDraft(orgId, { ...draft, phase: "committed" });
 

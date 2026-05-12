@@ -364,15 +364,6 @@ export const resolvers = {
       return repo.removeSprintAssignment(ctx.orgId, sprintId, userId);
     },
 
-    createEpicSnapshot: (
-      _p: unknown,
-      { epicTicketId, planJson }: { epicTicketId: string; planJson: string },
-      ctx: GraphQLContext
-    ) => {
-      requireAuth(ctx);
-      return repo.createEpicSnapshot(ctx.orgId, epicTicketId, planJson);
-    },
-
     setMemberRole: (
       _p: unknown,
       { userId, role }: { userId: string; role: string | null | undefined },

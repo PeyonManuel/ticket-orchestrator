@@ -1,42 +1,13 @@
-import type { BoardColumn, DriftReport, EpicSnapshot, Ticket } from "@/domain/analyst";
+import type { BoardColumn, DriftReport, Ticket } from "@/domain/analyst";
+import type { EpicSnapshot } from "@/domain/orchestrator/types";
 
-interface SnapshotTicket {
-  id: string;
-  title: string;
-  storyPoints?: number;
-  priority?: string;
-  columnId?: string;
-  workflowState?: string;
-}
-
-interface SnapshotPlan {
-  tickets: SnapshotTicket[];
-}
-
-const TRACKED_FIELDS: Array<keyof Ticket> = [
-  "title",
-  "storyPoints",
-  "priority",
-  "columnId",
-  "workflowState",
-];
-
-function parseSnapshotPlan(planJson: string): SnapshotPlan {
-  try {
-    const parsed = JSON.parse(planJson) as unknown;
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      "tickets" in parsed &&
-      Array.isArray((parsed as { tickets: unknown }).tickets)
-    ) {
-      return parsed as SnapshotPlan;
-    }
-  } catch {
-    // malformed JSON — treat as empty plan
-  }
-  return { tickets: [] };
-}
+/**
+ * Fields the drift report tracks. Limited to attributes both the proposal (frozen
+ * in the snapshot) and the live `Ticket` carry, so comparisons are meaningful.
+ * Lifecycle attributes like columnId / workflowState live only on the live ticket
+ * and are intentionally excluded — they describe ticket progress, not plan drift.
+ */
+const TRACKED_FIELDS = ["title", "storyPoints"] as const;
 
 /**
  * Diffs an EpicSnapshot against the current board state for that epic's children.
@@ -55,24 +26,24 @@ export function computeDrift(
   const doneColumnIds = new Set(columns.filter((c) => c.isDone).map((c) => c.id));
   const isDone = (t: Ticket) => doneColumnIds.has(t.columnId);
 
-  const plan = parseSnapshotPlan(snapshot.planJson);
-  const snapshotById = new Map(plan.tickets.map((t) => [t.id, t]));
+  const proposedTickets = snapshot.backlog?.tickets ?? [];
+  const proposedById = new Map(proposedTickets.map((t) => [t.id, t]));
   const currentById = new Map(currentTickets.map((t) => [t.id, t]));
 
   const removedTickets: DriftReport["removedTickets"] = [];
   const changedTickets: DriftReport["changedTickets"] = [];
 
-  for (const snapshotTicket of plan.tickets) {
-    const current = currentById.get(snapshotTicket.id);
+  for (const proposed of proposedTickets) {
+    const current = currentById.get(proposed.id);
     if (!current) {
-      removedTickets.push({ id: snapshotTicket.id, title: snapshotTicket.title });
+      removedTickets.push({ id: proposed.id, title: proposed.title });
       continue;
     }
     const changedFields: string[] = [];
     for (const field of TRACKED_FIELDS) {
-      const snapVal = snapshotTicket[field as keyof SnapshotTicket];
-      const currVal = current[field];
-      if (snapVal !== undefined && String(snapVal) !== String(currVal)) {
+      const proposedVal = proposed[field];
+      const currentVal = current[field];
+      if (proposedVal !== undefined && proposedVal !== null && String(proposedVal) !== String(currentVal)) {
         changedFields.push(field);
       }
     }
@@ -82,7 +53,7 @@ export function computeDrift(
   }
 
   const addedTickets: DriftReport["addedTickets"] = currentTickets
-    .filter((t) => !snapshotById.has(t.id))
+    .filter((t) => !proposedById.has(t.id))
     .map((t) => ({ id: t.id, title: t.title }));
 
   const doneCount = currentTickets.filter(isDone).length;

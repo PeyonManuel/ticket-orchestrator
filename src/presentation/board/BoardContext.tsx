@@ -16,7 +16,6 @@ import type {
   Board,
   BoardColumn,
   CreateTicketInput,
-  EpicSnapshot,
   OrgMember,
   OrgMemberRole,
   ReleaseVersion,
@@ -54,7 +53,6 @@ import {
   DELETE_SPRINT,
   UPSERT_SPRINT_ASSIGNMENT,
   REMOVE_SPRINT_ASSIGNMENT,
-  CREATE_EPIC_SNAPSHOT,
   SET_MEMBER_ROLE,
 } from "@/infrastructure/graphql/operations";
 
@@ -235,10 +233,6 @@ export interface BoardActions {
     availableHours: number;
   }) => Promise<SprintAssignment | null>;
   removeSprintAssignment: (sprintId: string, userId: string) => Promise<void>;
-  createEpicSnapshot: (
-    epicTicketId: string,
-    planJson: string,
-  ) => Promise<EpicSnapshot | null>;
   setMemberRole: (userId: string, role: OrgMemberRole | null) => Promise<void>;
   setViewMode: (mode: BoardViewMode) => void;
   selectSprint: (sprintId: string) => void;
@@ -437,7 +431,6 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const [removeSprintAssignmentMutation] = useMutation(
     REMOVE_SPRINT_ASSIGNMENT,
   );
-  const [createEpicSnapshotMutation] = useMutation(CREATE_EPIC_SNAPSHOT);
   const [setMemberRoleMutation] = useMutation(SET_MEMBER_ROLE);
 
   // Stable refs so action callbacks don't re-bind every render
@@ -638,9 +631,8 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
 
   const linkedTickets = useMemo(() => {
     if (!selectedTicket) return [] as Ticket[];
-    return allTickets.filter((t) =>
-      selectedTicket.linkedTicketIds.includes(t.id),
-    );
+    const targetIds = new Set(selectedTicket.links.map((l) => l.targetTicketId));
+    return allTickets.filter((t) => targetIds.has(t.id));
   }, [allTickets, selectedTicket]);
 
   // ─────────────────────────────────────────────────────────────────
@@ -878,23 +870,23 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         const a = findTicket(ticketId);
         const b = findTicket(targetTicketId);
         if (!a || !b) return;
-        if (!a.linkedTicketIds.includes(targetTicketId)) {
+        if (!a.links.some((l) => l.targetTicketId === targetTicketId)) {
           await updateTicketMutation({
             variables: {
               id: ticketId,
               input: {
-                linkedTicketIds: [...a.linkedTicketIds, targetTicketId],
+                links: [...a.links, { kind: "relatedTo", targetTicketId }],
                 expectedVersion: a.version,
               },
             },
           });
         }
-        if (!b.linkedTicketIds.includes(ticketId)) {
+        if (!b.links.some((l) => l.targetTicketId === ticketId)) {
           await updateTicketMutation({
             variables: {
               id: targetTicketId,
               input: {
-                linkedTicketIds: [...b.linkedTicketIds, ticketId],
+                links: [...b.links, { kind: "relatedTo", targetTicketId: ticketId }],
                 expectedVersion: b.version,
               },
             },
@@ -905,27 +897,23 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       unlinkTickets: async (ticketId, targetTicketId) => {
         const a = findTicket(ticketId);
         const b = findTicket(targetTicketId);
-        if (a && a.linkedTicketIds.includes(targetTicketId)) {
+        if (a && a.links.some((l) => l.targetTicketId === targetTicketId)) {
           await updateTicketMutation({
             variables: {
               id: ticketId,
               input: {
-                linkedTicketIds: a.linkedTicketIds.filter(
-                  (id) => id !== targetTicketId,
-                ),
+                links: a.links.filter((l) => l.targetTicketId !== targetTicketId),
                 expectedVersion: a.version,
               },
             },
           });
         }
-        if (b && b.linkedTicketIds.includes(ticketId)) {
+        if (b && b.links.some((l) => l.targetTicketId === ticketId)) {
           await updateTicketMutation({
             variables: {
               id: targetTicketId,
               input: {
-                linkedTicketIds: b.linkedTicketIds.filter(
-                  (id) => id !== ticketId,
-                ),
+                links: b.links.filter((l) => l.targetTicketId !== ticketId),
                 expectedVersion: b.version,
               },
             },
@@ -982,7 +970,10 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
               variables: {
                 id: linkSource,
                 input: {
-                  linkedTicketIds: [...source.linkedTicketIds, created.id],
+                  links: [
+                    ...source.links,
+                    { kind: "relatedTo", targetTicketId: created.id },
+                  ],
                   expectedVersion: source.version,
                 },
               },
@@ -991,7 +982,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
               variables: {
                 id: created.id,
                 input: {
-                  linkedTicketIds: [linkSource],
+                  links: [{ kind: "relatedTo", targetTicketId: linkSource }],
                   expectedVersion: created.version,
                 },
               },
@@ -1128,20 +1119,6 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         });
       },
 
-      createEpicSnapshot: async (epicTicketId, planJson) => {
-        const result = await createEpicSnapshotMutation({
-          variables: { epicTicketId, planJson },
-        });
-        return (
-          (
-            result.data as
-              | { createEpicSnapshot?: EpicSnapshot }
-              | null
-              | undefined
-          )?.createEpicSnapshot ?? null
-        );
-      },
-
       setMemberRole: async (userId, role) => {
         await setMemberRoleMutation({
           variables: { userId, role },
@@ -1231,7 +1208,6 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     archiveBoardMutation,
     createBoardMutation,
     createColumnMutation,
-    createEpicSnapshotMutation,
     createSprintMutation,
     createTicketMutation,
     createVersionMutation,

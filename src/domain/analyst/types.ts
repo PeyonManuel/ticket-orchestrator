@@ -5,6 +5,18 @@ export type ColumnId = string;
 export type TicketHierarchyType = "epic" | "story" | "task";
 export type UserRole = "member" | "admin";
 
+/**
+ * Typed link between two tickets. Replaces the legacy untyped `linkedTicketIds: string[]`.
+ * `blockedBy` participates in dependency reasoning; `relatedTo` and `duplicates` are
+ * documentation-only links.
+ */
+export type LinkKind = "blockedBy" | "relatedTo" | "duplicates";
+
+export interface TicketLink {
+  kind: LinkKind;
+  targetTicketId: TicketId;
+}
+
 export interface BoardColumn {
   id: ColumnId;
   orgId: string;
@@ -47,7 +59,7 @@ export interface Ticket {
   storyPoints: 1 | 2 | 3 | 5 | 8 | 13;
   workflowState: string;
   priority: "low" | "medium" | "high";
-  linkedTicketIds: TicketId[];
+  links: TicketLink[];
   assigneeIds: string[];
   /** Sprints this ticket belongs to. A ticket can be in multiple sprints. */
   sprintIds: string[];
@@ -119,20 +131,6 @@ export interface SprintAssignment {
   userId: string;
   /** Available working hours for this person in this sprint. */
   availableHours: number;
-}
-
-/**
- * Immutable baseline snapshot of an AI-generated Epic plan.
- * Created when the Orchestrator first executes on an Epic.
- * Used by drift detection to diff "what was planned" vs "current state."
- */
-export interface EpicSnapshot {
-  id: string;
-  orgId: string;
-  epicTicketId: string;
-  createdAt: string;
-  /** JSON-encoded plan: ticket proposals, role assignments, sprint allocation. */
-  planJson: string;
 }
 
 export interface Comment {
