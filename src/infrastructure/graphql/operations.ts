@@ -635,3 +635,73 @@ export const COMMIT_EPIC_DRAFT = gql`
     }
   }
 `;
+
+// ─── Phase 5 Inspector ────────────────────────────────────────────────────────
+
+export const INSPECTOR_TURN_FIELDS = gql`
+  fragment InspectorTurnFields on InspectorTurn {
+    id
+    role
+    text
+    createdAt
+  }
+`;
+
+export const INSPECTOR_TRANSCRIPT_FIELDS = gql`
+  ${INSPECTOR_TURN_FIELDS}
+  fragment InspectorTranscriptFields on InspectorTranscript {
+    id
+    orgId
+    epicSnapshotId
+    turns { ...InspectorTurnFields }
+    updatedAt
+  }
+`;
+
+export const EPIC_MEMORY_FIELDS = gql`
+  fragment EpicMemoryFields on EpicMemory {
+    id
+    orgId
+    epicSnapshotId
+    content
+    tags
+    source
+    createdAt
+  }
+`;
+
+export const GET_INSPECTOR_TRANSCRIPT = gql`
+  ${INSPECTOR_TRANSCRIPT_FIELDS}
+  query GetInspectorTranscript($epicSnapshotId: ID!) {
+    inspectorTranscript(epicSnapshotId: $epicSnapshotId) {
+      ...InspectorTranscriptFields
+    }
+  }
+`;
+
+export const GET_EPIC_MEMORIES = gql`
+  ${EPIC_MEMORY_FIELDS}
+  query GetEpicMemories($epicSnapshotId: ID!) {
+    epicMemories(epicSnapshotId: $epicSnapshotId) {
+      ...EpicMemoryFields
+    }
+  }
+`;
+
+export const APPEND_INSPECTOR_TURN = gql`
+  ${INSPECTOR_TRANSCRIPT_FIELDS}
+  mutation AppendInspectorTurn($epicSnapshotId: ID!, $turn: InspectorTurnInput!) {
+    appendInspectorTurn(epicSnapshotId: $epicSnapshotId, turn: $turn) {
+      ...InspectorTranscriptFields
+    }
+  }
+`;
+
+export const SAVE_EPIC_MEMORY = gql`
+  ${EPIC_MEMORY_FIELDS}
+  mutation SaveEpicMemory($input: SaveEpicMemoryInput!) {
+    saveEpicMemory(input: $input) {
+      ...EpicMemoryFields
+    }
+  }
+`;

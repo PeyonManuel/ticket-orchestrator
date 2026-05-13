@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import type { OrgMemberRole } from "../analyst/types";
+import type { BoardColumn, DriftReport, OrgMemberRole, Ticket } from "../analyst/types";
 import type { TeamMemberCapacity } from "./policies/capacityPolicy";
 
 export type { TeamMemberCapacity } from "./policies/capacityPolicy";
@@ -265,6 +265,39 @@ export interface PlannerChatInput {
 export interface PlannerChatOutput {
   reply: string;
   updatedPlan: SprintPlan | null;
+}
+
+// ── Inspector (Phase 5) actor contracts ──────────────────────────────
+
+/**
+ * Bundle the Inspector actor needs to produce a grounded reply: the frozen
+ * Epic plan, the live ticket state, drift between them, accumulated chat,
+ * and any previously-curated memories. `userMessage` is the new turn from
+ * the PO that triggered this round.
+ */
+export interface InspectorTurnInput {
+  snapshot: EpicSnapshot;
+  liveTickets: Ticket[];
+  columns: BoardColumn[];
+  drift: DriftReport;
+  transcript: InspectorTurn[];
+  memories: EpicMemory[];
+  userMessage: string;
+}
+
+/**
+ * What the Inspector returns: the assistant reply plus any insights it
+ * chose to persist via the `saveInsight` tool. `insightsToSave` is empty
+ * on most turns; the Inspector only writes when an observation is durable
+ * and worth re-folding into future context.
+ */
+export interface InspectorTurnOutput {
+  reply: string;
+  insightsToSave: Array<{
+    content: string;
+    tags: string[];
+    source: EpicMemorySource;
+  }>;
 }
 
 // ── Commit artifact (Phase 4 → committed) ────────────────────────────

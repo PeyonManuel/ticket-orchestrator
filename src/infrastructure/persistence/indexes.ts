@@ -66,6 +66,15 @@ export async function ensureIndexes(): Promise<void> {
         { orgId: 1, deletedAt: 1 },
         { partialFilterExpression: { deletedAt: { $type: "date" } } },
       ),
+      // Phase 5 InspectorTranscripts: one per Epic snapshot.
+      db.collection("inspectorTranscripts").createIndex(
+        { orgId: 1, epicSnapshotId: 1 },
+        { unique: true },
+      ),
+      // Phase 5 EpicMemories: list per Epic snapshot, newest first.
+      db.collection("epicMemories").createIndex(
+        { orgId: 1, epicSnapshotId: 1, createdAt: -1 },
+      ),
     ]),
   );
 

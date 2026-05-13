@@ -82,8 +82,10 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 |---|---|
 | `driftDetection.ts` | Drift report from a rich `EpicSnapshot` vs current ticket state. Reads typed frozen `backlog.tickets`; tracks `title` + `storyPoints` diffs (the fields both proposals and tickets carry). |
 | `capacityProvider.ts` | Derives `TeamMemberCapacity[]` from real velocity history — looks at the last 5 completed sprints, sums done-column tickets per member, falls back to `defaultCapacityFor` when history is empty. |
-| `mockAi.ts` | Mock implementations of all orchestrator actors. `runSprintPlanner` delegates to `produceSprintPlan` (pure slicing policy) using default capacities derived from `MemberSnapshot[]` — real-velocity capacities flow in when the machine is wired to `capacityProvider` (later slice). 600–1400ms simulated latency. |
+| `mockAi.ts` | Mock implementations of all orchestrator actors (analyst, architect, controller, blueprint chat, refinement chat, planner, planner chat, **Phase 5 `runInspectorTurn`**). `runSprintPlanner` delegates to `produceSprintPlan` (pure slicing policy). 600–1400ms simulated latency. |
 | `draftStore.ts` | Apollo-backed `DraftStore` adapter — list / load / save / remove / create EpicDrafts via GQL (server stores in Mongo `epicDrafts` collection). |
+| `inspectorMemoryStore.ts` | Apollo-backed `InspectorStore` adapter — loadTranscript / appendTurn / listMemories / saveMemory for Phase 5 chat + curated insights. |
+| `inspectorContextProvider.ts` | `loadInspectorContext` — parallel fetches EpicSnapshot + InspectorTranscript + EpicMemories, filters board tickets to the Epic's children, runs `computeDrift`. Returns a single bundle the Inspector machine boots from. |
 
 ### `src/infrastructure/observability/`
 

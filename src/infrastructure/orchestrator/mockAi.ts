@@ -24,6 +24,8 @@ import type {
   BrainstormSummary,
   ControllerInput,
   ControllerOutput,
+  InspectorTurnInput,
+  InspectorTurnOutput,
   PlannerChatInput,
   PlannerChatOutput,
   PlannerInput,
@@ -539,5 +541,102 @@ export async function runRefinementChat(
 
   return {
     reply: `"${ticket.title}" looks well-scoped to me. If there's a specific trade-off you're wrestling with — implementation approach, testing strategy, or dependency on another ticket — I'm happy to dig in.`,
+  };
+}
+
+// ─── Phase 5 Inspector ────────────────────────────────────────────────────────
+
+/**
+ * Mock Inspector turn. The real LangGraph adapter will replace the body here
+ * with a model call that consumes the same shaped input (snapshot + drift +
+ * memories + transcript) and decides whether to emit one or more
+ * `saveInsight` tool calls.
+ *
+ * The mock heuristics:
+ *  - "what changed" / "drift" → summarize the `DriftReport`.
+ *  - "risk" / "blocker"       → cite the snapshot's planning narrative.
+ *  - "progress" / "status"    → completion percent + done count.
+ *  - "remember" / "note"      → echo the user message back as an insight.
+ *  - otherwise                → ground the reply in the snapshot title.
+ *
+ * Insights only get persisted when the user explicitly asks ("remember", "note",
+ * "save"). Real LangGraph will decide autonomously.
+ */
+export async function runInspectorTurn(
+  input: InspectorTurnInput,
+): Promise<InspectorTurnOutput> {
+  await delay();
+
+  const message = input.userMessage.trim();
+  const lower = message.toLowerCase();
+  const { snapshot, drift, liveTickets } = input;
+  const title = snapshot.backlog?.epicTitle ?? "this Epic";
+
+  const wantsRemember =
+    lower.includes("remember") ||
+    lower.includes("note that") ||
+    lower.startsWith("note:") ||
+    lower.includes("save this");
+
+  const wantsDrift =
+    lower.includes("changed") ||
+    lower.includes("drift") ||
+    lower.includes("diverged") ||
+    lower.includes("different");
+
+  const wantsStatus =
+    lower.includes("progress") ||
+    lower.includes("status") ||
+    lower.includes("how far") ||
+    lower.includes("completion");
+
+  const wantsRisks =
+    lower.includes("risk") || lower.includes("blocker") || lower.includes("concern");
+
+  if (wantsDrift) {
+    const reply = drift.hasDrift
+      ? `Since commit (${new Date(drift.snapshotCreatedAt).toLocaleDateString()}) the plan has shifted: ${drift.changedTickets.length} ticket(s) edited (${drift.changedTickets.slice(0, 3).map((t) => t.title).join("; ") || "—"}), ${drift.addedTickets.length} added, ${drift.removedTickets.length} removed. Completion is at ${drift.completionPercent}%.`
+      : `No drift detected against "${title}" — the live tickets still match the committed plan. Completion is at ${drift.completionPercent}%.`;
+    return { reply, insightsToSave: [] };
+  }
+
+  if (wantsStatus) {
+    return {
+      reply: `"${title}" is ${drift.completionPercent}% complete across ${liveTickets.length} ticket(s). ${drift.hasDrift ? `Note: the plan has drifted (${drift.changedTickets.length + drift.addedTickets.length + drift.removedTickets.length} delta(s)).` : "The plan and live state are aligned."}`,
+      insightsToSave: [],
+    };
+  }
+
+  if (wantsRisks) {
+    const reasoning = snapshot.sprintPlan?.reasoning?.slice(0, 240) ?? "no planning narrative captured";
+    return {
+      reply: `From the original plan: "${reasoning}". If a specific blocker has emerged that wasn't anticipated, paste the details and I'll persist it as an insight so it surfaces on future turns.`,
+      insightsToSave: [],
+    };
+  }
+
+  if (wantsRemember) {
+    // Strip the trigger word so the saved memory is the actual content.
+    const content = message
+      .replace(/^(please\s+)?(remember\s+(that\s+)?|note(\s*:|that)?\s+|save\s+(this\s+)?)/i, "")
+      .trim();
+    return {
+      reply: `Got it — I'll remember that. (Saved as an insight on "${title}".)`,
+      insightsToSave: content
+        ? [{ content, tags: extractKeywords(content).slice(0, 3), source: "chat" }]
+        : [],
+    };
+  }
+
+  if (!message) {
+    return {
+      reply: `I'm here whenever you want to chat about "${title}". Ask about progress, drift, risks, or tell me to remember something specific.`,
+      insightsToSave: [],
+    };
+  }
+
+  return {
+    reply: `On "${title}": I can summarize what's drifted since commit, surface risks from the original plan, or save observations you want me to remember next time. What angle helps?`,
+    insightsToSave: [],
   };
 }

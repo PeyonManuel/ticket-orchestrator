@@ -152,6 +152,22 @@ export const resolvers = {
       requireAuth(ctx);
       return repo.getEpicDraft(ctx.orgId, id);
     },
+    inspectorTranscript: (
+      _p: unknown,
+      { epicSnapshotId }: { epicSnapshotId: string },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      return repo.getInspectorTranscript(ctx.orgId, epicSnapshotId);
+    },
+    epicMemories: (
+      _p: unknown,
+      { epicSnapshotId }: { epicSnapshotId: string },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      return repo.listEpicMemories(ctx.orgId, epicSnapshotId);
+    },
   },
 
   Ticket: {
@@ -423,6 +439,37 @@ export const resolvers = {
     ) => {
       requireAuth(ctx);
       return repo.commitEpicDraft(ctx.orgId, draftId, ctx.userId);
+    },
+    appendInspectorTurn: (
+      _p: unknown,
+      {
+        epicSnapshotId,
+        turn,
+      }: {
+        epicSnapshotId: string;
+        turn: { id: string; role: "user" | "inspector"; text: string; createdAt: string };
+      },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      return repo.appendInspectorTurn(ctx.orgId, epicSnapshotId, turn);
+    },
+    saveEpicMemory: (
+      _p: unknown,
+      {
+        input,
+      }: {
+        input: {
+          epicSnapshotId: string;
+          content: string;
+          tags: string[];
+          source: "chat" | "ticketEvolution";
+        };
+      },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      return repo.createEpicMemory(ctx.orgId, input);
     },
   },
 };

@@ -26,14 +26,20 @@ import {
   type BrainstormTurn,
   type EpicDraft,
   type EpicDraftIndexEntry,
+  type EpicMemory,
+  type EpicMemorySource,
   type EpicSnapshot,
   type EpicSnapshotIndexEntry,
+  type InspectorTranscript,
+  type InspectorTurn,
   type MemberSnapshot,
   type OrchestratorPhase,
   type SprintPlan,
   type SprintSnapshot,
   epicDraftSchema,
+  epicMemorySchema,
   epicSnapshotSchema,
+  inspectorTranscriptSchema,
 } from "@/domain/orchestrator/types";
 import clientPromise from "./mongo";
 import {
@@ -1262,6 +1268,130 @@ export async function createEpicSnapshot(
   };
   await col.insertOne(doc);
   return parseEpicSnapshot(doc);
+}
+
+// ─── Phase 5 Inspector ────────────────────────────────────────────────────────
+
+interface InspectorTranscriptDoc {
+  _id: string;
+  orgId: string;
+  epicSnapshotId: string;
+  turns: InspectorTurn[];
+  updatedAt: string;
+}
+
+function parseInspectorTranscript(d: InspectorTranscriptDoc): InspectorTranscript {
+  return inspectorTranscriptSchema.parse({
+    id: d._id,
+    orgId: d.orgId,
+    epicSnapshotId: d.epicSnapshotId,
+    turns: d.turns ?? [],
+    updatedAt: d.updatedAt,
+  });
+}
+
+/**
+ * Returns the single per-Epic transcript or `null` if no Phase 5 turn has
+ * been recorded yet. Callers (the Inspector boot flow) should treat `null`
+ * as "transcript will be lazily created on first appendInspectorTurn".
+ */
+export async function getInspectorTranscript(
+  orgId: string,
+  epicSnapshotId: string,
+): Promise<InspectorTranscript | null> {
+  const col = await coll<InspectorTranscriptDoc>("inspectorTranscripts");
+  const doc = await col.findOne({ orgId, epicSnapshotId });
+  return doc ? parseInspectorTranscript(doc) : null;
+}
+
+/**
+ * Append-only write. Creates the transcript doc on first call (upsert),
+ * pushes the turn into `turns[]`, and bumps `updatedAt`. The unique index
+ * on `(orgId, epicSnapshotId)` guarantees one transcript per Epic.
+ */
+export async function appendInspectorTurn(
+  orgId: string,
+  epicSnapshotId: string,
+  turn: InspectorTurn,
+): Promise<InspectorTranscript> {
+  const col = await coll<InspectorTranscriptDoc>("inspectorTranscripts");
+  const updatedAt = new Date().toISOString();
+  await col.updateOne(
+    { orgId, epicSnapshotId },
+    {
+      $push: { turns: turn },
+      $set: { updatedAt },
+      $setOnInsert: { _id: crypto.randomUUID(), orgId, epicSnapshotId },
+    },
+    { upsert: true },
+  );
+  const doc = await col.findOne({ orgId, epicSnapshotId });
+  if (!doc) throw new Error("Failed to load InspectorTranscript after upsert");
+  return parseInspectorTranscript(doc);
+}
+
+interface EpicMemoryDoc {
+  _id: string;
+  orgId: string;
+  epicSnapshotId: string;
+  content: string;
+  tags: string[];
+  source: EpicMemorySource;
+  createdAt: string;
+}
+
+function parseEpicMemory(d: EpicMemoryDoc): EpicMemory {
+  return epicMemorySchema.parse({
+    id: d._id,
+    orgId: d.orgId,
+    epicSnapshotId: d.epicSnapshotId,
+    content: d.content,
+    tags: d.tags ?? [],
+    source: d.source,
+    createdAt: d.createdAt,
+  });
+}
+
+/** Returns memories for an Epic, newest first. */
+export async function listEpicMemories(
+  orgId: string,
+  epicSnapshotId: string,
+): Promise<EpicMemory[]> {
+  const col = await coll<EpicMemoryDoc>("epicMemories");
+  const docs = await col
+    .find({ orgId, epicSnapshotId })
+    .sort({ createdAt: -1 })
+    .toArray();
+  return docs.map(parseEpicMemory);
+}
+
+/**
+ * Writes a single `EpicMemory`. Called by the Inspector via the `saveInsight`
+ * tool when a meaningful observation emerges from the conversation.
+ */
+export async function createEpicMemory(
+  orgId: string,
+  input: {
+    epicSnapshotId: string;
+    content: string;
+    tags: string[];
+    source: EpicMemorySource;
+  },
+): Promise<EpicMemory> {
+  const col = await coll<EpicMemoryDoc>("epicMemories");
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const doc: EpicMemoryDoc = {
+    _id: id,
+    orgId,
+    epicSnapshotId: input.epicSnapshotId,
+    content: input.content,
+    tags: input.tags,
+    source: input.source,
+    createdAt,
+  };
+  await col.insertOne(doc);
+  return parseEpicMemory(doc);
 }
 
 // ─── Epic Drafts (Orchestrator) ───────────────────────────────────────────────

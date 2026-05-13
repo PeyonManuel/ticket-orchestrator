@@ -518,6 +518,10 @@ export const typeDefs = /* GraphQL */ `
     epicDrafts(boardId: ID!): [EpicDraftIndexEntry!]!
     """Hydrate a single draft by id."""
     epicDraft(id: ID!): EpicDraft
+    """Phase 5 chat transcript for a committed Epic. Null until the first turn lands."""
+    inspectorTranscript(epicSnapshotId: ID!): InspectorTranscript
+    """AI-curated insights for a committed Epic, newest first."""
+    epicMemories(epicSnapshotId: ID!): [EpicMemory!]!
   }
 
   input CreateBoardInput { name: String!, type: BoardType }
@@ -616,6 +620,11 @@ export const typeDefs = /* GraphQL */ `
     deleteEpicDraft(id: ID!): Boolean!
     """Commit an Epic draft to the board: creates the Epic ticket, all child tickets, and an EpicSnapshot. Returns IDs of everything created."""
     commitEpicDraft(draftId: ID!): CommitEpicDraftResult!
+
+    """Append a turn to the Phase 5 transcript for a committed Epic. Lazily creates the transcript document on the first call."""
+    appendInspectorTurn(epicSnapshotId: ID!, turn: InspectorTurnInput!): InspectorTranscript!
+    """Write a new EpicMemory record. Append-only; called by the Inspector via the saveInsight tool."""
+    saveEpicMemory(input: SaveEpicMemoryInput!): EpicMemory!
   }
 
   input CreateSprintInput {
