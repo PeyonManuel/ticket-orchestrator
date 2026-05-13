@@ -13,9 +13,13 @@ export default function LoginPage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-md bg-indigo-600 text-xl font-bold italic shadow-[0_0_20px_rgba(79,70,229,0.5)]">
             O
           </div>
-          <span className="text-2xl font-bold tracking-tighter text-zinc-100">ORION</span>
+          <span className="text-2xl font-bold tracking-tighter text-zinc-100">
+            ORION
+          </span>
         </div>
-        <Suspense fallback={<div className="text-sm text-zinc-500">Loading...</div>}>
+        <Suspense
+          fallback={<div className="text-sm text-zinc-500">Loading...</div>}
+        >
           <SignIn
             forceRedirectUrl="/"
             withSignUp={false}
@@ -54,7 +58,8 @@ export default function LoginPage() {
                 formFieldLabel: "!text-zinc-200 font-medium",
                 formFieldInput:
                   "!border !border-zinc-600 focus:!border-indigo-500 !text-white placeholder:!text-zinc-500",
-                formFieldInputShowPasswordButton: "!text-zinc-400 hover:!text-zinc-200",
+                formFieldInputShowPasswordButton:
+                  "!text-zinc-400 hover:!text-zinc-200",
                 formFieldHintText: "!text-zinc-400",
                 formFieldErrorText: "!text-red-400",
                 // Primary button
@@ -62,11 +67,13 @@ export default function LoginPage() {
                   "!bg-indigo-600 hover:!bg-indigo-500 !text-white font-semibold shadow-md",
                 // Footer
                 footerActionText: "!text-zinc-400",
-                footerActionLink: "!text-indigo-400 hover:!text-indigo-300 font-medium",
+                footerActionLink:
+                  "!text-indigo-400 hover:!text-indigo-300 font-medium",
                 footer: "!text-zinc-600",
                 // Step 2 identity preview
                 identityPreviewText: "!text-zinc-200",
-                identityPreviewEditButton: "!text-indigo-400 hover:!text-indigo-300",
+                identityPreviewEditButton:
+                  "!text-indigo-400 hover:!text-indigo-300",
                 // Alert boxes
                 alertText: "!text-zinc-200",
                 // Internal form field wrapper (contains label + input)

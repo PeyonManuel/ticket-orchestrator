@@ -8,7 +8,6 @@ import {
   Send,
   Loader2,
   AlertTriangle,
-  RotateCcw,
   Gauge,
   Info,
 } from "lucide-react";
@@ -27,6 +26,7 @@ import {
   DEFAULT_BUFFER_PERCENT,
   disciplineCapacity,
 } from "@/domain/orchestrator/policies/capacityPolicy";
+import { BackNavigationModal } from "./BackNavigationModal";
 
 interface Props {
   draft: EpicDraft;
@@ -53,16 +53,10 @@ const ROLE_BADGE: Record<OrgMemberRole, string> = {
 };
 
 const LABEL_COLOR: Record<string, string> = {
-  frontend: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
-  backend: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
-  qa: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  developer: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
   ux: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
-  api: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  ai: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300",
-  infra: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
-  devops: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
-  security: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
-  observability: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
+  qa: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  po: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
 };
 
 function uid(prefix: string): string {
@@ -83,6 +77,7 @@ export function Phase4SprintPlan({
 }: Props) {
   const { sprintPlan, planningSprints, planningMembers, backlog, plannerTranscript } = draft;
   const now = () => new Date().toISOString();
+  const [backModalOpen, setBackModalOpen] = useState(false);
 
   if (isGeneratingPlan || !sprintPlan) {
     return (
@@ -113,18 +108,6 @@ export function Phase4SprintPlan({
   const memberById = (userId: string | null): MemberSnapshot | undefined =>
     planningMembers.find((m) => m.userId === userId);
 
-  const handleRegenerate = () => {
-    if (isAwaitingPlannerReply) return;
-    if (
-      !confirm(
-        "Discard the current plan and regenerate from the refined backlog? Your planner chat will be preserved.",
-      )
-    ) {
-      return;
-    }
-    send({ type: "REGENERATE_PLAN", now: now() });
-  };
-
   return (
     <div className="flex h-full">
       {/* ── Left: Sprint lanes ──────────────────────────────────── */}
@@ -141,7 +124,7 @@ export function Phase4SprintPlan({
               </p>
             </div>
             <button
-              onClick={() => send({ type: "BACK_TO_REFINE", now: now() })}
+              onClick={() => setBackModalOpen(true)}
               className="text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
             >
               ← Back to Deep Dive
@@ -211,15 +194,6 @@ export function Phase4SprintPlan({
             </p>
             <div className="flex items-center gap-2">
               <button
-                onClick={handleRegenerate}
-                disabled={isCommitting || isAwaitingPlannerReply}
-                className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5 transition-colors"
-                title="Discard plan and regenerate from refined backlog"
-              >
-                <RotateCcw size={12} />
-                Revise plan
-              </button>
-              <button
                 onClick={onCommit}
                 disabled={isCommitting}
                 className="rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-zinc-300 disabled:to-zinc-300 dark:disabled:from-zinc-700 dark:disabled:to-zinc-700 px-5 py-2 text-sm font-semibold text-white disabled:text-zinc-500 transition-all"
@@ -236,6 +210,17 @@ export function Phase4SprintPlan({
         transcript={plannerTranscript}
         isThinking={isAwaitingPlannerReply}
         send={send}
+      />
+
+      <BackNavigationModal
+        isOpen={backModalOpen}
+        fromPhase="Phase 4"
+        toPhase="Phase 3"
+        onCancel={() => setBackModalOpen(false)}
+        onConfirm={() => {
+          setBackModalOpen(false);
+          send({ type: "BACK_TO_REFINE", now: now() });
+        }}
       />
     </div>
   );

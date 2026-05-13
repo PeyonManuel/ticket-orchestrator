@@ -28,20 +28,13 @@ import { topologicalSort } from "./dependencyPolicy";
 
 /**
  * Fallback mapping from `TicketProposal.label` to discipline when the proposal
- * predates the `discipline` field. Mirrors the convention the architect mock
- * uses when assigning labels. New proposals should set `discipline` explicitly.
+ * predates the `discipline` field. New proposals should set `discipline` explicitly.
  */
 const ROLE_FOR_LABEL: Record<string, OrgMemberRole> = {
-  frontend: "developer",
-  backend: "developer",
-  api: "developer",
-  infra: "developer",
-  devops: "developer",
-  ai: "developer",
-  security: "developer",
-  observability: "developer",
+  developer: "developer",
   ux: "ux",
   qa: "tester",
+  po: "po",
 };
 
 function ticketDiscipline(t: TicketProposal): OrgMemberRole {

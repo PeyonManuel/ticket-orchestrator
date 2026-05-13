@@ -9,6 +9,7 @@ import type {
   TicketProposal,
 } from "@/domain/orchestrator/types";
 import type { OrchestratorEvent } from "@/domain/orchestrator";
+import { BackNavigationModal } from "./BackNavigationModal";
 
 interface Props {
   draft: EpicDraft;
@@ -67,12 +68,7 @@ export function Phase3Wizard({
               />
             </div>
           </div>
-          <button
-            onClick={() => send({ type: "BACK_TO_BULK", now: now() })}
-            className="text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
-          >
-            ← Back to bulk list
-          </button>
+          <BackToBulkButton send={send} now={now} />
         </div>
       </div>
 
@@ -434,5 +430,35 @@ function Stat({ label, value }: { label: string; value: number }) {
       </p>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">{label}</p>
     </div>
+  );
+}
+
+function BackToBulkButton({
+  send,
+  now,
+}: {
+  send: (event: OrchestratorEvent) => void;
+  now: () => string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+      >
+        ← Back to bulk list
+      </button>
+      <BackNavigationModal
+        isOpen={open}
+        fromPhase="Phase 3"
+        toPhase="Phase 2"
+        onCancel={() => setOpen(false)}
+        onConfirm={() => {
+          setOpen(false);
+          send({ type: "BACK_TO_BULK", now: now() });
+        }}
+      />
+    </>
   );
 }

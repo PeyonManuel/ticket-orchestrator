@@ -45,17 +45,7 @@ export interface BrainstormSummary {
 
 // ── Phase 2/3 ────────────────────────────────────────────────────────
 
-export type ProposalLabel =
-  | "frontend"
-  | "backend"
-  | "qa"
-  | "infra"
-  | "ux"
-  | "ai"
-  | "api"
-  | "devops"
-  | "security"
-  | "observability";
+export type ProposalLabel = "developer" | "ux" | "qa" | "po";
 
 export type ProposalStoryPoints = 1 | 2 | 3 | 5 | 8 | 13;
 
@@ -409,18 +399,7 @@ export interface InspectorStore {
 
 // ── Zod schemas (validate AI / persisted payloads at boundaries) ─────
 
-const proposalLabelSchema = z.enum([
-  "frontend",
-  "backend",
-  "qa",
-  "infra",
-  "ux",
-  "ai",
-  "api",
-  "devops",
-  "security",
-  "observability",
-]);
+const proposalLabelSchema = z.enum(["developer", "ux", "qa", "po"]);
 
 const proposalStoryPointsSchema = z.union([
   z.literal(1),

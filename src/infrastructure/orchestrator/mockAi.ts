@@ -208,19 +208,19 @@ const TICKET_TEMPLATES: Array<{
     hierarchyType: "story",
     title: (kw) => `Define data model for ${kw || "the feature"}`,
     oneLiner: () => "Set up the core schema and validation layer.",
-    label: "backend",
+    label: "developer",
   },
   {
     hierarchyType: "task",
     title: () => "Add API endpoints for create / list / update",
     oneLiner: () => "Wire GraphQL schema, resolvers, and Zod validation.",
-    label: "api",
+    label: "developer",
   },
   {
     hierarchyType: "story",
     title: (kw) => `Build primary UI for ${kw || "the user flow"}`,
     oneLiner: () => "List + detail + create form with optimistic updates.",
-    label: "frontend",
+    label: "developer",
   },
   {
     hierarchyType: "task",
@@ -233,13 +233,13 @@ const TICKET_TEMPLATES: Array<{
     hierarchyType: "task",
     title: () => "Persist user preferences across sessions",
     oneLiner: () => "Store the relevant client-side state per user.",
-    label: "frontend",
+    label: "developer",
   },
   {
     hierarchyType: "story",
-    title: () => "Add observability and structured logs",
+    title: () => "Set up observability and structured logs",
     oneLiner: () => "Log key transitions with correlation IDs for debugging.",
-    label: "observability",
+    label: "developer",
   },
   {
     hierarchyType: "task",
@@ -251,7 +251,7 @@ const TICKET_TEMPLATES: Array<{
     hierarchyType: "task",
     title: () => "Wire feature flag + rollout plan",
     oneLiner: () => "Default off; enable for the org running the pilot.",
-    label: "infra",
+    label: "developer",
   },
 ];
 
@@ -295,44 +295,24 @@ export async function runArchitectBacklog(
 // ─── Controller ─────────────────────────────────────────────────────
 
 const STORY_POINTS_BY_LABEL: Record<ProposalLabel, ProposalStoryPoints> = {
-  frontend: 3,
-  backend: 5,
-  api: 3,
-  qa: 2,
+  developer: 5,
   ux: 2,
-  ai: 8,
-  infra: 3,
-  devops: 3,
-  security: 5,
-  observability: 2,
+  qa: 2,
+  po: 1,
 };
 
 const RISK_TEMPLATES: Record<ProposalLabel, string[]> = {
-  frontend: [
-    "Render performance regressions in the topbar/board if context split is bypassed.",
-  ],
-  backend: [
-    "Schema migration on a hot collection — coordinate with multi-tenant deploys.",
-  ],
-  api: [
-    "GraphQL schema breaking change — needs operations.ts + Apollo cache update.",
-  ],
-  qa: [
-    "E2E flake from XState async transitions if loading states aren't waited on.",
+  developer: [
+    "Schema or API contract change — coordinate with other systems before merge.",
   ],
   ux: [
     "Interaction-triggered animation must stay under 300ms per Animation Contract.",
   ],
-  ai: ["Prompt drift; needs evals before LangGraph wiring lands."],
-  infra: [
-    "Feature flag default must be OFF in production; verify rollout plan.",
+  qa: [
+    "E2E flake from XState async transitions if loading states aren't waited on.",
   ],
-  devops: ["Pipeline change on the main branch could block other merges."],
-  security: [
-    "Auth/permission boundary — review with the security guild before merge.",
-  ],
-  observability: [
-    "Log volume — sample at the right rate to avoid noisy alerts.",
+  po: [
+    "Scope creep — verify the feature scope is locked before development starts.",
   ],
 };
 
@@ -347,7 +327,7 @@ export async function runControllerRefinement(
 
   const description =
     ticket.description ||
-    `${ticket.oneLiner || ticket.title}\n\nThis ticket is part of the "${input.backlog.epicTitle}" Epic. Implement against the contract defined in ${ticket.label === "frontend" ? "the presentation layer" : ticket.label === "backend" ? "the persistence + repository layer" : "the relevant module"}, keeping the engineering rules (typed, multi-tenant scoped, no booleans for lifecycle state) in mind.`;
+    `${ticket.oneLiner || ticket.title}\n\nThis ticket is part of the "${input.backlog.epicTitle}" Epic. Implement against the contract defined in ${ticket.label === "ux" ? "the presentation layer" : ticket.label === "qa" ? "the test suite" : ticket.label === "po" ? "the product spec" : "the relevant module"}, keeping the engineering rules (typed, multi-tenant scoped, no booleans for lifecycle state) in mind.`;
 
   const acceptanceCriteria = ticket.acceptanceCriteria.length
     ? ticket.acceptanceCriteria

@@ -1161,6 +1161,15 @@ interface EpicSnapshotDoc {
 }
 
 function parseEpicSnapshot(d: EpicSnapshotDoc): EpicSnapshot {
+  const backlog = d.backlog
+    ? {
+        ...d.backlog,
+        tickets: d.backlog.tickets.map((t) => ({
+          ...t,
+          label: normalizeLabel(t.label as string),
+        })),
+      }
+    : null;
   return epicSnapshotSchema.parse({
     id: d._id,
     orgId: d.orgId,
@@ -1172,7 +1181,7 @@ function parseEpicSnapshot(d: EpicSnapshotDoc): EpicSnapshot {
     transcript: d.transcript ?? [],
     blueprintTranscript: d.blueprintTranscript ?? [],
     brainstormSummary: d.brainstormSummary ?? null,
-    backlog: d.backlog ?? null,
+    backlog,
     plannerTranscript: d.plannerTranscript ?? [],
     sprintPlan: d.sprintPlan ?? null,
     planningSprints: d.planningSprints ?? [],
@@ -1421,6 +1430,31 @@ interface EpicDraftDoc {
   deletedAt?: Date | null;
 }
 
+/**
+ * Map legacy 10-value ProposalLabel set to the current 4-value set.
+ * Drafts saved before the label simplification still carry old values like
+ * "frontend"/"backend"/"observability"; collapse them on read so the Zod
+ * schema accepts the doc.
+ */
+const LEGACY_LABEL_MAP: Record<string, "developer" | "ux" | "qa" | "po"> = {
+  frontend: "developer",
+  backend: "developer",
+  api: "developer",
+  infra: "developer",
+  devops: "developer",
+  ai: "developer",
+  security: "developer",
+  observability: "developer",
+  ux: "ux",
+  qa: "qa",
+  po: "po",
+  developer: "developer",
+};
+
+function normalizeLabel(label: string): "developer" | "ux" | "qa" | "po" {
+  return LEGACY_LABEL_MAP[label] ?? "developer";
+}
+
 function parseEpicDraft(d: EpicDraftDoc): EpicDraft {
   return epicDraftSchema.parse({
     id: d._id,
@@ -1437,6 +1471,7 @@ function parseEpicDraft(d: EpicDraftDoc): EpicDraft {
       ...d.backlog,
       tickets: d.backlog.tickets.map((t) => ({
         ...t,
+        label: normalizeLabel(t.label as string),
         transcript: t.transcript ?? [],
       })),
     } : null,

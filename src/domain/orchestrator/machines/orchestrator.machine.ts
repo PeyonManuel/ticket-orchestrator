@@ -95,7 +95,6 @@ export type OrchestratorEvent =
     }
   | { type: "REFRESH_CAPACITIES"; capacities: TeamMemberCapacity[] }
   | { type: "PLANNER_USER_MESSAGE"; text: string; now: string; turnId: string }
-  | { type: "REGENERATE_PLAN"; now: string }
   | { type: "BACK_TO_REFINE"; now: string }
   // Commit / lifecycle
   | { type: "COMMIT_EPIC"; now: string }
@@ -339,18 +338,6 @@ export const orchestratorMachine = setup({
       return { capacities: event.capacities };
     }),
 
-    clearPlanForRegeneration: assign(({ context, event }) => {
-      if (event.type !== "REGENERATE_PLAN") return {};
-      return {
-        draft: {
-          ...context.draft,
-          sprintPlan: null,
-          updatedAt: event.now,
-        },
-        error: null,
-      };
-    }),
-
     storePlan: assign(({ context, event }, params: { output: PlannerOutput; now: string }) => {
       void event;
       return {
@@ -424,7 +411,7 @@ export const orchestratorMachine = setup({
         title: event.ticket.title,
         oneLiner: event.ticket.oneLiner ?? "",
         description: "",
-        label: event.ticket.label ?? "frontend",
+        label: event.ticket.label ?? "developer",
         acceptanceCriteria: [],
         storyPoints: null,
         risks: [],
@@ -565,15 +552,62 @@ export const orchestratorMachine = setup({
 
     enterPhase2FromPhase3: assign(({ context, event }) => {
       if (event.type !== "BACK_TO_BULK") return {};
+      // Reset the refinement cursor so re-entry to Phase 3 starts at the top.
+      // Refined flags on tickets are preserved — re-entering replays approvals
+      // via the `currentTicketAlreadyRefined` guard.
+      const note: BrainstormTurn = {
+        id: cryptoRandomId(),
+        role: "analyst",
+        text: "PO stepped back from refinement to revise the backlog. Pick up where you left off whenever you're ready.",
+        createdAt: event.now,
+      };
       return {
-        draft: patchDraft(context.draft, { phase: "phase2Structuring" }, event.now),
+        draft: patchDraft(
+          context.draft,
+          {
+            phase: "phase2Structuring",
+            refinementCursor: 0,
+            blueprintTranscript: [...context.draft.blueprintTranscript, note],
+          },
+          event.now,
+        ),
       };
     }),
 
     enterPhase1FromPhase2: assign(({ context, event }) => {
       if (event.type !== "BACK_TO_BRAINSTORM") return {};
+      // No artifact to clear — Phase 1 produces `brainstormSummary` which the
+      // user may want to refine, not regenerate. Append a synthetic note so
+      // the Analyst has context on the next round.
+      const note: BrainstormTurn = {
+        id: cryptoRandomId(),
+        role: "analyst",
+        text: "PO returned from backlog drafting. Feel free to add context or revise the summary before re-structuring.",
+        createdAt: event.now,
+      };
       return {
-        draft: patchDraft(context.draft, { phase: "phase1Brainstorming" }, event.now),
+        draft: patchDraft(
+          context.draft,
+          {
+            phase: "phase1Brainstorming",
+            transcript: [...context.draft.transcript, note],
+          },
+          event.now,
+        ),
+      };
+    }),
+
+    enterPhase3FromPhase4: assign(({ context, event }) => {
+      if (event.type !== "BACK_TO_REFINE") return {};
+      // Clear the stale sprint plan — re-entering Phase 4 will regenerate it
+      // against whatever refinements the PO changes. plannerTranscript is
+      // kept as a record of the prior planning conversation.
+      return {
+        draft: patchDraft(
+          context.draft,
+          { phase: "phase3Refining", sprintPlan: null },
+          event.now,
+        ),
       };
     }),
 
@@ -973,16 +1007,13 @@ export const orchestratorMachine = setup({
                   target: "awaitingPlannerReply",
                   actions: "appendPlannerUserTurn",
                 },
-                REGENERATE_PLAN: {
-                  target: "generatingPlan",
-                  actions: "clearPlanForRegeneration",
-                },
                 COMMIT_EPIC: {
                   target: "#orchestrator.workflow.committing",
                   actions: "markCommitting",
                 },
                 BACK_TO_REFINE: {
                   target: "#orchestrator.workflow.phase3Refining.readyToCommit",
+                  actions: "enterPhase3FromPhase4",
                 },
               },
             },

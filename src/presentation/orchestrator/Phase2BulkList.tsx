@@ -9,6 +9,7 @@ import type {
   TicketProposal,
 } from "@/domain/orchestrator/types";
 import type { OrchestratorEvent } from "@/domain/orchestrator";
+import { BackNavigationModal } from "./BackNavigationModal";
 
 interface Props {
   draft: EpicDraft;
@@ -17,22 +18,13 @@ interface Props {
   send: (event: OrchestratorEvent) => void;
 }
 
-const LABELS: ProposalLabel[] = [
-  "frontend", "backend", "api", "qa", "ux",
-  "ai", "infra", "devops", "security", "observability",
-];
+const LABELS: ProposalLabel[] = ["developer", "ux", "qa", "po"];
 
 const LABEL_COLORS: Record<ProposalLabel, string> = {
-  frontend: "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300",
-  backend: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
-  api: "bg-violet-100 text-violet-800 dark:bg-violet-950/40 dark:text-violet-300",
-  qa: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+  developer: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
   ux: "bg-pink-100 text-pink-800 dark:bg-pink-950/40 dark:text-pink-300",
-  ai: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300",
-  infra: "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300",
-  devops: "bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300",
-  security: "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300",
-  observability: "bg-teal-100 text-teal-800 dark:bg-teal-950/40 dark:text-teal-300",
+  qa: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+  po: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300",
 };
 
 function uid(prefix: string): string {
@@ -44,6 +36,7 @@ function uid(prefix: string): string {
 
 export function Phase2BulkList({ draft, isGenerating, isAwaitingBlueprintReply, send }: Props) {
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [backModalOpen, setBackModalOpen] = useState(false);
   const backlog = draft.backlog;
 
   if (isGenerating || !backlog) {
@@ -189,7 +182,7 @@ export function Phase2BulkList({ draft, isGenerating, isAwaitingBlueprintReply, 
                     ticket: {
                       id: uid("prop"),
                       title: "New ticket",
-                      label: "frontend",
+                      label: "developer",
                       hierarchyType: "task",
                     },
                   })
@@ -205,7 +198,7 @@ export function Phase2BulkList({ draft, isGenerating, isAwaitingBlueprintReply, 
         <div className="border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-6 py-4">
           <div className="max-w-2xl mx-auto flex items-center justify-between gap-3">
             <button
-              onClick={() => send({ type: "BACK_TO_BRAINSTORM", now: now() })}
+              onClick={() => setBackModalOpen(true)}
               className="text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
             >
               ← Back to brainstorm
@@ -233,6 +226,17 @@ export function Phase2BulkList({ draft, isGenerating, isAwaitingBlueprintReply, 
             turnId: uid("bt"),
           })
         }
+      />
+
+      <BackNavigationModal
+        isOpen={backModalOpen}
+        fromPhase="Phase 2"
+        toPhase="Phase 1"
+        onCancel={() => setBackModalOpen(false)}
+        onConfirm={() => {
+          setBackModalOpen(false);
+          send({ type: "BACK_TO_BRAINSTORM", now: now() });
+        }}
       />
     </div>
   );
