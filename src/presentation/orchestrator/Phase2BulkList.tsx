@@ -108,27 +108,15 @@ export function Phase2BulkList({ draft, isGenerating, isAwaitingBlueprintReply, 
                     transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                     className="overflow-hidden"
                   >
-                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                      <div>
-                        <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                          Goals
-                        </p>
-                        <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-0.5 list-disc list-inside">
-                          {draft.brainstormSummary.goals.map((g, i) => (
-                            <li key={i}>{g}</li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                          Out of scope
-                        </p>
-                        <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-0.5 list-disc list-inside">
-                          {draft.brainstormSummary.outOfScope.map((g, i) => (
-                            <li key={i}>{g}</li>
-                          ))}
-                        </ul>
-                      </div>
+                    <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
+                      <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+                        Goals
+                      </p>
+                      <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-0.5 list-disc list-inside">
+                        {draft.brainstormSummary.goals.map((g, i) => (
+                          <li key={i}>{g}</li>
+                        ))}
+                      </ul>
                     </div>
                   </motion.div>
                 )}

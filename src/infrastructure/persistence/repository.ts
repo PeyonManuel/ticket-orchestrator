@@ -1183,7 +1183,15 @@ function parseEpicSnapshot(d: EpicSnapshotDoc): EpicSnapshot {
     brainstormSummary: d.brainstormSummary ?? null,
     backlog,
     plannerTranscript: d.plannerTranscript ?? [],
-    sprintPlan: d.sprintPlan ?? null,
+    sprintPlan: d.sprintPlan
+      ? {
+          ...d.sprintPlan,
+          overflow: (d.sprintPlan.overflow ?? []).map((t) => ({
+            ...t,
+            label: normalizeLabel(t.label as string),
+          })),
+        }
+      : null,
     planningSprints: d.planningSprints ?? [],
     planningMembers: d.planningMembers ?? [],
     ticketIds: d.ticketIds ?? [],
@@ -1642,6 +1650,21 @@ export async function commitEpicDraft(
     assigneeIds: [],
   });
 
+  // Materialize proposed sprints first so their tickets land in real sprints,
+  // not in the placeholder ids the planner emitted client-side.
+  const proposedSprints = draft.sprintPlan?.proposedSprints ?? [];
+  const proposedSprintIdMap = new Map<string, string>();
+  for (const proposed of proposedSprints) {
+    const sprint = await createSprint(orgId, {
+      boardId: draft.boardId,
+      name: proposed.name,
+      startDate: proposed.startDate,
+      endDate: proposed.endDate,
+      capacityPoints: proposed.capacityPoints,
+    });
+    proposedSprintIdMap.set(proposed.id, sprint.id);
+  }
+
   const planAssignments = draft.sprintPlan?.assignments ?? [];
 
   const createdTicketIds: string[] = [];
@@ -1662,10 +1685,12 @@ export async function commitEpicDraft(
       assigneeIds: assignment?.assigneeUserId ? [assignment.assigneeUserId] : [],
     });
     if (assignment?.sprintId) {
+      // Swap proposed-sprint placeholder ids for the real ids we just created.
+      const realSprintId = proposedSprintIdMap.get(assignment.sprintId) ?? assignment.sprintId;
       const ticketsCol = await coll<{ _id: string; sprintIds: string[]; version: number }>("tickets");
       await ticketsCol.updateOne(
         { _id: child.id, orgId },
-        { $set: { sprintIds: [assignment.sprintId] }, $inc: { version: 1 } },
+        { $set: { sprintIds: [realSprintId] }, $inc: { version: 1 } },
       );
     }
     createdTicketIds.push(child.id);

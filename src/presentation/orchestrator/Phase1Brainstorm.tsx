@@ -117,23 +117,13 @@ export function Phase1Brainstorm({ draft, isThinking, canAdvance, send }: Props)
               <p className="text-sm text-zinc-800 dark:text-zinc-100 leading-relaxed">
                 {draft.brainstormSummary.summary}
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                <div>
-                  <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">Goals</p>
-                  <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-0.5 list-disc list-inside">
-                    {draft.brainstormSummary.goals.map((g, i) => (
-                      <li key={i}>{g}</li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">Out of scope</p>
-                  <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-0.5 list-disc list-inside">
-                    {draft.brainstormSummary.outOfScope.map((g, i) => (
-                      <li key={i}>{g}</li>
-                    ))}
-                  </ul>
-                </div>
+              <div className="mt-3">
+                <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">Goals</p>
+                <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-0.5 list-disc list-inside">
+                  {draft.brainstormSummary.goals.map((g, i) => (
+                    <li key={i}>{g}</li>
+                  ))}
+                </ul>
               </div>
             </motion.div>
           )}

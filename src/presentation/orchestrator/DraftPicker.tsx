@@ -262,7 +262,6 @@ function CommittedEpicRow({
 }) {
   return (
     <motion.div
-      layout
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
@@ -270,6 +269,7 @@ function CommittedEpicRow({
       className="group rounded-lg border border-emerald-200/60 dark:border-emerald-900/30 bg-emerald-50/40 dark:bg-emerald-950/10 px-4 py-3 hover:border-emerald-400 dark:hover:border-emerald-700 transition-colors"
     >
       <button
+        data-testid="committed-epic-card"
         onClick={() => onOpen(entry.id)}
         className="w-full text-left min-w-0"
       >

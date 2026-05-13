@@ -32,6 +32,10 @@ export interface BrainstormTurn {
   role: BrainstormRole;
   text: string;
   createdAt: string;
+  /** Clerk user id of the human who sent this turn — null for AI turns or legacy data. */
+  authorId?: string | null;
+  /** Display name resolved server-side at write time so the UI can render without a member lookup. */
+  authorName?: string | null;
 }
 
 export interface BrainstormSummary {
@@ -39,8 +43,6 @@ export interface BrainstormSummary {
   summary: string;
   /** Goals / success criteria the user agreed to. */
   goals: string[];
-  /** Out-of-scope notes — protects the Architect from over-building. */
-  outOfScope: string[];
 }
 
 // ── Phase 2/3 ────────────────────────────────────────────────────────
@@ -214,14 +216,33 @@ export interface SprintPlanBufferRule {
   applied: boolean;
 }
 
+/**
+ * A sprint the planner proposes to create on commit so the overflow can be
+ * scheduled. `id` is a temporary client-generated UUID; the real sprint is
+ * created server-side by `commitEpicDraft` which substitutes the real Mongo id
+ * into the matching `TicketAssignment.sprintId` values.
+ */
+export interface ProposedSprint {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  capacityPoints: number;
+}
+
 export interface SprintPlan {
   assignments: TicketAssignment[];
   reasoning: string;
   /**
-   * Tickets the planner could not fit into any in-scope sprint at the buffer rule.
-   * UI surfaces these as "sliding to a later sprint" — populated by Slice B's slicingPolicy.
+   * Tickets the planner couldn't fit even into the proposed sprints (truly
+   * unschedulable, e.g. discipline missing entirely). Populated by slicingPolicy.
    */
   overflow?: TicketProposal[];
+  /**
+   * New sprints the planner suggests creating to accommodate tickets that
+   * didn't fit into the existing planning horizon. Created server-side at commit.
+   */
+  proposedSprints?: ProposedSprint[];
   /** Records the buffer policy applied during planning. Populated by Slice B. */
   bufferRule?: SprintPlanBufferRule;
 }
@@ -346,6 +367,10 @@ export interface InspectorTurn {
   role: InspectorTurnRole;
   text: string;
   createdAt: string;
+  /** Clerk user id of the human who sent this turn — null for AI turns or legacy data. */
+  authorId?: string | null;
+  /** Display name resolved server-side at write time so other POs see who said what. */
+  authorName?: string | null;
 }
 
 /**
@@ -415,12 +440,13 @@ export const brainstormTurnSchema = z.object({
   role: z.enum(["user", "analyst"]),
   text: z.string(),
   createdAt: z.string(),
+  authorId: z.string().nullish(),
+  authorName: z.string().nullish(),
 });
 
 export const brainstormSummarySchema = z.object({
   summary: z.string().min(1),
   goals: z.array(z.string()),
-  outOfScope: z.array(z.string()),
 });
 
 export const linkKindSchema = z.enum(["blockedBy", "relatedTo", "duplicates"]);
@@ -493,11 +519,20 @@ const sprintPlanBufferRuleSchema = z.object({
   applied: z.boolean(),
 });
 
+const proposedSprintSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  startDate: z.string(),
+  endDate: z.string(),
+  capacityPoints: z.number(),
+});
+
 const sprintPlanSchema = z.object({
   assignments: z.array(ticketAssignmentSchema),
   reasoning: z.string(),
   // Slice A.1 additions — optional so existing plans still parse.
   overflow: z.array(ticketProposalSchema).optional(),
+  proposedSprints: z.array(proposedSprintSchema).optional(),
   bufferRule: sprintPlanBufferRuleSchema.optional(),
 });
 
@@ -529,6 +564,8 @@ export const inspectorTurnSchema = z.object({
   role: z.enum(["user", "inspector"]),
   text: z.string(),
   createdAt: z.string(),
+  authorId: z.string().nullish(),
+  authorName: z.string().nullish(),
 });
 
 export const inspectorTranscriptSchema = z.object({

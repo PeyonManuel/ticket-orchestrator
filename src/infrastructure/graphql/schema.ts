@@ -189,7 +189,7 @@ export const typeDefs = /* GraphQL */ `
   }
   enum BrainstormRole { user analyst }
   enum ProposalLabel {
-    frontend backend qa infra ux ai api devops security observability
+    developer ux qa po
   }
   enum ProposalHierarchyType { story task }
 
@@ -212,12 +212,13 @@ export const typeDefs = /* GraphQL */ `
     role: BrainstormRole!
     text: String!
     createdAt: String!
+    authorId: String
+    authorName: String
   }
 
   type BrainstormSummary {
     summary: String!
     goals: [String!]!
-    outOfScope: [String!]!
   }
 
   type TicketProposal {
@@ -291,11 +292,29 @@ export const typeDefs = /* GraphQL */ `
     applied: Boolean!
   }
 
+  type ProposedSprint {
+    id: ID!
+    name: String!
+    startDate: String!
+    endDate: String!
+    capacityPoints: Int!
+  }
+
+  input ProposedSprintInput {
+    id: ID!
+    name: String!
+    startDate: String!
+    endDate: String!
+    capacityPoints: Int!
+  }
+
   type SprintPlan {
     assignments: [TicketAssignment!]!
     reasoning: String!
     """Tickets that didn't fit at the buffer rule and are sliding to a later sprint."""
     overflow: [TicketProposal!]
+    """New sprints the planner suggests creating to accommodate overflow."""
+    proposedSprints: [ProposedSprint!]
     """Buffer policy applied during planning. Populated by Slice B's slicingPolicy."""
     bufferRule: SprintPlanBufferRule
   }
@@ -343,6 +362,8 @@ export const typeDefs = /* GraphQL */ `
     role: InspectorTurnRole!
     text: String!
     createdAt: String!
+    authorId: String
+    authorName: String
   }
 
   input InspectorTurnInput {
@@ -350,6 +371,8 @@ export const typeDefs = /* GraphQL */ `
     role: InspectorTurnRole!
     text: String!
     createdAt: String!
+    authorId: String
+    authorName: String
   }
 
   """Per-Epic chat transcript that persists across all Phase 5 sessions. One per epicSnapshotId."""
@@ -386,12 +409,13 @@ export const typeDefs = /* GraphQL */ `
     role: BrainstormRole!
     text: String!
     createdAt: String!
+    authorId: String
+    authorName: String
   }
 
   input BrainstormSummaryInput {
     summary: String!
     goals: [String!]!
-    outOfScope: [String!]!
   }
 
   input TicketProposalInput {
@@ -426,6 +450,7 @@ export const typeDefs = /* GraphQL */ `
     assignments: [TicketAssignmentInput!]!
     reasoning: String!
     overflow: [TicketProposalInput!]
+    proposedSprints: [ProposedSprintInput!]
     bufferRule: SprintPlanBufferRuleInput
   }
 

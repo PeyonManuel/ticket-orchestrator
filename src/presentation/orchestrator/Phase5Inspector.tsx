@@ -21,7 +21,11 @@ function uid(prefix: string): string {
 }
 
 export function Phase5Inspector({ snapshotId, onClose, onBackToPicker }: Props) {
-  const { allTickets, boardColumns } = useBoardData();
+  const { allTickets, boardColumns, orgMembers } = useBoardData();
+  const memberById = React.useMemo(
+    () => new Map(orgMembers.map((m) => [m.userId, m] as const)),
+    [orgMembers],
+  );
   const { state, send } = useInspector({
     epicSnapshotId: snapshotId,
     allTickets,
@@ -95,6 +99,12 @@ export function Phase5Inspector({ snapshotId, onClose, onBackToPicker }: Props) 
             isThinking={isThinking}
             error={state.context.error}
             onSend={handleSend}
+            resolveAuthor={(turn) => {
+              const name =
+                turn.authorName ??
+                (turn.authorId ? memberById.get(turn.authorId)?.fullName : null);
+              return name ?? null;
+            }}
           />
         </div>
         <MemoriesSidebar memories={memories} />
@@ -159,12 +169,14 @@ function ChatPane({
   isThinking,
   error,
   onSend,
+  resolveAuthor,
 }: {
   transcript: InspectorTurn[];
   drift: DriftReport;
   isThinking: boolean;
   error: string | null;
   onSend: (text: string) => void;
+  resolveAuthor: (turn: InspectorTurn) => string | null;
 }) {
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -204,25 +216,33 @@ function ChatPane({
           )}
 
           <AnimatePresence initial={false}>
-            {transcript.map((turn) => (
-              <motion.div
-                key={turn.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-                    turn.role === "user"
-                      ? "bg-indigo-500 text-white"
-                      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
-                  }`}
+            {transcript.map((turn) => {
+              const authorName = turn.role === "user" ? resolveAuthor(turn) : null;
+              return (
+                <motion.div
+                  key={turn.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                  className={`flex flex-col gap-1 ${turn.role === "user" ? "items-end" : "items-start"}`}
                 >
-                  {turn.text}
-                </div>
-              </motion.div>
-            ))}
+                  {authorName && (
+                    <p className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 px-2">
+                      {authorName}
+                    </p>
+                  )}
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                      turn.role === "user"
+                        ? "bg-indigo-500 text-white"
+                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                    }`}
+                  >
+                    {turn.text}
+                  </div>
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
 
           {isThinking && (

@@ -13,6 +13,7 @@ import type { OrgMemberRole } from "../../analyst/types";
 import type {
   BacklogProposal,
   ProposalId,
+  ProposedSprint,
   SprintPlan,
   SprintSnapshot,
   TicketAssignment,
@@ -70,6 +71,35 @@ export interface SlicingResult {
  *  3. Picks the least-loaded member of the matching discipline as the assignee.
  *  4. Tickets that don't fit anywhere become `overflow` (`sprintId: null`).
  */
+/**
+ * Build a proposed sprint that picks up where the previous sprint ends.
+ * Duration matches the previous sprint's duration; falls back to 14 days.
+ * Capacity matches the previous sprint's capacityPoints; falls back to 30.
+ */
+function buildProposedSprint(
+  previous: SprintSnapshot | ProposedSprint,
+  index: number,
+): ProposedSprint {
+  const prevStart = new Date(previous.startDate);
+  const prevEnd = new Date(previous.endDate);
+  const durationMs =
+    !isNaN(prevStart.getTime()) && !isNaN(prevEnd.getTime()) && prevEnd > prevStart
+      ? prevEnd.getTime() - prevStart.getTime()
+      : 14 * 24 * 60 * 60 * 1000;
+  const startMs = !isNaN(prevEnd.getTime())
+    ? prevEnd.getTime() + 24 * 60 * 60 * 1000
+    : Date.now() + 14 * 24 * 60 * 60 * 1000;
+  const start = new Date(startMs);
+  const end = new Date(startMs + durationMs);
+  return {
+    id: `proposed-${index}-${Math.random().toString(36).slice(2, 10)}`,
+    name: `Proposed Sprint ${index}`,
+    startDate: start.toISOString(),
+    endDate: end.toISOString(),
+    capacityPoints: previous.capacityPoints > 0 ? previous.capacityPoints : 30,
+  };
+}
+
 export function produceSprintPlan(input: SlicingInput): SlicingResult {
   const { backlog, sprints, capacities, bufferPercent = DEFAULT_BUFFER_PERCENT } = input;
 
@@ -78,23 +108,6 @@ export function produceSprintPlan(input: SlicingInput): SlicingResult {
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
   const bufferRule = { percent: bufferPercent, applied: true };
-
-  if (targetSprints.length === 0) {
-    return {
-      plan: {
-        assignments: backlog.tickets.map((t) => ({
-          ticketId: t.id,
-          sprintId: null,
-          assigneeUserId: null,
-        })),
-        reasoning:
-          "No active or planning sprints found. All tickets placed in the backlog.",
-        overflow: [...backlog.tickets],
-        bufferRule,
-      },
-      cycles: [],
-    };
-  }
 
   let ordered: TicketProposal[];
   let cycles: ProposalId[][] = [];
@@ -113,6 +126,58 @@ export function produceSprintPlan(input: SlicingInput): SlicingResult {
   // sprintId + memberId → committed points (for least-loaded assignee pick)
   const committedByMember = new Map<string, number>();
 
+  // Unified slot list: real sprints first, then proposed sprints appended on demand.
+  // Each entry carries enough info for capacity tracking + the assignment.
+  type Slot =
+    | { kind: "real"; ref: SprintSnapshot }
+    | { kind: "proposed"; ref: ProposedSprint };
+  const slots: Slot[] = targetSprints.map((s) => ({ kind: "real", ref: s }));
+  const proposedSprints: ProposedSprint[] = [];
+
+  const tryPlace = (
+    ticket: TicketProposal,
+    discipline: OrgMemberRole,
+    points: number,
+    capForDiscipline: number,
+  ): { sprintIdx: number; assignee: TeamMemberCapacity | null } | null => {
+    for (let sprintIdx = 0; sprintIdx < slots.length; sprintIdx++) {
+      const slot = slots[sprintIdx];
+      const sprintId = slot.ref.id;
+
+      const disciplineKey = `${sprintId}|${discipline}`;
+      const used = committedByDiscipline.get(disciplineKey) ?? 0;
+      if (used + points > capForDiscipline) continue;
+
+      const blockers = (ticket.dependencies ?? []).filter((d) => d.kind === "blockedBy");
+      const blockersOk = blockers.every((b) => {
+        const depAssignment = assignments.find((a) => a.ticketId === b.targetProposalId);
+        if (!depAssignment || depAssignment.sprintId === null) return true;
+        const depIdx = slots.findIndex((s) => s.ref.id === depAssignment.sprintId);
+        return depIdx >= 0 && depIdx <= sprintIdx;
+      });
+      if (!blockersOk) continue;
+
+      const candidates = membersByDiscipline(capacities, discipline);
+      let assignee: TeamMemberCapacity | null = null;
+      if (candidates.length > 0) {
+        const sorted = [...candidates].sort((a, b) => {
+          const aLoad = committedByMember.get(`${sprintId}|${a.memberId}`) ?? 0;
+          const bLoad = committedByMember.get(`${sprintId}|${b.memberId}`) ?? 0;
+          return aLoad - bLoad;
+        });
+        assignee = sorted[0] ?? null;
+      }
+
+      committedByDiscipline.set(disciplineKey, used + points);
+      if (assignee) {
+        const memberKey = `${sprintId}|${assignee.memberId}`;
+        committedByMember.set(memberKey, (committedByMember.get(memberKey) ?? 0) + points);
+      }
+      return { sprintIdx, assignee };
+    }
+    return null;
+  };
+
   const assignments: TicketAssignment[] = [];
   const overflow: TicketProposal[] = [];
 
@@ -121,52 +186,34 @@ export function produceSprintPlan(input: SlicingInput): SlicingResult {
     const points = ticket.storyPoints ?? 3;
     const capForDiscipline = disciplineCapacity(capacities, discipline, bufferPercent);
 
-    let placedSprintIndex = -1;
-    let assignee: TeamMemberCapacity | null = null;
-
-    for (let sprintIdx = 0; sprintIdx < targetSprints.length; sprintIdx++) {
-      const sprint = targetSprints[sprintIdx];
-
-      // 1) does this discipline have room in this sprint?
-      const disciplineKey = `${sprint.id}|${discipline}`;
-      const used = committedByDiscipline.get(disciplineKey) ?? 0;
-      if (used + points > capForDiscipline) continue;
-
-      // 2) are all blockers placed in this or an earlier sprint?
-      const blockers = (ticket.dependencies ?? []).filter((d) => d.kind === "blockedBy");
-      const blockersOk = blockers.every((b) => {
-        const depAssignment = assignments.find((a) => a.ticketId === b.targetProposalId);
-        if (!depAssignment || depAssignment.sprintId === null) return true; // unplaced — best-effort
-        const depIdx = targetSprints.findIndex((s) => s.id === depAssignment.sprintId);
-        return depIdx >= 0 && depIdx <= sprintIdx;
-      });
-      if (!blockersOk) continue;
-
-      // 3) pick the least-loaded member of the discipline in this sprint
-      const candidates = membersByDiscipline(capacities, discipline);
-      if (candidates.length > 0) {
-        const sorted = [...candidates].sort((a, b) => {
-          const aLoad = committedByMember.get(`${sprint.id}|${a.memberId}`) ?? 0;
-          const bLoad = committedByMember.get(`${sprint.id}|${b.memberId}`) ?? 0;
-          return aLoad - bLoad;
-        });
-        assignee = sorted[0] ?? null;
-      }
-
-      placedSprintIndex = sprintIdx;
-      committedByDiscipline.set(disciplineKey, used + points);
-      if (assignee) {
-        const memberKey = `${sprint.id}|${assignee.memberId}`;
-        committedByMember.set(memberKey, (committedByMember.get(memberKey) ?? 0) + points);
-      }
-      break;
+    // If the discipline has no capacity at all (no members of that role),
+    // we can't schedule this ticket — even a new sprint won't help.
+    if (capForDiscipline <= 0) {
+      assignments.push({ ticketId: ticket.id, sprintId: null, assigneeUserId: null });
+      overflow.push(ticket);
+      continue;
     }
 
-    if (placedSprintIndex >= 0) {
+    let result = tryPlace(ticket, discipline, points, capForDiscipline);
+
+    // Doesn't fit in any existing slot — propose a new sprint and retry.
+    // Bounded attempts so we can't blow up if the ticket is larger than a whole sprint.
+    let attempts = 0;
+    while (!result && attempts < 8) {
+      const previous = slots[slots.length - 1]?.ref;
+      if (!previous) break;
+      const proposed = buildProposedSprint(previous, proposedSprints.length + 1);
+      proposedSprints.push(proposed);
+      slots.push({ kind: "proposed", ref: proposed });
+      result = tryPlace(ticket, discipline, points, capForDiscipline);
+      attempts++;
+    }
+
+    if (result) {
       assignments.push({
         ticketId: ticket.id,
-        sprintId: targetSprints[placedSprintIndex].id,
-        assigneeUserId: assignee?.memberId ?? null,
+        sprintId: slots[result.sprintIdx].ref.id,
+        assigneeUserId: result.assignee?.memberId ?? null,
       });
     } else {
       assignments.push({ ticketId: ticket.id, sprintId: null, assigneeUserId: null });
@@ -175,8 +222,9 @@ export function produceSprintPlan(input: SlicingInput): SlicingResult {
   }
 
   const placedCount = backlog.tickets.length - overflow.length;
-  const sprintBreakdown = targetSprints
-    .map((s) => {
+  const sprintBreakdown = slots
+    .map((slot) => {
+      const s = slot.ref;
       const parts = ALL_DISCIPLINES.map((d) => {
         const used = committedByDiscipline.get(`${s.id}|${d}`) ?? 0;
         if (used === 0) return null;
@@ -185,13 +233,18 @@ export function produceSprintPlan(input: SlicingInput): SlicingResult {
       })
         .filter((x): x is string => x !== null)
         .join(", ");
-      return parts.length > 0 ? `${s.name} [${parts}]` : `${s.name} [empty]`;
+      const label = slot.kind === "proposed" ? `${s.name} (proposed)` : s.name;
+      return parts.length > 0 ? `${label} [${parts}]` : `${label} [empty]`;
     })
     .join("; ");
 
+  const proposedNote =
+    proposedSprints.length > 0
+      ? ` Proposed ${proposedSprints.length} new sprint(s) to schedule overflow — these will be created when you commit the epic.`
+      : "";
   const overflowNote =
     overflow.length > 0
-      ? ` ${overflow.length} ticket(s) didn't fit at the ${bufferPercent}% buffer and slid to a later sprint.`
+      ? ` ${overflow.length} ticket(s) still couldn't be scheduled (missing discipline coverage).`
       : "";
 
   const usingDefaults = capacities.some((c) => c.isDefaultVelocity);
@@ -203,9 +256,10 @@ export function produceSprintPlan(input: SlicingInput): SlicingResult {
     plan: {
       assignments,
       reasoning:
-        `Allocated ${placedCount} of ${backlog.tickets.length} tickets across ${targetSprints.length} sprint(s). ${sprintBreakdown}.` +
-        `${overflowNote}${defaultsNote}${cycleNote} Sequenced by blockedBy dependencies with a ${bufferPercent}% per-discipline buffer.`,
+        `Allocated ${placedCount} of ${backlog.tickets.length} tickets across ${slots.length} sprint(s). ${sprintBreakdown}.` +
+        `${proposedNote}${overflowNote}${defaultsNote}${cycleNote} Sequenced by blockedBy dependencies with a ${bufferPercent}% per-discipline buffer.`,
       overflow,
+      proposedSprints,
       bufferRule,
     },
     cycles,

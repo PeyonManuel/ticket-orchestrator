@@ -72,8 +72,9 @@ export function useOrchestrator(
   // and the debounce-tail timer save the *current* draft, not a stale one.
   // The assignment happens in an effect (refs must not be touched in render).
   const flushRef = useRef<() => Promise<void>>(async () => {});
+  const forceFlushRef = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
-    flushRef.current = async () => {
+    const save = async (throwOnError: boolean) => {
       if (pendingSaveTimer.current) {
         clearTimeout(pendingSaveTimer.current);
         pendingSaveTimer.current = null;
@@ -88,12 +89,15 @@ export function useOrchestrator(
       try {
         await draftStore.save(draft);
         lastSavedSerialized.current = serialized;
-      } catch {
-        // Swallow — next save attempt will retry. The user can still Save manually.
+      } catch (err) {
+        if (throwOnError) throw err;
+        // Background saves swallow — next debounce tick will retry.
       } finally {
         setSaveStatus("idle");
       }
     };
+    flushRef.current = () => save(false);
+    forceFlushRef.current = () => save(true);
   });
 
   useEffect(() => {
@@ -115,6 +119,9 @@ export function useOrchestrator(
   }, [actorRef]);
 
   const flush = useMemo(() => () => flushRef.current(), []);
+  // forceFlush propagates errors — use before commit so a failed save surfaces instead of
+  // silently proceeding with a stale server document.
+  const forceFlush = useMemo(() => () => forceFlushRef.current(), []);
 
   const commitDraft = useMemo(
     () => async (): Promise<{ epicTicketId: string; createdTicketIds: string[]; snapshotId: string }> => {
@@ -138,6 +145,7 @@ export function useOrchestrator(
     state,
     send,
     flush,
+    forceFlush,
     commitDraft,
     draft: state.context.draft,
     error: state.context.error,

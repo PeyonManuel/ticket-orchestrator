@@ -1,46 +1,33 @@
 import { test as setup, expect } from "@playwright/test";
+import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import path from "path";
 import fs from "fs";
 
 const AUTH_FILE = path.join(__dirname, ".auth/user.json");
 
-const USERNAME = process.env.E2E_CLERK_USER_USERNAME;
-const PASSWORD = process.env.E2E_CLERK_USER_PASSWORD;
+const EMAIL = process.env.E2E_CLERK_USER_USERNAME;
 
 /**
- * Signs into Clerk once and persists storageState for spec projects to reuse.
+ * Signs into Clerk once via the Clerk API (no browser form — bypasses MFA / email-code flows).
+ * Persists storageState to `.auth/user.json` for spec projects to reuse.
  *
- * Gated on `E2E_CLERK_USER_USERNAME` + `E2E_CLERK_USER_PASSWORD` — without them,
- * the setup project is skipped and all spec tests are skipped downstream (the
- * storageState file won't exist, so chromium fails fast on setup dependency).
- *
- * For first-time wiring, create a test user inside a Clerk development instance
- * tied to a test organisation, populate the env vars, and run `npm run e2e`
- * once locally to seed the auth file.
+ * Requires CLERK_SECRET_KEY + E2E_CLERK_USER_USERNAME in .env.local.
+ * global.setup.ts runs clerkSetup() first to populate CLERK_TESTING_TOKEN.
  */
 setup("authenticate", async ({ page }) => {
   setup.skip(
-    !USERNAME || !PASSWORD,
-    "E2E_CLERK_USER_USERNAME / E2E_CLERK_USER_PASSWORD not set — skipping auth setup. See tests/e2e/README.md.",
+    !EMAIL,
+    "E2E_CLERK_USER_USERNAME not set — skipping auth setup. See tests/e2e/README.md.",
   );
 
   fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true });
 
-  await page.goto("/login");
+  await page.goto("/");
+  await setupClerkTestingToken({ context: page.context() });
+  await clerk.signIn({ page, emailAddress: EMAIL as string });
 
-  // Clerk's hosted sign-in form. Selectors target Clerk's default field names —
-  // if you've heavily themed the form, adjust accordingly.
-  await page.getByLabel(/email|username/i).fill(USERNAME as string);
-  await page.getByRole("button", { name: /continue|next/i }).click();
-  await page.getByLabel(/password/i).fill(PASSWORD as string);
-  await page.getByRole("button", { name: /continue|sign in/i }).click();
-
-  // After sign-in, Clerk redirects to / (root). Wait for the orchestrator's
-  // BoardApp shell to be visible before persisting state.
-  await page.waitForURL(/\/(?:\?.*)?$/);
-  await expect(page.getByRole("button", { name: /board|sidebar/i }).first()).toBeVisible({
-    timeout: 15_000,
-  });
+  // Wait for the board shell to confirm we're fully authenticated and hydrated.
+  await expect(page.locator("body")).not.toContainText("Sign in", { timeout: 15_000 });
 
   await page.context().storageState({ path: AUTH_FILE });
 });

@@ -177,16 +177,11 @@ export async function runAnalystTurn(
     : `An Epic capturing the requirements you outlined.`;
 
   const summary: BrainstormSummary = {
-    summary: `${headline} The goal is to ship a focused first version that proves the core flow end-to-end without over-engineering. We'll defer integrations and admin tooling until after a working slice exists.`,
+    summary: `${headline} The goal is to ship a focused first version that proves the core flow end-to-end without over-engineering.`,
     goals: [
       "Deliver the primary user-facing flow end-to-end",
       "Establish data contracts and persistence so future iterations don't churn",
       "Ship behind a feature flag with telemetry to validate adoption",
-    ],
-    outOfScope: [
-      "Mobile-specific UX — desktop only for v1",
-      "Admin / back-office tooling",
-      "Bulk import or migration tools",
     ],
   };
 

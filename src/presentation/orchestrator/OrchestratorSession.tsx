@@ -100,7 +100,7 @@ function ActiveSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { state, send, flush, commitDraft, draft, error, saveStatus } =
+  const { state, send, flush, forceFlush, commitDraft, draft, error, saveStatus } =
     useOrchestrator(initialDraft, initialCapacities);
   const saving = saveStatus !== "idle";
 
@@ -148,9 +148,15 @@ function ActiveSession({
     setIsCommitting(true);
     setCommitError(null);
     try {
-      send({ type: "COMMIT_EPIC", now: new Date().toISOString() });
+      // Force-flush BEFORE server reads the draft — throws on failure so a
+      // save error surfaces as a commit error rather than silently racing.
+      await forceFlush();
       await commitDraft();
-      await flush();
+      // Transition the machine only after the server commit succeeds.
+      // committing → committed via two synchronous sends.
+      const now = new Date().toISOString();
+      send({ type: "COMMIT_EPIC", now });
+      send({ type: "COMMIT_EPIC", now });
       onClose();
     } catch (err) {
       setCommitError(err instanceof Error ? err.message : "Commit failed");

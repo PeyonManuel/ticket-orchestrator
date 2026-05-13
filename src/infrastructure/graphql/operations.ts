@@ -462,6 +462,8 @@ export const TICKET_PROPOSAL_FIELDS = gql`
       role
       text
       createdAt
+      authorId
+      authorName
     }
   }
 `;
@@ -483,17 +485,20 @@ export const EPIC_DRAFT_FIELDS = gql`
       role
       text
       createdAt
+      authorId
+      authorName
     }
     blueprintTranscript {
       id
       role
       text
       createdAt
+      authorId
+      authorName
     }
     brainstormSummary {
       summary
       goals
-      outOfScope
     }
     backlog {
       epicTitle
@@ -505,8 +510,10 @@ export const EPIC_DRAFT_FIELDS = gql`
     sprintPlan {
       assignments { ticketId sprintId assigneeUserId }
       reasoning
+      proposedSprints { id name startDate endDate capacityPoints }
+      bufferRule { percent applied }
     }
-    plannerTranscript { id role text createdAt }
+    plannerTranscript { id role text createdAt authorId authorName }
     planningSprints { id name startDate endDate capacityPoints status }
     planningMembers { userId fullName role }
   }
@@ -543,18 +550,20 @@ export const EPIC_SNAPSHOT_FIELDS = gql`
     draftId
     createdAt
     createdBy
-    transcript { id role text createdAt }
-    blueprintTranscript { id role text createdAt }
-    brainstormSummary { summary goals outOfScope }
+    transcript { id role text createdAt authorId authorName }
+    blueprintTranscript { id role text createdAt authorId authorName }
+    brainstormSummary { summary goals }
     backlog {
       epicTitle
       epicDescription
       tickets { ...TicketProposalFields }
     }
-    plannerTranscript { id role text createdAt }
+    plannerTranscript { id role text createdAt authorId authorName }
     sprintPlan {
       assignments { ticketId sprintId assigneeUserId }
       reasoning
+      proposedSprints { id name startDate endDate capacityPoints }
+      bufferRule { percent applied }
     }
     planningSprints { id name startDate endDate capacityPoints status }
     planningMembers { userId fullName role }
@@ -644,6 +653,8 @@ export const INSPECTOR_TURN_FIELDS = gql`
     role
     text
     createdAt
+    authorId
+    authorName
   }
 `;
 

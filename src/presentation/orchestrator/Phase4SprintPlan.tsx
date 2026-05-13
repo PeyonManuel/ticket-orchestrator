@@ -15,7 +15,7 @@ import type {
   BrainstormTurn,
   EpicDraft,
   MemberSnapshot,
-  SprintSnapshot,
+  ProposedSprint,
   TeamMemberCapacity,
   TicketAssignment,
   TicketProposal,
@@ -90,6 +90,7 @@ export function Phase4SprintPlan({
 
   const assignments = sprintPlan.assignments;
   const overflow: TicketProposal[] = sprintPlan.overflow ?? [];
+  const proposedSprints: ProposedSprint[] = sprintPlan.proposedSprints ?? [];
   const bufferPercent = sprintPlan.bufferRule?.percent ?? DEFAULT_BUFFER_PERCENT;
 
   const ticketsForSprint = (sprintId: string | null) =>
@@ -120,7 +121,12 @@ export function Phase4SprintPlan({
                 Sprint Assignment Plan
               </p>
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
-                {assignments.length} tickets across {planningSprints.length} sprint{planningSprints.length !== 1 ? "s" : ""}
+                {assignments.length} tickets across {planningSprints.length + proposedSprints.length} sprint{(planningSprints.length + proposedSprints.length) !== 1 ? "s" : ""}
+                {proposedSprints.length > 0 && (
+                  <span className="text-violet-600 dark:text-violet-400">
+                    {" "}({proposedSprints.length} proposed)
+                  </span>
+                )}
               </p>
             </div>
             <button
@@ -167,6 +173,32 @@ export function Phase4SprintPlan({
               );
             })}
 
+            {/* Proposed sprints — created on commit if the user approves. */}
+            {proposedSprints.length > 0 && (
+              <div className="rounded-lg bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-900/40 px-4 py-2.5 text-xs text-violet-800 dark:text-violet-300">
+                <span className="font-medium">{proposedSprints.length} new sprint{proposedSprints.length === 1 ? "" : "s"} suggested</span>
+                {" — "}these will be created when you commit the epic so the planner has room for everything.
+              </div>
+            )}
+            {proposedSprints.map((sprint) => {
+              const used = sprintUsedSP(sprint.id);
+              const pct = sprint.capacityPoints > 0 ? Math.min((used / sprint.capacityPoints) * 100, 100) : 0;
+              const over = used > sprint.capacityPoints;
+              const tickets = ticketsForSprint(sprint.id);
+              return (
+                <SprintLane
+                  key={sprint.id}
+                  sprint={sprint}
+                  tickets={tickets}
+                  usedSP={used}
+                  pct={pct}
+                  over={over}
+                  memberById={memberById}
+                  proposed
+                />
+              );
+            })}
+
             {/* Backlog lane */}
             {backlogTickets.length > 0 && (
               <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
@@ -189,8 +221,10 @@ export function Phase4SprintPlan({
           <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
               {overflow.length > 0
-                ? `Plan has ${overflow.length} overflow ticket${overflow.length === 1 ? "" : "s"} — review before approving.`
-                : "Tickets will be created and assigned to sprints."}
+                ? `${overflow.length} ticket${overflow.length === 1 ? "" : "s"} couldn't be scheduled — review before approving.`
+                : proposedSprints.length > 0
+                  ? `${proposedSprints.length} new sprint${proposedSprints.length === 1 ? "" : "s"} will be created on commit.`
+                  : "Tickets will be created and assigned to sprints."}
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -347,23 +381,36 @@ function SprintLane({
   pct,
   over,
   memberById,
+  proposed,
 }: {
-  sprint: SprintSnapshot;
+  sprint: { id: string; name: string; startDate: string; endDate: string; capacityPoints: number };
   tickets: Array<{ ticket: NonNullable<EpicDraft["backlog"]>["tickets"][number]; assignment: TicketAssignment }>;
   usedSP: number;
   pct: number;
   over: boolean;
   memberById: (id: string | null) => MemberSnapshot | undefined;
+  proposed?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+    <div
+      className={`rounded-xl border bg-white dark:bg-zinc-900 overflow-hidden ${
+        proposed
+          ? "border-violet-300 dark:border-violet-800"
+          : "border-zinc-200 dark:border-zinc-800"
+      }`}
+    >
       {/* Sprint header */}
       <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
         <div className="flex items-center gap-3 mb-2">
-          <CalendarDays size={13} className="text-indigo-500 shrink-0" />
+          <CalendarDays size={13} className={`shrink-0 ${proposed ? "text-violet-500" : "text-indigo-500"}`} />
           <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{sprint.name}</span>
+          {proposed && (
+            <span className="text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+              Proposed
+            </span>
+          )}
           <span className="text-[11px] text-zinc-400">
-            {sprint.startDate} → {sprint.endDate}
+            {sprint.startDate.slice(0, 10)} → {sprint.endDate.slice(0, 10)}
           </span>
           <span className={`ml-auto text-[11px] font-semibold tabular-nums ${over ? "text-rose-500" : "text-zinc-500 dark:text-zinc-400"}`}>
             {usedSP} / {sprint.capacityPoints} SP{over ? " ⚠" : ""}
@@ -371,7 +418,9 @@ function SprintLane({
         </div>
         <div className="h-1 w-full rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all ${over ? "bg-rose-500" : "bg-indigo-500"}`}
+            className={`h-full rounded-full transition-all ${
+              over ? "bg-rose-500" : proposed ? "bg-violet-500" : "bg-indigo-500"
+            }`}
             style={{ width: `${pct}%` }}
           />
         </div>

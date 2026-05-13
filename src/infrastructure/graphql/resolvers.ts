@@ -405,7 +405,7 @@ export const resolvers = {
       requireAuth(ctx);
       return repo.createEpicDraft(ctx.orgId, ctx.userId, boardId);
     },
-    saveEpicDraft: (
+    saveEpicDraft: async (
       _p: unknown,
       { input }: {
         input: Omit<EpicDraft, "orgId" | "updatedAt"> & {
@@ -415,12 +415,27 @@ export const resolvers = {
       ctx: GraphQLContext,
     ) => {
       requireAuth(ctx);
-      // Ownership: a draft can only be saved by someone in its org. We don't
-      // restrict to the original author so any PO in the org can take over.
+      // Attribute role:"user" turns to the saver. We trust ctx.userId (verified
+      // by Clerk middleware) over any authorId the client claims, so a PO can't
+      // forge attribution. Existing authorIds are preserved — only fill missing.
+      const attribute = <T extends { role: string; authorId?: string | null; authorName?: string | null }>(t: T): T =>
+        t.role === "user" && !t.authorId ? { ...t, authorId: ctx.userId } : t;
       const draft: EpicDraft = {
         ...input,
         orgId: ctx.orgId,
         updatedAt: input.updatedAt ?? new Date().toISOString(),
+        transcript: input.transcript.map(attribute),
+        blueprintTranscript: input.blueprintTranscript.map(attribute),
+        plannerTranscript: input.plannerTranscript.map(attribute),
+        backlog: input.backlog
+          ? {
+              ...input.backlog,
+              tickets: input.backlog.tickets.map((tk) => ({
+                ...tk,
+                transcript: tk.transcript.map(attribute),
+              })),
+            }
+          : null,
       };
       return repo.saveEpicDraft(ctx.orgId, draft);
     },
@@ -447,12 +462,25 @@ export const resolvers = {
         turn,
       }: {
         epicSnapshotId: string;
-        turn: { id: string; role: "user" | "inspector"; text: string; createdAt: string };
+        turn: {
+          id: string;
+          role: "user" | "inspector";
+          text: string;
+          createdAt: string;
+          authorId?: string | null;
+          authorName?: string | null;
+        };
       },
       ctx: GraphQLContext,
     ) => {
       requireAuth(ctx);
-      return repo.appendInspectorTurn(ctx.orgId, epicSnapshotId, turn);
+      // Stamp authorId from auth context for user-role turns so multiple POs
+      // reviewing the same Epic can see who said what.
+      const enriched =
+        turn.role === "user"
+          ? { ...turn, authorId: ctx.userId }
+          : turn;
+      return repo.appendInspectorTurn(ctx.orgId, epicSnapshotId, enriched);
     },
     saveEpicMemory: (
       _p: unknown,

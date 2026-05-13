@@ -1,5 +1,22 @@
 import { defineConfig, devices } from "@playwright/test";
 import path from "path";
+import fs from "fs";
+
+// Load .env.local so E2E_CLERK_USER_USERNAME / E2E_CLERK_USER_PASSWORD are available
+// to the Playwright process (Next.js loads this file but the test runner doesn't).
+const envLocal = path.join(__dirname, ".env.local");
+if (fs.existsSync(envLocal)) {
+  const lines = fs.readFileSync(envLocal, "utf8").split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim();
+    if (!(key in process.env)) process.env[key] = val;
+  }
+}
 
 /**
  * Playwright config for Orion E2E.
@@ -21,6 +38,7 @@ const AUTH_STATE_FILE = path.join(__dirname, "tests/e2e/.auth/user.json");
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global.setup.ts",
   fullyParallel: false, // single Mongo per test machine — keep specs serial.
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -51,7 +69,7 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "npm run dev",
+    command: `next dev -p ${PORT}`,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
