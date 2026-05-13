@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useBoardData } from "@/presentation/board/BoardContext";
 import { DraftPicker } from "./DraftPicker";
 import { OrchestratorSession } from "./OrchestratorSession";
-import { Phase5InspectorPlaceholder } from "./Phase5InspectorPlaceholder";
+import { Phase5Inspector } from "./Phase5Inspector";
 
 interface Props {
   onClose: () => void;
@@ -31,7 +31,8 @@ export function OrchestratorRoot({ onClose }: Props) {
 
   if (activeSnapshotId) {
     return (
-      <Phase5InspectorPlaceholder
+      <Phase5Inspector
+        key={activeSnapshotId}
         snapshotId={activeSnapshotId}
         onClose={onClose}
         onBackToPicker={() => setActiveSnapshotId(null)}
