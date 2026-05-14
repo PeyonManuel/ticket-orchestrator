@@ -5,15 +5,8 @@ import { useMachine } from "@xstate/react";
 import { useApolloClient } from "@apollo/client/react";
 import { orchestratorMachine } from "@/domain/orchestrator";
 import type { EpicDraft, TeamMemberCapacity } from "@/domain/orchestrator/types";
-import {
-  runAnalystTurn,
-  runArchitectBacklog,
-  runBlueprintChat,
-  runControllerRefinement,
-  runRefinementChat,
-  runSprintPlanner,
-  runPlannerChat,
-} from "@/infrastructure/orchestrator/mockAi";
+import { runSprintPlanner } from "@/infrastructure/orchestrator/mockAi";
+import { createAi } from "@/infrastructure/orchestrator/ai";
 import { createApolloDraftStore } from "@/infrastructure/orchestrator/draftStore";
 import { COMMIT_EPIC_DRAFT, GET_TICKETS } from "@/infrastructure/graphql/operations";
 import { fromPromise } from "xstate";
@@ -41,20 +34,23 @@ export function useOrchestrator(
     [apollo, initialDraft.boardId],
   );
 
+  const ai = useMemo(() => createAi(apollo), [apollo]);
+
   const machineWithActors = useMemo(
     () =>
       orchestratorMachine.provide({
         actors: {
-          analystActor: fromPromise(({ input }) => runAnalystTurn(input)),
-          architectActor: fromPromise(({ input }) => runArchitectBacklog(input)),
-          controllerActor: fromPromise(({ input }) => runControllerRefinement(input)),
-          blueprintChatActor: fromPromise(({ input }) => runBlueprintChat(input)),
-          refinementChatActor: fromPromise(({ input }) => runRefinementChat(input)),
+          analystActor: fromPromise(({ input }) => ai.runAnalystTurn(input)),
+          architectActor: fromPromise(({ input }) => ai.runArchitectBacklog(input)),
+          controllerActor: fromPromise(({ input }) => ai.runControllerRefinement(input)),
+          blueprintChatActor: fromPromise(({ input }) => ai.runBlueprintChat(input)),
+          refinementChatActor: fromPromise(({ input }) => ai.runRefinementChat(input)),
+          // Planner stays deterministic — slicing policy handles the math, no LLM needed.
           plannerActor: fromPromise(({ input }) => runSprintPlanner(input)),
-          plannerChatActor: fromPromise(({ input }) => runPlannerChat(input)),
+          plannerChatActor: fromPromise(({ input }) => ai.runPlannerChat(input)),
         },
       }),
-    [],
+    [ai],
   );
 
   const [state, send, actorRef] = useMachine(machineWithActors, {

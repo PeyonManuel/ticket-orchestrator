@@ -6,7 +6,7 @@ import { useApolloClient } from "@apollo/client/react";
 import { fromPromise } from "xstate";
 import type { BoardColumn, Ticket } from "@/domain/analyst";
 import { inspectorMachine } from "@/domain/orchestrator";
-import { runInspectorTurn } from "@/infrastructure/orchestrator/mockAi";
+import { createAi } from "@/infrastructure/orchestrator/ai";
 import { loadInspectorContext } from "@/infrastructure/orchestrator/inspectorContextProvider";
 import { createApolloInspectorStore } from "@/infrastructure/orchestrator/inspectorMemoryStore";
 
@@ -31,6 +31,7 @@ export function useInspector({
 }) {
   const apollo = useApolloClient();
   const store = useMemo(() => createApolloInspectorStore({ apollo }), [apollo]);
+  const ai = useMemo(() => createAi(apollo), [apollo]);
 
   const machineWithActors = useMemo(
     () =>
@@ -52,10 +53,10 @@ export function useInspector({
               memories: bundle.memories,
             };
           }),
-          inspectorActor: fromPromise(({ input }) => runInspectorTurn(input)),
+          inspectorActor: fromPromise(({ input }) => ai.runInspectorTurn(input)),
         },
       }),
-    [apollo],
+    [apollo, ai],
   );
 
   const [state, send, actorRef] = useMachine(machineWithActors, {

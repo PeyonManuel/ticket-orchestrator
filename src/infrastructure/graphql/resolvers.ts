@@ -499,5 +499,112 @@ export const resolvers = {
       requireAuth(ctx);
       return repo.createEpicMemory(ctx.orgId, input);
     },
+
+    runAnalystTurn: async (
+      _p: unknown,
+      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/analystGraph").runAnalystTurn>[0] },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      // Dynamic imports keep LangChain out of the cold-start path for non-AI requests.
+      const { runAnalystTurn } = await import(
+        "@/infrastructure/orchestrator/realAi/analystGraph"
+      );
+      return runAnalystTurn(input);
+    },
+
+    runArchitectBacklog: async (
+      _p: unknown,
+      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/architectGraph").runArchitectBacklog>[0] },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      const { runArchitectBacklog } = await import(
+        "@/infrastructure/orchestrator/realAi/architectGraph"
+      );
+      return runArchitectBacklog(input);
+    },
+
+    runControllerRefinement: async (
+      _p: unknown,
+      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/controllerGraph").runControllerRefinement>[0] },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      const { runControllerRefinement } = await import(
+        "@/infrastructure/orchestrator/realAi/controllerGraph"
+      );
+      return runControllerRefinement(input);
+    },
+
+    runBlueprintChat: async (
+      _p: unknown,
+      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/blueprintChatGraph").runBlueprintChat>[0] },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      const { runBlueprintChat } = await import(
+        "@/infrastructure/orchestrator/realAi/blueprintChatGraph"
+      );
+      return runBlueprintChat(input);
+    },
+
+    runRefinementChat: async (
+      _p: unknown,
+      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/refinementChatGraph").runRefinementChat>[0] },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      const { runRefinementChat } = await import(
+        "@/infrastructure/orchestrator/realAi/refinementChatGraph"
+      );
+      return runRefinementChat(input);
+    },
+
+    runPlannerChat: async (
+      _p: unknown,
+      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/plannerChatGraph").runPlannerChat>[0] },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      const { runPlannerChat } = await import(
+        "@/infrastructure/orchestrator/realAi/plannerChatGraph"
+      );
+      return runPlannerChat(input);
+    },
+
+    runInspectorTurn: async (
+      _p: unknown,
+      {
+        input,
+      }: {
+        input: {
+          epicSnapshotId: string;
+          transcript: Array<{
+            id: string;
+            role: "user" | "inspector";
+            text: string;
+            createdAt: string;
+            authorId?: string | null;
+            authorName?: string | null;
+          }>;
+          userMessage: string;
+        };
+      },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      // Inspector reloads its context (snapshot/drift/memories/live tickets)
+      // server-side from the snapshotId to keep the GQL payload small.
+      const { runInspectorTurnServer } = await import(
+        "@/infrastructure/orchestrator/realAi/inspectorServer"
+      );
+      return runInspectorTurnServer({
+        orgId: ctx.orgId,
+        epicSnapshotId: input.epicSnapshotId,
+        transcript: input.transcript,
+        userMessage: input.userMessage,
+      });
+    },
   },
 };

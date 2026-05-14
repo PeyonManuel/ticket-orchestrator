@@ -650,6 +650,113 @@ export const typeDefs = /* GraphQL */ `
     appendInspectorTurn(epicSnapshotId: ID!, turn: InspectorTurnInput!): InspectorTranscript!
     """Write a new EpicMemory record. Append-only; called by the Inspector via the saveInsight tool."""
     saveEpicMemory(input: SaveEpicMemoryInput!): EpicMemory!
+
+    """Phase 1 Analyst turn. Server-side LLM call; returns the reply and (when ready) a BrainstormSummary."""
+    runAnalystTurn(input: AnalystTurnInput!): AnalystTurnOutput!
+
+    """Phase 2 Architect — generates the initial backlog from a Phase 1 BrainstormSummary."""
+    runArchitectBacklog(input: ArchitectTurnInput!): BacklogProposal!
+
+    """Phase 3 Controller — refines a single ticket into description / AC / story points / risks."""
+    runControllerRefinement(input: ControllerTurnInput!): ControllerTurnOutput!
+
+    """Phase 2 chat — discuss the backlog with the AI."""
+    runBlueprintChat(input: BlueprintChatTurnInput!): ChatReplyOutput!
+
+    """Phase 3 per-ticket chat — discuss a single ticket with the AI."""
+    runRefinementChat(input: RefinementChatTurnInput!): ChatReplyOutput!
+
+    """Phase 4 chat — discuss the proposed sprint plan with the AI."""
+    runPlannerChat(input: PlannerChatTurnInput!): PlannerChatTurnOutput!
+
+    """Phase 5 Inspector turn. Server-side LLM call; loads the EpicSnapshot context from the snapshotId."""
+    runInspectorTurn(input: InspectorTurnLlmInput!): InspectorTurnLlmOutput!
+  }
+
+  input AnalystTurnInput {
+    transcript: [BrainstormTurnInput!]!
+    userMessage: String!
+  }
+
+  type AnalystTurnOutput {
+    reply: String!
+    """Null while brainstorming; populated when the Analyst is ready to advance to Phase 2."""
+    summary: BrainstormSummary
+  }
+
+  input ArchitectTurnInput {
+    summary: BrainstormSummaryInput!
+  }
+
+  input ControllerTurnInput {
+    ticket: TicketProposalInput!
+    backlog: BacklogProposalInput!
+  }
+
+  type ControllerTurnOutput {
+    description: String!
+    acceptanceCriteria: [String!]!
+    storyPoints: Int!
+    risks: [String!]!
+  }
+
+  input BlueprintChatTurnInput {
+    transcript: [BrainstormTurnInput!]!
+    currentBacklog: BacklogProposalInput!
+    userMessage: String!
+  }
+
+  input RefinementChatTurnInput {
+    transcript: [BrainstormTurnInput!]!
+    ticket: TicketProposalInput!
+    backlog: BacklogProposalInput!
+    userMessage: String!
+  }
+
+  type ChatReplyOutput {
+    reply: String!
+  }
+
+  input PlannerChatTurnInput {
+    plannerTranscript: [BrainstormTurnInput!]!
+    currentPlan: SprintPlanInput!
+    backlog: BacklogProposalInput!
+    sprints: [SprintSnapshotInput!]!
+    members: [MemberSnapshotInput!]!
+    capacities: [TeamMemberCapacityInput!]!
+    userMessage: String!
+  }
+
+  input TeamMemberCapacityInput {
+    memberId: ID!
+    fullName: String!
+    role: OrgMemberRole!
+    pointsPerSprint: Int!
+    isDefaultVelocity: Boolean!
+  }
+
+  type PlannerChatTurnOutput {
+    reply: String!
+    """Always null today — plan edits flow through the UI, not the LLM."""
+    updatedPlan: SprintPlan
+  }
+
+  """Inspector turn input. The server reloads snapshot/drift/memories from the snapshotId so we don't push the whole bundle over the wire on every turn."""
+  input InspectorTurnLlmInput {
+    epicSnapshotId: ID!
+    transcript: [InspectorTurnInput!]!
+    userMessage: String!
+  }
+
+  type InspectorTurnLlmOutput {
+    reply: String!
+    insightsToSave: [InspectorInsightToSave!]!
+  }
+
+  type InspectorInsightToSave {
+    content: String!
+    tags: [String!]!
+    source: EpicMemorySource!
   }
 
   input CreateSprintInput {

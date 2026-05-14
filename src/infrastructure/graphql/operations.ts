@@ -716,3 +716,105 @@ export const SAVE_EPIC_MEMORY = gql`
     }
   }
 `;
+
+export const RUN_ANALYST_TURN = gql`
+  mutation RunAnalystTurn($input: AnalystTurnInput!) {
+    runAnalystTurn(input: $input) {
+      reply
+      summary {
+        summary
+        goals
+      }
+    }
+  }
+`;
+
+export const RUN_ARCHITECT_BACKLOG = gql`
+  mutation RunArchitectBacklog($input: ArchitectTurnInput!) {
+    runArchitectBacklog(input: $input) {
+      epicTitle
+      epicDescription
+      tickets {
+        id
+        hierarchyType
+        title
+        oneLiner
+        description
+        label
+        acceptanceCriteria
+        storyPoints
+        risks
+        refined
+        transcript {
+          id
+          role
+          text
+          createdAt
+          authorId
+          authorName
+        }
+        discipline
+        dependencies {
+          kind
+          targetProposalId
+        }
+      }
+    }
+  }
+`;
+
+export const RUN_CONTROLLER_REFINEMENT = gql`
+  mutation RunControllerRefinement($input: ControllerTurnInput!) {
+    runControllerRefinement(input: $input) {
+      description
+      acceptanceCriteria
+      storyPoints
+      risks
+    }
+  }
+`;
+
+export const RUN_BLUEPRINT_CHAT = gql`
+  mutation RunBlueprintChat($input: BlueprintChatTurnInput!) {
+    runBlueprintChat(input: $input) {
+      reply
+    }
+  }
+`;
+
+export const RUN_REFINEMENT_CHAT = gql`
+  mutation RunRefinementChat($input: RefinementChatTurnInput!) {
+    runRefinementChat(input: $input) {
+      reply
+    }
+  }
+`;
+
+export const RUN_PLANNER_CHAT = gql`
+  mutation RunPlannerChat($input: PlannerChatTurnInput!) {
+    runPlannerChat(input: $input) {
+      reply
+      updatedPlan {
+        assignments {
+          ticketId
+          sprintId
+          assigneeUserId
+        }
+        reasoning
+      }
+    }
+  }
+`;
+
+export const RUN_INSPECTOR_TURN = gql`
+  mutation RunInspectorTurn($input: InspectorTurnLlmInput!) {
+    runInspectorTurn(input: $input) {
+      reply
+      insightsToSave {
+        content
+        tags
+        source
+      }
+    }
+  }
+`;
