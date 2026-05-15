@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { SystemMessage, HumanMessage } from "@langchain/core/messages";
+import {
+  SystemMessage,
+  HumanMessage,
+  type BaseMessage,
+} from "@langchain/core/messages";
 import type {
   ControllerInput,
   ControllerOutput,
@@ -7,6 +11,9 @@ import type {
 } from "@/domain/orchestrator/types";
 import { createOrchestratorLLM } from "../llm";
 import { toolsForPhase } from "../tools";
+import { createFindSimilarTicketsTool } from "../tools/findSimilarTickets";
+import { countTicketEmbeddings } from "../rag/store";
+import { runAgentLoop } from "./agentLoop";
 
 /**
  * Phase 3 Controller — refines a single ticket: description, acceptance
@@ -22,13 +29,13 @@ Output discipline:
 - storyPoints: Fibonacci, one of 1, 2, 3, 5, 8, 13. Use 1 for trivial config; 2-3 for simple feature work; 5 for typical features; 8 for cross-cutting work; 13 if it really needs splitting (flag in risks).
 - risks: 1-3 specific concerns (dependencies, data migration, multi-tenancy, perf, integration). Empty array if genuinely none — don't pad.
 
+Tool use:
+- If 'find_similar_tickets' is available, call it ONCE before deciding storyPoints. Pass "\${title} — \${oneLiner}" as query, topK 5. If hits cluster around a value (e.g. 3 of 5 hits at 5 points), favor that anchor over a free guess. If hits are unrelated (similarity < 0.5) or empty, estimate from first principles.
+
 Stay grounded in the ticket title + one-liner + label. Don't invent scope outside it.`;
 
 const FIBONACCI_POINTS = [1, 2, 3, 5, 8, 13] as const;
 
-// Gemini's structured-output validator doesn't support JSON Schema `const`
-// (Zod emits it for z.literal). Use plain number + post-parse coercion to the
-// nearest Fibonacci value.
 const controllerResponseSchema = z.object({
   description: z.string().min(1),
   acceptanceCriteria: z.array(z.string().min(1)).min(2).max(6),
@@ -56,21 +63,19 @@ function snapToFibonacci(n: number): 1 | 2 | 3 | 5 | 8 | 13 {
 
 export async function runControllerRefinement(
   input: ControllerInput,
+  ctx?: { orgId?: string },
 ): Promise<ControllerOutput> {
   const llm = createOrchestratorLLM({ temperature: 0.4 });
-  const structured = llm.withStructuredOutput(controllerResponseSchema, {
-    name: "controller_response",
-  });
 
-  // Phase 3 tool registry. Empty today — Slice M (AC Linter) is the first
-  // consumer. Guarded so that registering a tool without also wiring the
-  // agent loop here fails loudly instead of silently hallucinating tool calls.
-  const phaseTools = toolsForPhase("phase3");
-  if (phaseTools.length > 0) {
-    throw new Error(
-      `controllerGraph: ${phaseTools.length} phase-3 tool(s) registered but the agent loop is not yet implemented. Add the bindOrionTools pre-step (Slice M) before registering tools.`,
-    );
-  }
+  // Slice O: register the semantic point-estimator tool if the org has any
+  // committed tickets to compare against. Fast-path skip when the corpus is
+  // empty — saves a pointless agent-loop round trip on first-run orgs.
+  const hasTicketCorpus =
+    !!ctx?.orgId && (await countTicketEmbeddings(ctx.orgId)) > 0;
+  const tools = [
+    ...toolsForPhase("phase3"),
+    ...(hasTicketCorpus ? [createFindSimilarTicketsTool(ctx!.orgId!)] : []),
+  ];
 
   const { ticket, backlog } = input;
   const ticketSummary = [
@@ -90,12 +95,21 @@ export async function runControllerRefinement(
       .map((t) => `- ${t.title} [${t.label}]`),
   ].join("\n");
 
-  const result = await structured.invoke([
+  const initialMessages: BaseMessage[] = [
     new SystemMessage(SYSTEM_PROMPT),
-    new HumanMessage(
-      `Refine this ticket.\n\n${ticketSummary}\n\n${epicContext}`,
-    ),
-  ], { signal: AbortSignal.timeout(30_000) });
+    new HumanMessage(`Refine this ticket.\n\n${ticketSummary}\n\n${epicContext}`),
+  ];
+
+  const signal = AbortSignal.timeout(30_000);
+  const messages =
+    tools.length > 0
+      ? await runAgentLoop(llm, tools, initialMessages, 3, signal)
+      : initialMessages;
+
+  const structured = llm.withStructuredOutput(controllerResponseSchema, {
+    name: "controller_response",
+  });
+  const result = await structured.invoke(messages, { signal });
 
   return {
     description: result.description,

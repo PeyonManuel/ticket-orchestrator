@@ -56,7 +56,11 @@ import {
   OrgMemberRoleSchema,
 } from "./schemas";
 import { ensureIndexes } from "./indexes";
-import { embedAndStoreEpic } from "@/infrastructure/orchestrator/rag/store";
+import {
+  embedAndStoreEpic,
+  embedAndStoreCommittedTickets,
+  type TicketEmbeddingInput,
+} from "@/infrastructure/orchestrator/rag/store";
 import { logger } from "@/infrastructure/observability/logger";
 import type { z } from "zod";
 import type { Collection } from "mongodb";
@@ -1724,6 +1728,39 @@ export async function commitEpicDraft(
     await embedAndStoreEpic(snapshot);
   } catch (err) {
     logger.warn("infra", "embedAndStoreEpic failed (commit still succeeds)", {
+      orgId,
+      epicSnapshotId: snapshot.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Per-ticket embeddings (Slice O) — anchors future Phase 3 story-point
+  // estimates. Same best-effort policy as the epic embedding above. Skips
+  // proposals whose storyPoints are missing (Phase 3 wasn't completed for
+  // them) since those aren't useful estimation anchors.
+  try {
+    const ticketInputs: TicketEmbeddingInput[] = draft.backlog.tickets
+      .map((proposal, idx) => ({ proposal, ticketId: createdTicketIds[idx] }))
+      .filter(({ proposal, ticketId }) => !!ticketId && proposal.storyPoints != null)
+      .map(({ proposal, ticketId }) => ({
+        ticketId,
+        title: proposal.title,
+        oneLiner: proposal.oneLiner,
+        label: proposal.label,
+        hierarchyType: proposal.hierarchyType,
+        storyPoints: proposal.storyPoints!,
+      }));
+    if (ticketInputs.length > 0) {
+      await embedAndStoreCommittedTickets(
+        orgId,
+        draft.boardId,
+        snapshot.id,
+        ticketInputs,
+        snapshot.createdAt,
+      );
+    }
+  } catch (err) {
+    logger.warn("infra", "embedAndStoreCommittedTickets failed (commit still succeeds)", {
       orgId,
       epicSnapshotId: snapshot.id,
       error: err instanceof Error ? err.message : String(err),

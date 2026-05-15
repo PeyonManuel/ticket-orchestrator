@@ -560,10 +560,9 @@ function PlannerChatPanel({
                 handleSend();
               }
             }}
-            placeholder="Ask about capacity or assignments…"
-            disabled={isThinking}
+            placeholder={isThinking ? "Planner is thinking — keep typing…" : "Ask about capacity or assignments…"}
             rows={2}
-            className="flex-1 resize-none rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-2.5 py-1.5 text-[11px] text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 disabled:opacity-50 transition-colors"
+            className="flex-1 resize-none rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-2.5 py-1.5 text-[11px] text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-colors"
           />
           <button
             onClick={handleSend}

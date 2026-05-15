@@ -138,9 +138,8 @@ export function Phase1Brainstorm({ draft, isThinking, canAdvance, send }: Props)
               onChange={(e) => setDraftMessage(e.target.value)}
               onKeyDown={handleKey}
               rows={1}
-              placeholder={isThinking ? "Analyst is thinking…" : "Describe your Epic, or reply…"}
-              disabled={isThinking}
-              className="flex-1 resize-none rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 disabled:opacity-50"
+              placeholder={isThinking ? "Analyst is thinking — keep typing your next message…" : "Describe your Epic, or reply…"}
+              className="flex-1 resize-none rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500"
               style={{ minHeight: "42px", maxHeight: "160px" }}
             />
             <button

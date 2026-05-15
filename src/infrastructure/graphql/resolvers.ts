@@ -536,7 +536,7 @@ export const resolvers = {
       const { runControllerRefinement } = await import(
         "@/infrastructure/orchestrator/realAi/controllerGraph"
       );
-      return runControllerRefinement(input);
+      return runControllerRefinement(input, { orgId: ctx.orgId });
     },
 
     runBlueprintChat: async (

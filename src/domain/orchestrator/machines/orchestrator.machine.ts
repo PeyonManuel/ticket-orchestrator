@@ -79,6 +79,7 @@ export type OrchestratorEvent =
     }
   | { type: "ADVANCE_TO_REFINE"; now: string }
   | { type: "BACK_TO_BRAINSTORM"; now: string }
+  | { type: "REDRAFT_BACKLOG"; now: string }
   // Phase 3
   | { type: "REFINEMENT_USER_MESSAGE"; text: string; now: string; turnId: string }
   | { type: "BEGIN_REFINEMENT"; now: string }
@@ -574,6 +575,30 @@ export const orchestratorMachine = setup({
       };
     }),
 
+    clearBacklogForRedraft: assign(({ context, event }) => {
+      if (event.type !== "REDRAFT_BACKLOG") return {};
+      // Drop the backlog so `generatingBacklog`'s `backlogNonEmpty` skip-guard
+      // doesn't short-circuit straight back to reviewingBulk. The blueprint
+      // transcript is preserved and passed to the Architect as `hints` so the
+      // redraft reacts to the PO's feedback.
+      const note: BrainstormTurn = {
+        id: cryptoRandomId(),
+        role: "analyst",
+        text: "Redrafting the backlog from your feedback. One moment…",
+        createdAt: event.now,
+      };
+      return {
+        draft: patchDraft(
+          context.draft,
+          {
+            backlog: null,
+            blueprintTranscript: [...context.draft.blueprintTranscript, note],
+          },
+          event.now,
+        ),
+      };
+    }),
+
     enterPhase1FromPhase2: assign(({ context, event }) => {
       if (event.type !== "BACK_TO_BRAINSTORM") return {};
       // No artifact to clear — Phase 1 produces `brainstormSummary` which the
@@ -740,7 +765,10 @@ export const orchestratorMachine = setup({
                   if (!context.draft.brainstormSummary) {
                     throw new Error("No brainstorm summary");
                   }
-                  return { summary: context.draft.brainstormSummary };
+                  return {
+                    summary: context.draft.brainstormSummary,
+                    hints: context.draft.blueprintTranscript,
+                  };
                 },
                 onDone: {
                   target: "reviewingBulk",
@@ -778,6 +806,10 @@ export const orchestratorMachine = setup({
                 BACK_TO_BRAINSTORM: {
                   target: "#orchestrator.workflow.phase1Brainstorming.awaitingUser",
                   actions: "enterPhase1FromPhase2",
+                },
+                REDRAFT_BACKLOG: {
+                  target: "generatingBacklog",
+                  actions: "clearBacklogForRedraft",
                 },
                 ADVANCE_TO_REFINE: {
                   guard: "backlogNonEmpty",

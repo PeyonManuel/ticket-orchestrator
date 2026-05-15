@@ -686,6 +686,7 @@ export const typeDefs = /* GraphQL */ `
 
   input ArchitectTurnInput {
     summary: BrainstormSummaryInput!
+    hints: [BrainstormTurnInput!]
   }
 
   input ControllerTurnInput {

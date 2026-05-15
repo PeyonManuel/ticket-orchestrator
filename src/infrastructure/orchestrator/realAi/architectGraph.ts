@@ -32,6 +32,7 @@ Output discipline:
 - hierarchyType "story" for user-visible outcomes; "task" for internal supporting work.
 - Consider the magnitude of the work to decide how many tickets to propose. Cover: data model / contracts, core flow, edge cases (empty / error / loading), persistence, observability, tests, rollout/flag, UX polish.
 - Do not invent scope beyond the Phase 1 summary. If the summary explicitly excludes something, exclude it.
+- Dependencies: after drafting the ticket list, add blockedBy links where one ticket genuinely cannot start until another finishes (e.g. "DB schema" blockedBy "data model design"). Use targetIndex (0-based position in the tickets array). Leave empty when order is flexible. Never create cycles.
 
 Tool use:
 - If 'find_similar_epics' is available, call it once with a short query describing this epic BEFORE drafting the backlog. Mirror successful structure (granularity, ordering, label distribution) when patterns clearly match. If hits are empty or unrelated, proceed from the summary alone.
@@ -43,6 +44,20 @@ const ticketProposalDraftSchema = z.object({
   title: z.string().min(1),
   oneLiner: z.string().min(1),
   label: z.enum(["developer", "ux", "qa", "po"]),
+  dependencies: z
+    .array(
+      z.object({
+        kind: z.enum(["blockedBy", "relatedTo", "duplicates"]),
+        targetIndex: z
+          .number()
+          .int()
+          .describe("0-based index of the other ticket in this tickets array"),
+      }),
+    )
+    .default([])
+    .describe(
+      "Dependency links. Use blockedBy when this ticket genuinely cannot start before another finishes. Use relatedTo sparingly. Avoid cycles.",
+    ),
 });
 
 const architectResponseSchema = z.object({
@@ -86,9 +101,22 @@ export async function runArchitectBacklog(
     ...input.summary.goals.map((g) => `- ${g}`),
   ].join("\n");
 
+  // Redraft path: include the PO's prior feedback from the blueprint chat so
+  // the new draft reacts to it rather than reproducing the previous one.
+  const hints = input.hints ?? [];
+  const userHints = hints
+    .filter((t) => t.role === "user")
+    .map((t) => `- ${t.text}`)
+    .join("\n");
+  const hintsBlock = userHints
+    ? `\n\nThe PO has reviewed a previous draft of this backlog and provided this feedback:\n${userHints}\n\nProduce a NEW draft that incorporates the feedback. Do not simply reproduce the prior draft.`
+    : "";
+
   const initialMessages: BaseMessage[] = [
     new SystemMessage(SYSTEM_PROMPT),
-    new HumanMessage(`Produce the backlog for this Epic.\n\n${summaryText}`),
+    new HumanMessage(
+      `Produce the backlog for this Epic.\n\n${summaryText}${hintsBlock}`,
+    ),
   ];
 
   const signal = AbortSignal.timeout(45_000);
@@ -99,11 +127,14 @@ export async function runArchitectBacklog(
   });
   const result = await structured.invoke(messages, { signal });
 
+  // Assign ids first so dependency resolution can reference them by index.
+  const ids = result.tickets.map(() => uid("prop"));
+
   return {
     epicTitle: result.epicTitle,
     epicDescription: result.epicDescription,
-    tickets: result.tickets.map((t) => ({
-      id: uid("prop"),
+    tickets: result.tickets.map((t, i) => ({
+      id: ids[i],
       hierarchyType: t.hierarchyType,
       title: t.title,
       oneLiner: t.oneLiner,
@@ -114,6 +145,9 @@ export async function runArchitectBacklog(
       risks: [],
       refined: false,
       transcript: [],
+      dependencies: (t.dependencies ?? [])
+        .filter((d) => d.targetIndex !== i && d.targetIndex >= 0 && d.targetIndex < ids.length)
+        .map((d) => ({ kind: d.kind, targetProposalId: ids[d.targetIndex] })),
     })),
   };
 }

@@ -17,9 +17,11 @@ import { createOrchestratorLLM } from "../llm";
  * explanatory.
  */
 
-const SYSTEM_PROMPT = `You are the Planner in a 4-phase AI orchestrator. The PO is in Phase 4 (Sprint Plan) reviewing the proposed sprint allocation. Your job is to explain the plan and answer questions — capacity, sequencing, assignee choice, overflow.
+const BASE_PROMPT = `You are the Planner in a 4-phase AI orchestrator. The PO is in Phase 4 (Sprint Plan) reviewing the proposed sprint allocation. Your job is to explain the plan and answer questions — capacity, sequencing, assignee choice, overflow.
 
 Stay grounded in the actual numbers provided. If a sprint is over capacity, name which one and by how much. If a ticket is unassigned, explain why (missing role, no capacity left). Be specific — "Sprint 2 is at 110% of dev capacity (22 points vs 20 cap)" is better than "Sprint 2 is overloaded".
+
+The CURRENT PLAN STATE below is the live state you see right now — the PO may have reassigned tickets between turns. Treat it as authoritative for this turn. If the PO says they moved something, look at the current plan rather than asking them to describe the change.
 
 You do NOT mutate the plan. updatedPlan must always be null in your response. Plan edits happen via the UI.
 
@@ -68,12 +70,20 @@ export async function runPlannerChat(
 
   const planText = summarisePlan(input);
 
-  // `plannerTranscript` already ends with the just-sent user turn.
+  // Plan state lives in the SystemMessage so the model treats it as
+  // authoritative current context. Transcript then flows as clean
+  // Human/AI alternation (Gemini requires this).
+  const systemPrompt = [
+    BASE_PROMPT,
+    "",
+    "=== CURRENT PLAN (live state) ===",
+    `Team: ${memberList || "(none)"}`,
+    planText,
+    "=== END PLAN ===",
+  ].join("\n");
+
   const messages = [
-    new SystemMessage(SYSTEM_PROMPT),
-    new HumanMessage(
-      `Team: ${memberList || "(none)"}\n\n${planText}`,
-    ),
+    new SystemMessage(systemPrompt),
     ...input.plannerTranscript.map((t) =>
       t.role === "user" ? new HumanMessage(t.text) : new AIMessage(t.text),
     ),

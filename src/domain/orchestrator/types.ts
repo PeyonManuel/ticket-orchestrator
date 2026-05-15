@@ -147,6 +147,12 @@ export interface AnalystTurnOutput {
 
 export interface ArchitectInput {
   summary: BrainstormSummary;
+  /**
+   * Optional Phase 2 blueprint chat turns — passed on REDRAFT_BACKLOG so the
+   * Architect can react to the PO's feedback on the prior draft rather than
+   * regenerating the same backlog from the same summary.
+   */
+  hints?: BrainstormTurn[];
 }
 
 export type ArchitectOutput = BacklogProposal;
@@ -470,9 +476,17 @@ export const ticketProposalSchema = z.object({
   risks: z.array(z.string()),
   refined: z.boolean(),
   transcript: z.array(brainstormTurnSchema).default([]),
-  // Slice A.1 additions — optional so existing draft documents still parse cleanly.
-  discipline: orgMemberRoleSchema.optional(),
-  dependencies: z.array(proposalDependencySchema).optional(),
+  // Slice A.1 additions — accept both null and undefined (GraphQL nullable
+  // fields surface as explicit null on the wire; persisted draft docs may have
+  // the field absent), normalize to undefined so the inferred shape matches
+  // the `TicketProposal` interface (`discipline?: OrgMemberRole`).
+  discipline: orgMemberRoleSchema
+    .nullish()
+    .transform((v) => v ?? undefined),
+  dependencies: z
+    .array(proposalDependencySchema)
+    .nullish()
+    .transform((v) => v ?? undefined),
 });
 
 export const backlogProposalSchema = z.object({
