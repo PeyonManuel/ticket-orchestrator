@@ -6,6 +6,7 @@ import type {
   ProposalStoryPoints,
 } from "@/domain/orchestrator/types";
 import { createOrchestratorLLM } from "../llm";
+import { toolsForPhase } from "../tools";
 
 /**
  * Phase 3 Controller — refines a single ticket: description, acceptance
@@ -60,6 +61,16 @@ export async function runControllerRefinement(
   const structured = llm.withStructuredOutput(controllerResponseSchema, {
     name: "controller_response",
   });
+
+  // Phase 3 tool registry. Empty today — Slice M (AC Linter) is the first
+  // consumer. Guarded so that registering a tool without also wiring the
+  // agent loop here fails loudly instead of silently hallucinating tool calls.
+  const phaseTools = toolsForPhase("phase3");
+  if (phaseTools.length > 0) {
+    throw new Error(
+      `controllerGraph: ${phaseTools.length} phase-3 tool(s) registered but the agent loop is not yet implemented. Add the bindOrionTools pre-step (Slice M) before registering tools.`,
+    );
+  }
 
   const { ticket, backlog } = input;
   const ticketSummary = [

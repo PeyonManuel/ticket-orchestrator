@@ -56,6 +56,8 @@ import {
   OrgMemberRoleSchema,
 } from "./schemas";
 import { ensureIndexes } from "./indexes";
+import { embedAndStoreEpic } from "@/infrastructure/orchestrator/rag/store";
+import { logger } from "@/infrastructure/observability/logger";
 import type { z } from "zod";
 import type { Collection } from "mongodb";
 
@@ -1713,6 +1715,20 @@ export async function commitEpicDraft(
   });
 
   await saveEpicDraft(orgId, { ...draft, phase: "committed" });
+
+  // RAG embedding (Slice L): best-effort. A failure here (rate limit, transient
+  // network, model swap) must not roll back a successful commit — the epic is
+  // already live on the board. Missing embeddings can be backfilled later by
+  // re-running embedAndStoreEpic over the snapshot.
+  try {
+    await embedAndStoreEpic(snapshot);
+  } catch (err) {
+    logger.warn("infra", "embedAndStoreEpic failed (commit still succeeds)", {
+      orgId,
+      epicSnapshotId: snapshot.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   return { epicTicketId: epicTicket.id, createdTicketIds, snapshotId: snapshot.id };
 }

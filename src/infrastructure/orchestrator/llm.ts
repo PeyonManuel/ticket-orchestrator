@@ -1,4 +1,5 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import type { OrionTool } from "./tools";
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
 
@@ -10,7 +11,9 @@ const DEFAULT_MODEL = "gemini-2.5-flash";
  * touching graph code. To change vendor entirely, replace this factory's body —
  * `withStructuredOutput` is supported across LangChain providers.
  */
-export function createOrchestratorLLM(opts?: { temperature?: number }): ChatGoogleGenerativeAI {
+export function createOrchestratorLLM(opts?: {
+  temperature?: number;
+}): ChatGoogleGenerativeAI {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -23,4 +26,21 @@ export function createOrchestratorLLM(opts?: { temperature?: number }): ChatGoog
     apiKey,
     temperature: opts?.temperature ?? 0.5,
   });
+}
+
+/**
+ * Binds a set of tools to an LLM for an agent-style tool-calling step.
+ *
+ * Kept separate from `createOrchestratorLLM` because `withStructuredOutput`
+ * lives on the base chat model — binding tools returns a `RunnableBinding`
+ * that doesn't expose it. Graph code typically wants both: a tool-bound model
+ * for an exploratory step, and the bare model for the final structured
+ * response. Pass an empty array and you get the bare model back unchanged.
+ */
+export function bindOrionTools(
+  llm: ChatGoogleGenerativeAI,
+  tools: OrionTool[],
+) {
+  if (tools.length === 0) return llm;
+  return llm.bindTools(tools);
 }

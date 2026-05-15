@@ -510,7 +510,9 @@ export const resolvers = {
       const { runAnalystTurn } = await import(
         "@/infrastructure/orchestrator/realAi/analystGraph"
       );
-      return runAnalystTurn(input);
+      // orgId is read from the authenticated Clerk session — never trusted from
+      // client input. This is what scopes the RAG tool's lookups to this tenant.
+      return runAnalystTurn(input, { orgId: ctx.orgId });
     },
 
     runArchitectBacklog: async (
@@ -522,7 +524,7 @@ export const resolvers = {
       const { runArchitectBacklog } = await import(
         "@/infrastructure/orchestrator/realAi/architectGraph"
       );
-      return runArchitectBacklog(input);
+      return runArchitectBacklog(input, { orgId: ctx.orgId });
     },
 
     runControllerRefinement: async (

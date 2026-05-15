@@ -1,10 +1,18 @@
 import { z } from "zod";
-import { SystemMessage, HumanMessage } from "@langchain/core/messages";
+import {
+  SystemMessage,
+  HumanMessage,
+  type BaseMessage,
+} from "@langchain/core/messages";
 import type {
   ArchitectInput,
   ArchitectOutput,
 } from "@/domain/orchestrator/types";
 import { createOrchestratorLLM } from "../llm";
+import { toolsForPhase } from "../tools";
+import { createFindSimilarEpicsTool } from "../tools/findSimilarEpics";
+import { countEpicEmbeddings } from "../rag/store";
+import { runAgentLoop } from "./agentLoop";
 
 /**
  * Phase 2 Architect — proposes the initial backlog from a Phase 1 summary.
@@ -24,6 +32,9 @@ Output discipline:
 - hierarchyType "story" for user-visible outcomes; "task" for internal supporting work.
 - Consider the magnitude of the work to decide how many tickets to propose. Cover: data model / contracts, core flow, edge cases (empty / error / loading), persistence, observability, tests, rollout/flag, UX polish.
 - Do not invent scope beyond the Phase 1 summary. If the summary explicitly excludes something, exclude it.
+
+Tool use:
+- If 'find_similar_epics' is available, call it once with a short query describing this epic BEFORE drafting the backlog. Mirror successful structure (granularity, ordering, label distribution) when patterns clearly match. If hits are empty or unrelated, proceed from the summary alone.
 
 Do NOT fill description, acceptanceCriteria, storyPoints, or risks — the Controller does that in Phase 3. Leave them as defaults.`;
 
@@ -55,11 +66,19 @@ function uid(prefix: string): string {
 
 export async function runArchitectBacklog(
   input: ArchitectInput,
+  ctx?: { orgId?: string },
 ): Promise<ArchitectOutput> {
   const llm = createOrchestratorLLM({ temperature: 0.5 });
-  const structured = llm.withStructuredOutput(architectResponseSchema, {
-    name: "architect_response",
-  });
+
+  // Same fast-path as analystGraph: skip the RAG tool when the org has no
+  // committed epics yet, so first-time users don't pay an agent-loop round
+  // trip for an empty result set.
+  const hasRagCorpus =
+    !!ctx?.orgId && (await countEpicEmbeddings(ctx.orgId)) > 0;
+  const tools = [
+    ...toolsForPhase("phase2"),
+    ...(hasRagCorpus ? [createFindSimilarEpicsTool(ctx!.orgId!)] : []),
+  ];
 
   const summaryText = [
     `Summary: ${input.summary.summary}`,
@@ -67,10 +86,17 @@ export async function runArchitectBacklog(
     ...input.summary.goals.map((g) => `- ${g}`),
   ].join("\n");
 
-  const result = await structured.invoke([
+  const initialMessages: BaseMessage[] = [
     new SystemMessage(SYSTEM_PROMPT),
     new HumanMessage(`Produce the backlog for this Epic.\n\n${summaryText}`),
-  ]);
+  ];
+
+  const messages = await runAgentLoop(llm, tools, initialMessages);
+
+  const structured = llm.withStructuredOutput(architectResponseSchema, {
+    name: "architect_response",
+  });
+  const result = await structured.invoke(messages);
 
   return {
     epicTitle: result.epicTitle,

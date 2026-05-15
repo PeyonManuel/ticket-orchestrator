@@ -75,6 +75,18 @@ export async function ensureIndexes(): Promise<void> {
       db.collection("epicMemories").createIndex(
         { orgId: 1, epicSnapshotId: 1, createdAt: -1 },
       ),
+      // Slice L RAG: one embedding doc per committed Epic snapshot. Vector
+      // search is done in-process via cosine over the org's epics (<100/org
+      // realistically) — Atlas Vector Search is overkill at this scale and
+      // its async index-build timing complicates dev/test setup. Revisit if
+      // an org accumulates thousands of epics.
+      db.collection("epicEmbeddings").createIndex(
+        { orgId: 1, epicSnapshotId: 1 },
+        { unique: true },
+      ),
+      db.collection("epicEmbeddings").createIndex(
+        { orgId: 1, boardId: 1, createdAt: -1 },
+      ),
     ]),
   );
 
