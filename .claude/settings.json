@@ -1,0 +1,20 @@
+{
+  "skillOverrides": {
+    "caveman": "on",
+    "tdd": "on",
+    "grill-with-docs": "on"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "-",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"💡 Caveman mode: Invoke /caveman once per session to enable ultra-compressed responses. Stays active until you say stop caveman\"}'"
+          }
+        ]
+      }
+    ]
+  }
+}
