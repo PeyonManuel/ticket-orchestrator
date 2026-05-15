@@ -675,6 +675,12 @@ export const orchestratorMachine = setup({
             },
 
             awaitingAnalyst: {
+              after: {
+                45000: {
+                  target: "#orchestrator.workflow.error",
+                  actions: { type: "captureError", params: { message: "Analyst timed out — AI didn't respond. Try again." } },
+                },
+              },
               invoke: {
                 src: "analystActor",
                 input: ({ context }) => {
@@ -722,6 +728,12 @@ export const orchestratorMachine = setup({
                 // Resuming a draft that already has a backlog skips regeneration.
                 { guard: "backlogNonEmpty", target: "reviewingBulk" },
               ],
+              after: {
+                45000: {
+                  target: "#orchestrator.workflow.error",
+                  actions: { type: "captureError", params: { message: "Architect timed out — AI didn't respond. Try again." } },
+                },
+              },
               invoke: {
                 src: "architectActor",
                 input: ({ context }) => {
@@ -780,6 +792,12 @@ export const orchestratorMachine = setup({
             },
 
             awaitingBlueprintReply: {
+              after: {
+                25000: {
+                  target: "#orchestrator.workflow.error",
+                  actions: { type: "captureError", params: { message: "Blueprint assistant timed out. Try again." } },
+                },
+              },
               invoke: {
                 src: "blueprintChatActor",
                 input: ({ context }) => {
@@ -845,6 +863,12 @@ export const orchestratorMachine = setup({
             },
 
             refiningTicket: {
+              after: {
+                30000: {
+                  target: "#orchestrator.workflow.error",
+                  actions: { type: "captureError", params: { message: "Controller timed out. Try again." } },
+                },
+              },
               invoke: {
                 src: "controllerActor",
                 input: ({ context }) => {
@@ -899,6 +923,12 @@ export const orchestratorMachine = setup({
             },
 
             awaitingRefinementReply: {
+              after: {
+                25000: {
+                  target: "#orchestrator.workflow.error",
+                  actions: { type: "captureError", params: { message: "Refinement assistant timed out. Try again." } },
+                },
+              },
               invoke: {
                 src: "refinementChatActor",
                 input: ({ context }) => {
@@ -968,6 +998,12 @@ export const orchestratorMachine = setup({
               always: [
                 { guard: "planExists", target: "reviewingPlan" },
               ],
+              after: {
+                45000: {
+                  target: "#orchestrator.workflow.error",
+                  actions: { type: "captureError", params: { message: "Planner timed out. Try again." } },
+                },
+              },
               invoke: {
                 src: "plannerActor",
                 input: ({ context }) => ({
@@ -1019,6 +1055,12 @@ export const orchestratorMachine = setup({
             },
 
             awaitingPlannerReply: {
+              after: {
+                25000: {
+                  target: "#orchestrator.workflow.error",
+                  actions: { type: "captureError", params: { message: "Planner chat timed out. Try again." } },
+                },
+              },
               invoke: {
                 src: "plannerChatActor",
                 input: ({ context }) => ({

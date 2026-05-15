@@ -91,12 +91,13 @@ export async function runArchitectBacklog(
     new HumanMessage(`Produce the backlog for this Epic.\n\n${summaryText}`),
   ];
 
-  const messages = await runAgentLoop(llm, tools, initialMessages);
+  const signal = AbortSignal.timeout(45_000);
+  const messages = await runAgentLoop(llm, tools, initialMessages, 4, signal);
 
   const structured = llm.withStructuredOutput(architectResponseSchema, {
     name: "architect_response",
   });
-  const result = await structured.invoke(messages);
+  const result = await structured.invoke(messages, { signal });
 
   return {
     epicTitle: result.epicTitle,

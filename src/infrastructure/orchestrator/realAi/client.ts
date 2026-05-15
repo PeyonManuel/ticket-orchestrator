@@ -1,6 +1,7 @@
 "use client";
 
 import type { ApolloClient } from "@apollo/client";
+import { stripTypename } from "../stripTypename";
 import {
   RUN_ANALYST_TURN,
   RUN_ARCHITECT_BACKLOG,
@@ -47,7 +48,7 @@ export function createRealAi(apollo: ApolloClient) {
     runAnalystTurn: async (input: AnalystTurnInput): Promise<AnalystTurnOutput> => {
       const result = await apollo.mutate<{ runAnalystTurn: AnalystTurnOutput }>({
         mutation: RUN_ANALYST_TURN,
-        variables: { input },
+        variables: { input: stripTypename(input) },
       });
       if (!result.data?.runAnalystTurn) {
         throw new Error("runAnalystTurn returned no data");
@@ -60,7 +61,7 @@ export function createRealAi(apollo: ApolloClient) {
     ): Promise<ArchitectOutput> => {
       const result = await apollo.mutate<{ runArchitectBacklog: ArchitectOutput }>({
         mutation: RUN_ARCHITECT_BACKLOG,
-        variables: { input },
+        variables: { input: stripTypename(input) },
       });
       if (!result.data?.runArchitectBacklog) {
         throw new Error("runArchitectBacklog returned no data");
@@ -73,7 +74,7 @@ export function createRealAi(apollo: ApolloClient) {
     ): Promise<ControllerOutput> => {
       const result = await apollo.mutate<{ runControllerRefinement: ControllerOutput }>({
         mutation: RUN_CONTROLLER_REFINEMENT,
-        variables: { input },
+        variables: { input: stripTypename(input) },
       });
       if (!result.data?.runControllerRefinement) {
         throw new Error("runControllerRefinement returned no data");
@@ -86,7 +87,7 @@ export function createRealAi(apollo: ApolloClient) {
     ): Promise<BlueprintChatOutput> => {
       const result = await apollo.mutate<{ runBlueprintChat: BlueprintChatOutput }>({
         mutation: RUN_BLUEPRINT_CHAT,
-        variables: { input },
+        variables: { input: stripTypename(input) },
       });
       if (!result.data?.runBlueprintChat) {
         throw new Error("runBlueprintChat returned no data");
@@ -99,7 +100,7 @@ export function createRealAi(apollo: ApolloClient) {
     ): Promise<RefinementChatOutput> => {
       const result = await apollo.mutate<{ runRefinementChat: RefinementChatOutput }>({
         mutation: RUN_REFINEMENT_CHAT,
-        variables: { input },
+        variables: { input: stripTypename(input) },
       });
       if (!result.data?.runRefinementChat) {
         throw new Error("runRefinementChat returned no data");
@@ -112,7 +113,7 @@ export function createRealAi(apollo: ApolloClient) {
     ): Promise<PlannerChatOutput> => {
       const result = await apollo.mutate<{ runPlannerChat: PlannerChatOutput }>({
         mutation: RUN_PLANNER_CHAT,
-        variables: { input },
+        variables: { input: stripTypename(input) },
       });
       if (!result.data?.runPlannerChat) {
         throw new Error("runPlannerChat returned no data");
@@ -131,11 +132,11 @@ export function createRealAi(apollo: ApolloClient) {
       const result = await apollo.mutate<{ runInspectorTurn: InspectorTurnOutput }>({
         mutation: RUN_INSPECTOR_TURN,
         variables: {
-          input: {
+          input: stripTypename({
             epicSnapshotId: input.snapshot.id,
             transcript: input.transcript,
             userMessage: input.userMessage,
-          },
+          }),
         },
       });
       if (!result.data?.runInspectorTurn) {

@@ -80,12 +80,22 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 
 | File | Purpose |
 |---|---|
-| `driftDetection.ts` | Drift report from a rich `EpicSnapshot` vs current ticket state. Reads typed frozen `backlog.tickets`; tracks `title` + `storyPoints` diffs (the fields both proposals and tickets carry). |
-| `capacityProvider.ts` | Derives `TeamMemberCapacity[]` from real velocity history — looks at the last 5 completed sprints, sums done-column tickets per member, falls back to `defaultCapacityFor` when history is empty. |
-| `mockAi.ts` | Mock implementations of all orchestrator actors (analyst, architect, controller, blueprint chat, refinement chat, planner, planner chat, **Phase 5 `runInspectorTurn`**). `runSprintPlanner` delegates to `produceSprintPlan` (pure slicing policy). 600–1400ms simulated latency. |
-| `draftStore.ts` | Apollo-backed `DraftStore` adapter — list / load / save / remove / create EpicDrafts via GQL (server stores in Mongo `epicDrafts` collection). |
-| `inspectorMemoryStore.ts` | Apollo-backed `InspectorStore` adapter — loadTranscript / appendTurn / listMemories / saveMemory for Phase 5 chat + curated insights. |
-| `inspectorContextProvider.ts` | `loadInspectorContext` — parallel fetches EpicSnapshot + InspectorTranscript + EpicMemories, filters board tickets to the Epic's children, runs `computeDrift`. Returns a single bundle the Inspector machine boots from. |
+| `ai.ts` | Public adapter — routes to mock or real actors based on `NEXT_PUBLIC_MOCK_AI` env flag |
+| `mockAi.ts` | Mock implementations of all orchestrator actors (analyst, architect, controller, blueprint chat, refinement chat, planner, planner chat, Inspector). `runSprintPlanner` delegates to `produceSprintPlan`. 600–1400ms simulated latency. |
+| `llm.ts` | LangChain Gemini 2.5 Flash factory + `bindOrionTools` helper |
+| `draftStore.ts` | Apollo-backed `DraftStore` adapter — list / load / save / remove / create EpicDrafts via GQL |
+| `driftDetection.ts` | Drift report from a rich `EpicSnapshot` vs current ticket state. Tracks `title` + `storyPoints` diffs. |
+| `capacityProvider.ts` | Derives `TeamMemberCapacity[]` from last 5 completed sprints; falls back to default velocity by role |
+| `inspectorContextProvider.ts` | `loadInspectorContext` — parallel fetches EpicSnapshot + InspectorTranscript + EpicMemories + live tickets + drift. Returns single boot bundle for Inspector machine. |
+| `inspectorMemoryStore.ts` | Apollo-backed `InspectorStore` boundary — loadTranscript / appendTurn / listMemories / saveMemory |
+| `realAi/agentLoop.ts` | Multi-round tool-calling helper; called before `withStructuredOutput` (Gemini conflict workaround) |
+| `realAi/*Graph.ts` | Per-actor LangChain graphs: analyst, architect, controller, blueprintChat, refinementChat, plannerChat, inspector, inspectorServer |
+| `realAi/client.ts` | Shared Gemini client init |
+| `rag/embeddings.ts` | `gemini-embedding-001` factory (3072d); `composeEpicEmbeddingText` pure helper |
+| `rag/store.ts` | `embedAndStoreEpic` (idempotent upsert), `searchSimilarEpics` (in-process cosine, orgId-scoped) |
+| `tools/index.ts` | `OrionTool` type, `toolsForPhase` selector |
+| `tools/registry.ts` | `registerTool` API, per-phase buckets |
+| `tools/findSimilarEpics.ts` | orgId-scoped RAG tool factory; orgId captured in closure (never exposed to LLM) |
 
 ### `src/infrastructure/observability/`
 
@@ -125,15 +135,18 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 
 | File | Purpose |
 |---|---|
-| `OrchestratorRoot.tsx` | Entry shell: switches between draft picker and active session |
-| `DraftPicker.tsx` | "New Epic" + resumable in-progress drafts + history (uses `GET_EPIC_DRAFTS`) |
+| `OrchestratorRoot.tsx` | Entry shell: routes to DraftPicker, OrchestratorSession, or Phase5Inspector |
+| `DraftPicker.tsx` | "New Epic" + resumable drafts + committed-Epic list; click committed → Inspector |
 | `OrchestratorSession.tsx` | Hosts the running machine, swaps phase panes via `AnimatePresence` |
-| `useOrchestrator.ts` | Hook: instantiates machine with mock actors, debounced save (1500ms), unmount flush |
-| `PhaseHeader.tsx` | Top bar: 3-dot phase progress, save/discard/close, "Saving…" indicator |
+| `useOrchestrator.ts` | Hook: instantiates machine with real/mock actors, debounced save (1500ms), unmount flush |
+| `useInspector.ts` | Hook: instantiates Inspector machine, pushes turns/memories through InspectorStore |
+| `PhaseHeader.tsx` | Top bar: 3-dot phase progress, save/discard/close, back-navigation, "Saving…" indicator |
+| `BackNavigationModal.tsx` | Styled confirmation modal for phase back-navigation (replaces browser `confirm()`) |
 | `Phase1Brainstorm.tsx` | Chat with Analyst — bubbles, typing dots, summary card, "Continue to backlog" CTA |
-| `Phase2BulkList.tsx` | Bulk-edit backlog: inline title, label dropdown, ↑↓ reorder, ✕ delete, + add. Includes Phase 2 chat with the AI about backlog structure. |
+| `Phase2BulkList.tsx` | Bulk-edit backlog: inline title, label dropdown, ↑↓ reorder, ✕ delete, + add + Phase 2 blueprint chat |
 | `Phase3Wizard.tsx` | One-by-one ticket refinement + Controller risks sidebar + per-ticket refinement chat |
-| `Phase4SprintPlan.tsx` | Sprint planning view — capacity overview, ticket→sprint→assignee assignments, planner chat, "Commit Epic" CTA |
+| `Phase4SprintPlan.tsx` | Sprint planning view — ticket→sprint→assignee assignments, planner chat, "Commit Epic" CTA |
+| `Phase5Inspector.tsx` | Post-commit chat: drift card pinned top, transcript bubbles, thinking dots, memories sidebar |
 
 ---
 
@@ -269,17 +282,23 @@ CSS `transition-transform` on the `[sidebar | content]` row. Never Framer Motion
 - Deep links (`/tickets/[ticketNumber]`), URL param persistence
 - Board soft-delete + restore
 - Structured logging, orgId-scoped indexes
-- **AI Orchestrator (4 phases built)** — XState machine with `phase1Brainstorming → phase2Structuring → phase3Refining → phase4SprintPlanning → committing → committed`. Mock AI actors for all phases (analyst, architect, controller, blueprint chat, refinement chat, planner, planner chat). Durable Mongo-backed drafts (`epicDrafts` collection, GQL queries/mutations), debounced auto-save (1.5s), drafts picker.
-- **Commit-to-board** — `commitEpicDraft` GQL mutation + repository function exist. Creates Epic-type ticket + child tickets + `EpicSnapshot` record (currently with JSON-encoded `planJson`). Slice A.2 will refactor the snapshot to typed fields.
-- **Org member roles** — `OrgMemberRole = "developer" | "ux" | "tester" | "po"` set in org settings via `setMemberRole` mutation; consumed by Phase 4 planner.
+- **AI Orchestrator (5 phases built)** — XState machine `phase1Brainstorming → phase2Structuring → phase3Refining → phase4SprintPlanning → committing → committed`. Real Gemini 2.5 Flash actors via LangChain (Slice J); `NEXT_PUBLIC_MOCK_AI=1` fallback. Durable Mongo-backed drafts, debounced auto-save (1.5s), drafts picker. Back-navigation between phases (Slice H).
+- **Commit-to-board** — `commitEpicDraft` creates Epic ticket + child tickets + rich typed `EpicSnapshot` (frozen 4-phase artifacts, `ticketIds` back-refs). `embedAndStoreEpic` called best-effort on commit for RAG.
+- **Phase 5 Inspector** — post-commit chat over committed Epics. XState machine (`loadingContext → ready ↔ awaitingInspector`). `Phase5Inspector` component: drift card, transcript bubbles, memories sidebar. Persistent `InspectorTranscript` + `EpicMemory` (append-only, Mongo-backed via GQL).
+- **RAG over committed Epics** — `gemini-embedding-001` (3072d), in-process cosine similarity, orgId-scoped. Wired into analyst (Phase 1) + architect (Phase 2) via `agentLoop.ts`. Tool: `findSimilarEpics`.
+- **Domain policies** — `capacityPolicy` (80% buffer, cold-start defaults), `slicingPolicy` (fit-first overflow, dep-aware), `dependencyPolicy` (topo sort + cycle detection).
+- **Org member roles** — `OrgMemberRole = "developer" | "ux" | "tester" | "po"` set via `setMemberRole` mutation; consumed by Phase 4 planner.
+- **E2E tests** — Playwright bootstrapped; `orchestrator-commit.spec.ts` (Phases 1–4 + commit approve branch) + `inspector.spec.ts` (Phase 5 chat + memory persistence).
+- **Tool infrastructure** — `OrionTool` registry, `toolsForPhase` selector, `bindOrionTools` helper, `findSimilarEpics` tool (Slice L). AC Linter + semantic point estimator pending (Slices M, O).
+- **Proposal label simplification** — `ProposalLabel = "ux" | "developer" | "po" | "qa"`, maps to `OrgMemberRole`. Old labels collapse on next save (Slice I).
 
 ### Not Built
-- **LangGraph backend integration** — mock AI actors in `mockAi.ts` will be swapped for real adapters of the same shape
-- **Phase 5 Inspector** — post-commit chat over committed Epics with persistent transcript + AI memory. Plan in `ORION_PLAN.md`.
-- **Capacity-aware planner wiring** — `capacityProvider` exists but the orchestrator machine hasn't been wired to call it yet; the planner mock still uses default per-discipline velocity until Slice C threads real capacities through `PlannerInput`. Algorithm (80% buffer, overflow, dep-aware topo sort) is fully implemented in `slicingPolicy`.
-- **Phase 4 capacity UI** — capacity panel, overflow callouts, approve/revise affordances on `Phase4SprintPlan.tsx`. Slice C work.
-- **E2E tests** — Playwright required per AGENTS.md, none written (orchestrator approve/reject branches especially)
-- **Conflict UI for drag-and-drop** — `moveTicketToColumn` can return `ConflictError` but no UI handles it
+- **Capacity-aware planner wiring (Slice C)** — `capacityProvider` exists but orchestrator machine not yet wired to pass real `TeamMemberCapacity[]` into `PlannerInput`. Phase 4 UI: capacity panel, overflow callouts, approve/revise affordances.
+- **AC Linter tool (Slice M)** — pure-function linter for vague AC markers; registered for Phase 3 controller agent loop.
+- **Dependency graph visualizer (Slice N)** — Mermaid/React Flow render of `blockedBy` graph in Phase 2 UI.
+- **Semantic story-point estimator (Slice O)** — `findSimilarTickets` tool using Slice L vector index; wired into Phase 3 controller.
+- **UI polish / non-linear nav (Slice P)** — typing during AI think, re-scope-from-analyst button, re-draft-backlog button.
+- **Conflict UI for drag-and-drop** — `moveTicketToColumn` can return `ConflictError` but no UI handles it.
 
 ---
 

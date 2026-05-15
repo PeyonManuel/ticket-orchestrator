@@ -95,7 +95,7 @@ export async function runControllerRefinement(
     new HumanMessage(
       `Refine this ticket.\n\n${ticketSummary}\n\n${epicContext}`,
     ),
-  ]);
+  ], { signal: AbortSignal.timeout(30_000) });
 
   return {
     description: result.description,

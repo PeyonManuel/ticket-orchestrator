@@ -54,5 +54,5 @@ export async function runRefinementChat(
     ),
   ];
 
-  return structured.invoke(messages);
+  return structured.invoke(messages, { signal: AbortSignal.timeout(25_000) });
 }

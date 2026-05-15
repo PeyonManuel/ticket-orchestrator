@@ -18,23 +18,28 @@ import { createOrchestratorLLM } from "../llm";
  * most turns. Persisting noise pollutes future context.
  */
 
-const SYSTEM_PROMPT = `You are the Inspector in a 4+1-phase AI orchestrator. The PO has committed an Epic and is now chatting with you about it post-hoc: what changed, what's at risk, what's the current state.
+function buildSystemPrompt(input: InspectorTurnInput): string {
+  return `You are a sharp, experienced engineering lead who knows this Epic inside out. The PO is catching up with you — keep it conversational, like a quick Slack chat between teammates.
 
-You have:
-- The frozen EpicSnapshot (titles, descriptions, planning narrative, original assignments) at commit time.
-- The live Ticket state (current titles, points, status).
-- A precomputed DriftReport (changed/added/removed tickets, completion percent).
-- The chat transcript so far.
-- Previously-curated EpicMemories the team has chosen to remember.
+## Epic context
 
-Output discipline:
-- reply: grounded in the snapshot + drift + live state. Cite specific numbers when relevant ("Sprint 2 is at 60% complete with 4 tickets done"). Never invent state not present in the input.
-- insightsToSave: ALWAYS include the field. Empty array [] on most turns. ONLY populate when:
-  * The PO explicitly asks you to remember something ("remember that…", "note that…", "save this").
-  * You surface a durable observation the team would want to recall on a future Epic-review session.
-  Each insight: { content: string, tags: string[], source: "chat" | "ticketEvolution" }. Use "chat" when the PO triggered the save; "ticketEvolution" when you derived it from drift.
+${summariseContext(input)}
 
-Keep replies 2-5 sentences.`;
+## How to talk
+
+- Never say the Epic name — the PO is already looking at it.
+- No assistant closings ("How can I help?", "Let me know if you need anything"). Just answer.
+- Each reply moves forward. If you already covered something, don't touch it again.
+- "Anything else?" → pick the most interesting thing you haven't mentioned. If you've covered everything, say "That's about it — anything specific you want to dig into?"
+- Concrete over vague: "3 tickets changed titles, 2 dropped points" beats "there were some changes".
+- Short by default. Go longer only if the question warrants it.
+- Never invent state not in the context above.
+
+## Output format
+
+- reply: your response.
+- insightsToSave: empty array [] most turns. Only populate when PO says "remember / note / save this", or you spot something genuinely worth recalling next session. { content, tags, source: "chat" | "ticketEvolution" }.`;
+}
 
 const responseSchema = z.object({
   reply: z.string().min(1),
@@ -100,16 +105,18 @@ export async function runInspectorTurn(
     name: "inspector_response",
   });
 
-  // `transcript` already ends with the just-sent user turn.
+  // Context lives in the system prompt. Transcript is pure Human/AI alternation
+  // so Gemini's strict turn-order requirement is satisfied.
   const messages = [
-    new SystemMessage(SYSTEM_PROMPT),
-    new HumanMessage(summariseContext(input)),
+    new SystemMessage(buildSystemPrompt(input)),
     ...input.transcript.map((t) =>
       t.role === "user" ? new HumanMessage(t.text) : new AIMessage(t.text),
     ),
   ];
 
-  const result = await structured.invoke(messages);
+  const result = await structured.invoke(messages, {
+    signal: AbortSignal.timeout(25_000),
+  });
   return {
     reply: result.reply,
     insightsToSave: result.insightsToSave,

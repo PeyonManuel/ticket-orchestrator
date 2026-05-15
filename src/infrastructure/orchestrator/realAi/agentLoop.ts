@@ -1,5 +1,5 @@
 import { ToolMessage, type BaseMessage } from "@langchain/core/messages";
-import type { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { bindOrionTools } from "../llm";
 import type { OrionTool } from "../tools";
 
@@ -15,17 +15,18 @@ import type { OrionTool } from "../tools";
  * generic tool calling in the same invocation.
  */
 export async function runAgentLoop(
-  llm: ChatGoogleGenerativeAI,
+  llm: BaseChatModel,
   tools: OrionTool[],
   initialMessages: BaseMessage[],
   maxRounds: number = 4,
+  signal?: AbortSignal,
 ): Promise<BaseMessage[]> {
   if (tools.length === 0) return initialMessages;
   const bound = bindOrionTools(llm, tools);
   const messages: BaseMessage[] = [...initialMessages];
 
   for (let round = 0; round < maxRounds; round++) {
-    const response = await bound.invoke(messages);
+    const response = await bound.invoke(messages, { signal });
     messages.push(response);
     const toolCalls = (response as { tool_calls?: Array<{ name: string; args: Record<string, unknown>; id?: string }> }).tool_calls;
     if (!toolCalls || toolCalls.length === 0) break;

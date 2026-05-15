@@ -22,21 +22,10 @@ import {
   APPEND_INSPECTOR_TURN,
   SAVE_EPIC_MEMORY,
 } from "@/infrastructure/graphql/operations";
+import { stripTypename } from "./stripTypename";
 
 export interface ApolloInspectorStoreOptions {
   apollo: ApolloClient;
-}
-
-function stripTypename<T>(obj: T): T {
-  if (Array.isArray(obj)) return obj.map(stripTypename) as T;
-  if (obj && typeof obj === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj)) {
-      if (k !== "__typename") out[k] = stripTypename(v);
-    }
-    return out as T;
-  }
-  return obj;
 }
 
 export function createApolloInspectorStore({

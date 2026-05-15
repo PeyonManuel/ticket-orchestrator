@@ -236,6 +236,15 @@ export const inspectorMachine = setup({
     },
 
     awaitingInspector: {
+      after: {
+        30000: {
+          target: "ready",
+          actions: {
+            type: "captureTurnError",
+            params: { message: "Inspector timed out — AI didn't respond. Try again." },
+          },
+        },
+      },
       invoke: {
         id: "inspect",
         src: "inspectorActor",

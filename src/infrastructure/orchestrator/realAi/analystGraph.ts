@@ -92,11 +92,12 @@ export async function runAnalystTurn(
   // Tool-use pre-step: model can call `find_similar_epics` to ground its
   // probing questions in real org history before producing the structured
   // analyst reply. No-op when no tools (e.g. unit tests calling without ctx).
-  const messages = await runAgentLoop(llm, tools, initialMessages);
+  const signal = AbortSignal.timeout(45_000);
+  const messages = await runAgentLoop(llm, tools, initialMessages, 4, signal);
 
   const structured = llm.withStructuredOutput(analystResponseSchema, {
     name: "analyst_response",
   });
-  const result = await structured.invoke(messages);
+  const result = await structured.invoke(messages, { signal });
   return analystResponseSchema.parse(result);
 }

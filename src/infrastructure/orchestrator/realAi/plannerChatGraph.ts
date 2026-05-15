@@ -79,6 +79,6 @@ export async function runPlannerChat(
     ),
   ];
 
-  const result = await structured.invoke(messages);
+  const result = await structured.invoke(messages, { signal: AbortSignal.timeout(25_000) });
   return { reply: result.reply, updatedPlan: null };
 }
