@@ -11,10 +11,13 @@ import {
   RUN_PLANNER_CHAT,
   RUN_INSPECTOR_TURN,
 } from "@/infrastructure/graphql/operations";
+import { z } from "zod";
 import {
   analystTurnOutputSchema,
   backlogProposalSchema,
+  blueprintMutationSchema,
   controllerOutputSchema,
+  refinementMutationSchema,
   type AnalystTurnInput,
   type AnalystTurnOutput,
   type ArchitectInput,
@@ -30,6 +33,21 @@ import {
   type RefinementChatInput,
   type RefinementChatOutput,
 } from "@/domain/orchestrator/types";
+
+const blueprintMutationArraySchema = z.array(blueprintMutationSchema);
+const refinementMutationArraySchema = z.array(refinementMutationSchema);
+
+function safeParseJsonArray<T>(json: string, schema: z.ZodType<T[]>): T[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return schema.parse(parsed);
+  } catch {
+    // Malformed payloads are silently dropped (better than blowing up the chat
+    // turn). The valid reply still renders; only mutations are lost.
+    return [];
+  }
+}
 
 /**
  * Client-side adapters that route every AI actor call through GraphQL to a
@@ -85,27 +103,39 @@ export function createRealAi(apollo: ApolloClient) {
     runBlueprintChat: async (
       input: BlueprintChatInput,
     ): Promise<BlueprintChatOutput> => {
-      const result = await apollo.mutate<{ runBlueprintChat: BlueprintChatOutput }>({
+      const result = await apollo.mutate<{
+        runBlueprintChat: { reply: string; mutationsJson: string };
+      }>({
         mutation: RUN_BLUEPRINT_CHAT,
         variables: { input: stripTypename(input) },
       });
       if (!result.data?.runBlueprintChat) {
         throw new Error("runBlueprintChat returned no data");
       }
-      return { reply: String(result.data.runBlueprintChat.reply) };
+      const data = result.data.runBlueprintChat;
+      return {
+        reply: String(data.reply),
+        mutations: safeParseJsonArray(data.mutationsJson, blueprintMutationArraySchema),
+      };
     },
 
     runRefinementChat: async (
       input: RefinementChatInput,
     ): Promise<RefinementChatOutput> => {
-      const result = await apollo.mutate<{ runRefinementChat: RefinementChatOutput }>({
+      const result = await apollo.mutate<{
+        runRefinementChat: { reply: string; mutationsJson: string };
+      }>({
         mutation: RUN_REFINEMENT_CHAT,
         variables: { input: stripTypename(input) },
       });
       if (!result.data?.runRefinementChat) {
         throw new Error("runRefinementChat returned no data");
       }
-      return { reply: String(result.data.runRefinementChat.reply) };
+      const data = result.data.runRefinementChat;
+      return {
+        reply: String(data.reply),
+        mutations: safeParseJsonArray(data.mutationsJson, refinementMutationArraySchema),
+      };
     },
 
     runPlannerChat: async (

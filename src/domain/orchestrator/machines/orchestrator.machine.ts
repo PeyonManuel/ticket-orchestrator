@@ -109,7 +109,9 @@ export type OrchestratorEvent =
   | { type: "DISCARD_PENDING_BLUEPRINT_MUTATIONS" }
   | { type: "APPLY_PENDING_REFINEMENT_MUTATIONS"; now: string }
   | { type: "DISCARD_PENDING_REFINEMENT_MUTATIONS" }
-  | { type: "CLEAR_AI_TOUCH" };
+  | { type: "CLEAR_AI_TOUCH" }
+  // ── Slice S: phase restoration on session resume ───────────────────
+  | { type: "RESUME_PHASE" };
 
 // ── Context ─────────────────────────────────────────────────────────
 
@@ -370,8 +372,6 @@ function applyRefinementMutation(
       return { ...ticket, label: m.label };
     case "setDiscipline":
       return { ...ticket, discipline: m.discipline };
-    case "replaceAcceptanceCriteria":
-      return { ...ticket, acceptanceCriteria: m.criteria };
     case "replaceRisks":
       return { ...ticket, risks: m.risks };
   }
@@ -1026,6 +1026,25 @@ export const orchestratorMachine = setup({
         DISCARD_PENDING_REFINEMENT_MUTATIONS: {
           actions: "discardPendingRefinementMutations",
         },
+        // Slice S — RESUME_PHASE fires once on session boot. Routes to the
+        // phase recorded in draft.phase without running any enter-actions
+        // (which would reset cursor/sprintPlan/etc.). Phase entry guards
+        // (backlogNonEmpty, planExists, decideTicket always-array) handle
+        // sub-state resolution from the loaded draft data.
+        RESUME_PHASE: [
+          {
+            guard: ({ context }) => context.draft.phase === "phase2Structuring",
+            target: ".phase2Structuring",
+          },
+          {
+            guard: ({ context }) => context.draft.phase === "phase3Refining",
+            target: ".phase3Refining",
+          },
+          {
+            guard: ({ context }) => context.draft.phase === "phase4SprintPlanning",
+            target: ".phase4SprintPlanning",
+          },
+        ],
       },
 
       states: {

@@ -16,6 +16,7 @@ import type { OrchestratorEvent } from "@/domain/orchestrator";
 import { detectCycles } from "@/domain/orchestrator/policies/dependencyPolicy";
 import { BackNavigationModal } from "./BackNavigationModal";
 import { DependencyGraphView } from "./DependencyGraphView";
+import { ProseTurn } from "./shared/ProseTurn";
 
 interface Props {
   draft: EpicDraft;
@@ -335,12 +336,21 @@ function BlueprintChatPanel({
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll to bottom on mount (when navigating back to this phase).
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView();
+  }, []);
+
+  // Auto-scroll when new turns arrive or thinking starts.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [transcript.length, isThinking]);
+
   const handleSend = () => {
     const text = input.trim();
     if (!text || isThinking) return;
     onSend(text);
     setInput("");
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   };
 
   return (
@@ -373,7 +383,7 @@ function BlueprintChatPanel({
               </div>
             </div>
           ) : (
-            <AiTurn key={turn.id} text={turn.text} />
+            <ProseTurn key={turn.id} text={turn.text} />
           ),
         )}
 
@@ -392,12 +402,13 @@ function BlueprintChatPanel({
         <div ref={bottomRef} />
       </div>
 
-      {aiMode === "confirm" && pendingMutations.length > 0 && (
+      {pendingMutations.length > 0 && (
         <PendingMutationsPreview
           mutations={pendingMutations}
           backlog={backlog}
           onApply={onApplyPending}
           onDiscard={onDiscardPending}
+          mode={aiMode}
         />
       )}
 
@@ -712,21 +723,6 @@ function ModeToggle({
   );
 }
 
-function AiTurn({ text }: { text: string }) {
-  // Render AI replies as ChatGPT-style prose — no bubble. Preserves paragraph
-  // breaks so multi-paragraph answers read like written text, not chat blurbs.
-  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  return (
-    <div className="text-xs leading-relaxed text-zinc-700 dark:text-zinc-300 space-y-2 pr-2">
-      {paragraphs.map((p, i) => (
-        <p key={i} className="whitespace-pre-wrap">
-          {p}
-        </p>
-      ))}
-    </div>
-  );
-}
-
 function describeBlueprintMutation(
   m: BlueprintMutation,
   backlog: { tickets: TicketProposal[] },
@@ -760,38 +756,61 @@ function PendingMutationsPreview({
   backlog,
   onApply,
   onDiscard,
+  mode,
 }: {
   mutations: BlueprintMutation[];
   backlog: { tickets: TicketProposal[]; epicTitle: string; epicDescription: string };
   onApply: () => void;
   onDiscard: () => void;
+  mode: "execute" | "confirm";
 }) {
+  const isConfirm = mode === "confirm";
   return (
-    <div className="border-t border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 px-4 py-3 space-y-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
-        Proposed changes ({mutations.length})
+    <div className={`border-t px-4 py-3 space-y-2 ${
+      isConfirm
+        ? "border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30"
+        : "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30"
+    }`}>
+      <p className={`text-[10px] font-semibold uppercase tracking-wide ${
+        isConfirm
+          ? "text-indigo-700 dark:text-indigo-300"
+          : "text-emerald-700 dark:text-emerald-300"
+      }`}>
+        {isConfirm ? `Proposed changes (${mutations.length})` : `Applied changes (${mutations.length})`}
       </p>
       <ul className="space-y-1 text-xs text-zinc-700 dark:text-zinc-300 max-h-40 overflow-y-auto">
         {mutations.map((m, i) => (
           <li key={i} className="flex gap-1.5">
-            <span className="text-indigo-500 shrink-0">•</span>
+            <span className={`shrink-0 ${isConfirm ? "text-indigo-500" : "text-emerald-500"}`}>•</span>
             <span>{describeBlueprintMutation(m, backlog)}</span>
           </li>
         ))}
       </ul>
       <div className="flex items-center gap-2 pt-1">
-        <button
-          onClick={onApply}
-          className="rounded bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-semibold px-3 py-1 transition-colors"
-        >
-          Apply
-        </button>
-        <button
-          onClick={onDiscard}
-          className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 px-1"
-        >
-          Discard
-        </button>
+        {isConfirm && (
+          <>
+            <button
+              onClick={onApply}
+              className="rounded bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-semibold px-3 py-1 transition-colors"
+            >
+              Accept
+            </button>
+            <button
+              onClick={onDiscard}
+              className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 px-1"
+            >
+              Reject
+            </button>
+          </>
+        )}
+        {!isConfirm && (
+          <button
+            onClick={onDiscard}
+            className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 px-1"
+          >
+            Dismiss
+          </button>
+        )}
       </div>
     </div>
   );

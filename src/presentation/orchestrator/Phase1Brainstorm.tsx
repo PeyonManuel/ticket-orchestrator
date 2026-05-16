@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { EpicDraft } from "@/domain/orchestrator/types";
 import type { OrchestratorEvent } from "@/domain/orchestrator";
+import { ProseTurn } from "./shared/ProseTurn";
 
 interface Props {
   draft: EpicDraft;
@@ -30,6 +31,12 @@ export function Phase1Brainstorm({ draft, isThinking, canAdvance, send }: Props)
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [draft.transcript.length, isThinking]);
+
+  // Auto-scroll on mount (when navigating back to this phase).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
 
   const handleSend = () => {
     const text = draftMessage.trim();
@@ -81,15 +88,13 @@ export function Phase1Brainstorm({ draft, isThinking, canAdvance, send }: Props)
                 transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                 className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}
               >
-                <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                    turn.role === "user"
-                      ? "bg-indigo-500 text-white"
-                      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
-                  }`}
-                >
-                  {turn.text}
-                </div>
+                {turn.role === "user" ? (
+                  <div className="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed bg-indigo-500 text-white">
+                    {turn.text}
+                  </div>
+                ) : (
+                  <ProseTurn text={turn.text} className="max-w-[80%] text-sm leading-relaxed" />
+                )}
               </motion.div>
             ))}
           </AnimatePresence>

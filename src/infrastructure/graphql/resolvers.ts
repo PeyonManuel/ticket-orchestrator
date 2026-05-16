@@ -548,7 +548,16 @@ export const resolvers = {
       const { runBlueprintChat } = await import(
         "@/infrastructure/orchestrator/realAi/blueprintChatGraph"
       );
-      return runBlueprintChat(input);
+      const result = await runBlueprintChat(input);
+      // mutations cross the wire as JSON because the discriminated union is
+      // unwieldy in GraphQL; Zod validates client-side after parse. Only
+      // mutations that passed server-side validation make it here — the LLM
+      // was given any failures as feedback and either fixed or admitted them
+      // in the reply text.
+      return {
+        reply: result.reply,
+        mutationsJson: JSON.stringify(result.mutations ?? []),
+      };
     },
 
     runRefinementChat: async (
@@ -560,7 +569,11 @@ export const resolvers = {
       const { runRefinementChat } = await import(
         "@/infrastructure/orchestrator/realAi/refinementChatGraph"
       );
-      return runRefinementChat(input);
+      const result = await runRefinementChat(input);
+      return {
+        reply: result.reply,
+        mutationsJson: JSON.stringify(result.mutations ?? []),
+      };
     },
 
     runPlannerChat: async (

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   CalendarDays,
   Users,
@@ -11,6 +11,7 @@ import {
   Gauge,
   Info,
 } from "lucide-react";
+import { ProseTurn } from "./shared/ProseTurn";
 import type {
   BrainstormTurn,
   EpicDraft,
@@ -486,6 +487,11 @@ function PlannerChatPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
   const now = () => new Date().toISOString();
 
+  // Auto-scroll on mount (when navigating back to this phase).
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView();
+  }, []);
+
   const handleSend = () => {
     const text = input.trim();
     if (!text || isThinking) return;
@@ -521,15 +527,16 @@ function PlannerChatPanel({
             key={turn.id}
             className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}
           >
-            <div
-              className={`max-w-[90%] rounded-xl px-2.5 py-1.5 text-[11px] leading-relaxed ${
-                turn.role === "user"
-                  ? "bg-indigo-500 text-white rounded-br-sm"
-                  : "bg-zinc-50 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 rounded-bl-sm"
-              }`}
-            >
-              {turn.text}
-            </div>
+            {turn.role === "user" ? (
+              <div className="max-w-[90%] rounded-xl px-2.5 py-1.5 text-[11px] leading-relaxed bg-indigo-500 text-white rounded-br-sm">
+                {turn.text}
+              </div>
+            ) : (
+              <ProseTurn
+                text={turn.text}
+                className="max-w-[90%] text-[11px] leading-relaxed text-zinc-800 dark:text-zinc-200"
+              />
+            )}
           </div>
         ))}
         {isThinking && (

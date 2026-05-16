@@ -13,6 +13,8 @@ import type {
 } from "@/domain/orchestrator/types";
 import type { OrchestratorEvent } from "@/domain/orchestrator";
 import { BackNavigationModal } from "./BackNavigationModal";
+import { ProseTurn } from "./shared/ProseTurn";
+import { RichMarkdownEditor } from "./shared/RichMarkdownEditor";
 
 interface Props {
   draft: EpicDraft;
@@ -52,7 +54,7 @@ export function Phase3Wizard({
   // Clear AI-touch flag 2s after it lights up, so the editor pulse fires once.
   useEffect(() => {
     if (aiTouchedTicketIds.length === 0) return;
-    const t = setTimeout(() => send({ type: "CLEAR_AI_TOUCH" }), 2000);
+    const t = setTimeout(() => send({ type: "CLEAR_AI_TOUCH" }), 1500);
     return () => clearTimeout(t);
   }, [aiTouchedTicketIds, send]);
 
@@ -90,8 +92,8 @@ export function Phase3Wizard({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="max-w-5xl mx-auto">
+      <div className="flex-1 min-h-0 px-6 py-6">
+        <div className="max-w-5xl mx-auto h-full flex flex-col">
           {isAnalyzing ? (
             <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/40 bg-indigo-50/50 dark:bg-indigo-950/20 p-8 text-center">
               <p className="text-sm font-medium text-indigo-800 dark:text-indigo-300">
@@ -102,7 +104,7 @@ export function Phase3Wizard({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 h-[calc(100vh-220px)]">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 h-full min-h-0">
               <TicketEditor
                 ticket={ticket}
                 aiTouched={aiTouched}
@@ -172,22 +174,7 @@ export function Phase3Wizard({
     onPatch: (patch: Partial<TicketProposal>) => void;
   }) {
     return (
-      <motion.div
-        animate={
-          aiTouched
-            ? {
-                backgroundColor: [
-                  "rgba(99, 102, 241, 0.10)",
-                  "rgba(99, 102, 241, 0)",
-                ],
-              }
-            : {}
-        }
-        transition={
-          aiTouched ? { duration: 2, ease: "easeOut" } : { duration: 0 }
-        }
-        className="space-y-4 rounded-xl p-2 overflow-y-auto min-h-0"
-      >
+      <div className="flex flex-col gap-3 rounded-xl p-2 h-full min-h-0">
         <div>
           <label className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
             Title
@@ -199,62 +186,15 @@ export function Phase3Wizard({
           />
         </div>
 
-        <div>
+        <div className="flex-1 min-h-0 flex flex-col">
           <label className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
-            Description
+            Description & Acceptance Criteria
           </label>
-          <textarea
+          <RichMarkdownEditor
             value={ticket.description}
-            onChange={(e) => onPatch({ description: e.target.value })}
-            rows={6}
-            className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 leading-relaxed"
+            onChange={(value) => onPatch({ description: value })}
+            aiTouched={aiTouched}
           />
-        </div>
-
-        <div>
-          <label className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
-            Acceptance criteria
-          </label>
-          <div className="space-y-2">
-            {ticket.acceptanceCriteria.map((ac, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-600" />
-                <textarea
-                  value={ac}
-                  onChange={(e) => {
-                    const next = ticket.acceptanceCriteria.slice();
-                    next[i] = e.target.value;
-                    onPatch({ acceptanceCriteria: next });
-                  }}
-                  rows={1}
-                  className="flex-1 rounded-md border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 focus:border-zinc-300 dark:focus:border-zinc-700 bg-transparent px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none resize-none"
-                />
-                <button
-                  onClick={() =>
-                    onPatch({
-                      acceptanceCriteria: ticket.acceptanceCriteria.filter(
-                        (_, j) => j !== i,
-                      ),
-                    })
-                  }
-                  aria-label="Remove criterion"
-                  className="mt-1 h-6 w-6 rounded text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors text-xs"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-            <button
-              onClick={() =>
-                onPatch({
-                  acceptanceCriteria: [...ticket.acceptanceCriteria, ""],
-                })
-              }
-              className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300"
-            >
-              + Add criterion
-            </button>
-          </div>
         </div>
 
         <div>
@@ -280,7 +220,7 @@ export function Phase3Wizard({
             })}
           </div>
         </div>
-      </motion.div>
+      </div>
     );
   }
 }
@@ -306,13 +246,25 @@ function RefinementPanel({
 }) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll the chat container to bottom on mount (navigation back).
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // Auto-scroll when new turns arrive or thinking starts (chat container only).
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [ticket.transcript.length, isThinking]);
 
   const handleSend = () => {
     const text = input.trim();
     if (!text || isThinking) return;
     onSend(text);
     setInput("");
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   };
 
   return (
@@ -327,7 +279,7 @@ function RefinementPanel({
           <ChatModeToggle mode={aiMode} onChange={onModeChange} />
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
+        <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
           {ticket.transcript.length === 0 && !isThinking && (
             <p className="text-[10px] text-zinc-400 dark:text-zinc-600 text-center mt-4">
               Keep refining — adjust scope, points, risks, or criteria.
@@ -341,7 +293,11 @@ function RefinementPanel({
                 </div>
               </div>
             ) : (
-              <ProseTurn key={turn.id} text={turn.text} />
+              <ProseTurn
+                key={turn.id}
+                text={turn.text}
+                className="text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-300 space-y-2 pr-1"
+              />
             ),
           )}
           {isThinking && (
@@ -358,12 +314,13 @@ function RefinementPanel({
           <div ref={bottomRef} />
         </div>
 
-        {aiMode === "confirm" && pendingMutations.length > 0 && (
+        {pendingMutations.length > 0 && (
           <PendingRefinementPreview
             mutations={pendingMutations}
             ticket={ticket}
             onApply={onApplyPending}
             onDiscard={onDiscardPending}
+            mode={aiMode}
           />
         )}
 
@@ -437,19 +394,6 @@ function ChatModeToggle({
   );
 }
 
-function ProseTurn({ text }: { text: string }) {
-  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  return (
-    <div className="text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-300 space-y-2 pr-1">
-      {paragraphs.map((p, i) => (
-        <p key={i} className="whitespace-pre-wrap">
-          {p}
-        </p>
-      ))}
-    </div>
-  );
-}
-
 function describeRefinementMutation(
   m: RefinementMutation,
   ticket: TicketProposal,
@@ -465,8 +409,6 @@ function describeRefinementMutation(
       return `Relabel: ${ticket.label} → ${m.label as ProposalLabel}`;
     case "setDiscipline":
       return `Set discipline: ${ticket.discipline ?? "(unset)"} → ${m.discipline}`;
-    case "replaceAcceptanceCriteria":
-      return `Replace acceptance criteria (${ticket.acceptanceCriteria.length} → ${m.criteria.length} items)`;
     case "replaceRisks":
       return `Replace risks (${ticket.risks.length} → ${m.risks.length} items)`;
   }
@@ -477,38 +419,61 @@ function PendingRefinementPreview({
   ticket,
   onApply,
   onDiscard,
+  mode,
 }: {
   mutations: RefinementMutation[];
   ticket: TicketProposal;
   onApply: () => void;
   onDiscard: () => void;
+  mode: "execute" | "confirm";
 }) {
+  const isConfirm = mode === "confirm";
   return (
-    <div className="border-t border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 px-3 py-2.5 space-y-1.5">
-      <p className="text-[9px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
-        Proposed changes ({mutations.length})
+    <div className={`border-t px-3 py-2.5 space-y-1.5 ${
+      isConfirm
+        ? "border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30"
+        : "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30"
+    }`}>
+      <p className={`text-[9px] font-semibold uppercase tracking-wide ${
+        isConfirm
+          ? "text-indigo-700 dark:text-indigo-300"
+          : "text-emerald-700 dark:text-emerald-300"
+      }`}>
+        {isConfirm ? `Proposed changes (${mutations.length})` : `Applied changes (${mutations.length})`}
       </p>
       <ul className="space-y-1 text-[11px] text-zinc-700 dark:text-zinc-300 max-h-32 overflow-y-auto">
         {mutations.map((m, i) => (
           <li key={i} className="flex gap-1.5">
-            <span className="text-indigo-500 shrink-0">•</span>
+            <span className={`shrink-0 ${isConfirm ? "text-indigo-500" : "text-emerald-500"}`}>•</span>
             <span>{describeRefinementMutation(m, ticket)}</span>
           </li>
         ))}
       </ul>
       <div className="flex items-center gap-2 pt-0.5">
-        <button
-          onClick={onApply}
-          className="rounded bg-indigo-500 hover:bg-indigo-600 text-white text-[11px] font-semibold px-2.5 py-0.5 transition-colors"
-        >
-          Apply
-        </button>
-        <button
-          onClick={onDiscard}
-          className="text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 px-1"
-        >
-          Discard
-        </button>
+        {isConfirm && (
+          <>
+            <button
+              onClick={onApply}
+              className="rounded bg-indigo-500 hover:bg-indigo-600 text-white text-[11px] font-semibold px-2.5 py-0.5 transition-colors"
+            >
+              Accept
+            </button>
+            <button
+              onClick={onDiscard}
+              className="text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 px-1"
+            >
+              Reject
+            </button>
+          </>
+        )}
+        {!isConfirm && (
+          <button
+            onClick={onDiscard}
+            className="text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 px-1"
+          >
+            Dismiss
+          </button>
+        )}
       </div>
     </div>
   );

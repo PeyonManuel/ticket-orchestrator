@@ -19,6 +19,7 @@ import {
   ADD_COMMENT,
 } from "@/infrastructure/graphql/operations";
 import type { Comment, Ticket, TicketHistoryEntry } from "@/domain/analyst";
+import { RichMarkdownEditor } from "@/presentation/orchestrator/shared/RichMarkdownEditor";
 
 interface CommentsQueryResult {
   ticket: { id: string; comments: Comment[] } | null;
@@ -386,9 +387,14 @@ export function TicketModal() {
         {/* 2-col body: description | metadata (assignee folded into metadata as a compact dropdown) */}
         <div className="grid gap-4 lg:grid-cols-[1fr_0.75fr]">
           {/* Description */}
-          <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 p-4">
+          <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 p-4 flex flex-col min-h-[20rem]">
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Description</p>
-            {renderEditableField("description", "text-sm leading-relaxed text-zinc-700 dark:text-zinc-300")}
+            <RichMarkdownEditor
+              value={selectedTicket.description ?? ""}
+              onChange={(value) =>
+                updateTicketField(selectedTicket.id, "description", value)
+              }
+            />
           </div>
 
           {/* Metadata */}

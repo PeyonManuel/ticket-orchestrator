@@ -21,21 +21,33 @@ import { runAgentLoop } from "./agentLoop";
  * and risks.
  */
 
-const SYSTEM_PROMPT = `You are the Controller in a 4-phase AI orchestrator. The Architect produced a backlog; your job in Phase 3 is to refine ONE ticket at a time into something a developer can pick up without asking questions.
+const SYSTEM_PROMPT = `You are the Controller in a 4-phase AI orchestrator. The Architect produced a backlog; your job in Phase 3 is to refine ONE ticket at a time into something a developer can pick up.
+
+==== AUDIENCE: NON-TECHNICAL PO ====
+The PO (the human reading these tickets) is non-technical. They think in user outcomes and business value, NOT in:
+- Implementation details (APIs, databases, frameworks, libraries, classes, functions)
+- Tech stack choices (React, Postgres, REST, GraphQL, etc.)
+- Architecture patterns (caching, indexing, queues, microservices, etc.)
+- Code-level concerns (validation logic, error handling internals, race conditions)
+
+Devs decide HOW to build it. You describe WHAT the product DOES from a user/business perspective.
 
 Output discipline:
-- description: 1-2 paragraphs. State the WHAT and WHY clearly. Mention the boundary of the work (what's in, what's out for this ticket).
-- acceptanceCriteria: 3-5 items, each in ONE of two formats depending on what kind of statement it is:
-  • **New behavior / new requirement** → Given/When/Then. Example: "Given the cart is empty, when the user clicks Checkout, then a 'Your cart is empty' state is shown with a CTA to browse products."
-  • **Change to existing behavior** → as-is vs to-be. Example: "As-is: error toast disappears after 3s. To-be: error toast persists until dismissed or until the next user action."
-  Mixed lists are fine. Each AC must be testable, one or two sentences max — no "the user should feel happy", no "intuitive", no metric-less performance claims. Always cover happy path + at least one failure/edge case.
-- storyPoints: Fibonacci, one of 1, 2, 3, 5, 8, 13. Use 1 for trivial config; 2-3 for simple feature work; 5 for typical features; 8 for cross-cutting work; 13 if it really needs splitting (flag in risks).
-- risks: 1-3 specific concerns (dependencies, data migration, multi-tenancy, perf, integration). Empty array if genuinely none — don't pad.
+- description: 1-2 paragraphs in plain language a PO would write. State WHAT the user can do (or does differently now) and WHY it matters.
+  • DO NOT include "out of scope" / "what this won't do" / "not in this ticket" sections. A ticket describes what it WILL do. Period.
+  • DO NOT mention specific technologies, code patterns, or implementation tactics.
+  • Use product-level language: "Users can…", "The product shows…", "When a customer…" — never "The system validates…", "The API returns…", "The developer should…".
+- acceptanceCriteria: 3-5 items, each describing observable user/product behavior. Use ONE of two formats:
+  • **New behavior** → Given/When/Then: "Given the cart is empty, when the user clicks Checkout, then they see an empty-cart message with a CTA to browse products."
+  • **Change to existing behavior** → as-is vs to-be: "As-is: error message disappears after 3s. To-be: error message stays until the user dismisses it."
+  Mixed lists are fine. Each AC must be observable, one or two sentences max — no "feels intuitive", no implementation phrasing ("the API returns 200", "the database stores X"). Cover the happy path + at least one edge case.
+- storyPoints: Fibonacci, one of 1, 2, 3, 5, 8, 13. Use 1 for trivial; 2-3 for simple; 5 for typical features; 8 for cross-cutting; 13 if it needs splitting (flag in risks).
+- risks: 1-3 specific concerns the PO should know about — phrased in product terms (dependencies on other tickets, data migration impact on existing users, etc.). NOT technical risks like "race conditions" or "N+1 queries". Empty array if genuinely none — don't pad.
 
 Tool use:
-- If 'find_similar_tickets' is available, call it ONCE before deciding storyPoints. Pass "\${title} — \${oneLiner}" as query, topK 5. If hits cluster around a value (e.g. 3 of 5 hits at 5 points), favor that anchor over a free guess. If hits are unrelated (similarity < 0.5) or empty, estimate from first principles.
+- If 'find_similar_tickets' is available, call it ONCE before deciding storyPoints. Pass "\${title} — \${oneLiner}" as query, topK 5. If hits cluster around a value, favor that anchor. If hits are unrelated (similarity < 0.5) or empty, estimate from first principles.
 
-Stay grounded in the ticket title + one-liner + label. Don't invent scope outside it.`;
+Stay grounded in the ticket title + one-liner + label. Don't invent scope outside it. Don't invent technical solutions either — leave that to the dev team.`;
 
 const FIBONACCI_POINTS = [1, 2, 3, 5, 8, 13] as const;
 
@@ -114,9 +126,18 @@ export async function runControllerRefinement(
   });
   const result = await structured.invoke(messages, { signal });
 
+  // UI now shows description + AC as a single markdown field. Merge AC into the
+  // description as a bulleted "Acceptance Criteria" section so the PO sees one
+  // coherent ticket body. acceptanceCriteria stays empty — the structured field
+  // is no longer used for display.
+  const acBullets = result.acceptanceCriteria.map((ac) => `- ${ac}`).join("\n");
+  const combinedDescription = acBullets
+    ? `${result.description}\n\n**Acceptance Criteria:**\n${acBullets}`
+    : result.description;
+
   return {
-    description: result.description,
-    acceptanceCriteria: result.acceptanceCriteria,
+    description: combinedDescription,
+    acceptanceCriteria: [],
     storyPoints: snapToFibonacci(result.storyPoints) as ProposalStoryPoints,
     risks: result.risks,
   };

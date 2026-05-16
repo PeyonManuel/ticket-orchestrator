@@ -778,6 +778,7 @@ export const RUN_BLUEPRINT_CHAT = gql`
   mutation RunBlueprintChat($input: BlueprintChatTurnInput!) {
     runBlueprintChat(input: $input) {
       reply
+      mutationsJson
     }
   }
 `;
@@ -786,6 +787,7 @@ export const RUN_REFINEMENT_CHAT = gql`
   mutation RunRefinementChat($input: RefinementChatTurnInput!) {
     runRefinementChat(input: $input) {
       reply
+      mutationsJson
     }
   }
 `;

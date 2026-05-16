@@ -57,6 +57,23 @@ export function useOrchestrator(
     input: { draft: initialDraft, capacities: initialCapacities },
   });
 
+  // Restore the last visited phase on mount. Fires once via empty-deps + ref guard
+  // so it doesn't re-fire if the user navigates back to Phase 1 manually.
+  // The machine's RESUME_PHASE handler routes directly to the target phase based
+  // on context.draft.phase — no enter actions run, so cursor/sprintPlan/etc.
+  // remain at their persisted values. Phase entry guards (backlogNonEmpty,
+  // planExists, decideTicket always-array) handle sub-state from there.
+  const resumeFiredRef = useRef(false);
+  useEffect(() => {
+    if (resumeFiredRef.current) return;
+    if (initialDraft.phase === "phase1Brainstorming") {
+      resumeFiredRef.current = true;
+      return;
+    }
+    resumeFiredRef.current = true;
+    send({ type: "RESUME_PHASE" });
+  }, [initialDraft.phase, send]);
+
   // Status drives the "Saving…" indicator in the header.
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
 

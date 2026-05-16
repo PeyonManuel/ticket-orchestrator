@@ -716,6 +716,8 @@ export const typeDefs = /* GraphQL */ `
 
   type ChatReplyOutput {
     reply: String!
+    """JSON-encoded BlueprintMutation[] (Phase 2) or RefinementMutation[] (Phase 3). Empty array '[]' if no mutations. Zod-validated client-side. Server-side validation rejects bad mutations and asks the LLM to retry or admit failure in the reply text, so this only contains validated mutations."""
+    mutationsJson: String!
   }
 
   input PlannerChatTurnInput {

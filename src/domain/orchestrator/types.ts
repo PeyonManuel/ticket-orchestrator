@@ -217,7 +217,7 @@ export type BlueprintMutation =
 
 export interface BlueprintChatOutput {
   reply: string;
-  /** Backlog edits the Architect proposes. Empty when the reply is purely conversational. */
+  /** Backlog edits the Architect proposes that passed server-side validation. Failed mutations are spliced into `reply` as a correction note in the AI's voice. */
   mutations?: BlueprintMutation[];
 }
 
@@ -238,12 +238,11 @@ export type RefinementMutation =
   | { kind: "setStoryPoints"; storyPoints: ProposalStoryPoints }
   | { kind: "setLabel"; label: ProposalLabel }
   | { kind: "setDiscipline"; discipline: OrgMemberRole }
-  | { kind: "replaceAcceptanceCriteria"; criteria: string[] }
   | { kind: "replaceRisks"; risks: string[] };
 
 export interface RefinementChatOutput {
   reply: string;
-  /** Field edits the Controller proposes for the active ticket. */
+  /** Field edits the Controller proposes that passed server-side validation. Failed mutations are spliced into `reply` as a correction note in the AI's voice. */
   mutations?: RefinementMutation[];
 }
 
@@ -467,8 +466,13 @@ export interface EpicMemory {
 
 // ── Persistence boundary ─────────────────────────────────────────────
 
+/**
+ * Persistence boundary for orchestrator drafts. The picker queries the list
+ * directly via Apollo `useQuery(GET_EPIC_DRAFTS)` (cache-and-network); this
+ * boundary exists for the in-session lifecycle: load on entry, save on edit,
+ * remove on abandon.
+ */
 export interface DraftStore {
-  list(): Promise<EpicDraftIndexEntry[]>;
   load(id: DraftId): Promise<EpicDraft | null>;
   save(draft: EpicDraft): Promise<void>;
   remove(id: DraftId): Promise<void>;
@@ -635,14 +639,11 @@ export const refinementMutationSchema = z.discriminatedUnion("kind", [
     discipline: orgMemberRoleSchema,
   }),
   z.object({
-    kind: z.literal("replaceAcceptanceCriteria"),
-    criteria: z.array(z.string().min(1)).min(1),
-  }),
-  z.object({
     kind: z.literal("replaceRisks"),
     risks: z.array(z.string().min(1)),
   }),
 ]);
+
 
 const sprintSnapshotSchema = z.object({
   id: z.string(),

@@ -6,6 +6,7 @@ import { useBoardData } from "@/presentation/board/BoardContext";
 import { useInspector } from "./useInspector";
 import type { DriftReport } from "@/domain/analyst";
 import type { EpicMemory, InspectorTurn } from "@/domain/orchestrator/types";
+import { ProseTurn } from "./shared/ProseTurn";
 
 interface Props {
   snapshotId: string;
@@ -186,6 +187,12 @@ function ChatPane({
     if (el) el.scrollTop = el.scrollHeight;
   }, [transcript.length, isThinking]);
 
+  // Auto-scroll on mount (when navigating back to this phase).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
   const handleSend = () => {
     const text = draft.trim();
     if (!text || isThinking) return;
@@ -231,15 +238,13 @@ function ChatPane({
                       {authorName}
                     </p>
                   )}
-                  <div
-                    className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-                      turn.role === "user"
-                        ? "bg-indigo-500 text-white"
-                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
-                    }`}
-                  >
-                    {turn.text}
-                  </div>
+                  {turn.role === "user" ? (
+                    <div className="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap bg-indigo-500 text-white">
+                      {turn.text}
+                    </div>
+                  ) : (
+                    <ProseTurn text={turn.text} className="max-w-[80%] text-sm leading-relaxed" />
+                  )}
                 </motion.div>
               );
             })}
