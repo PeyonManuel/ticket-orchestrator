@@ -92,10 +92,11 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 | `realAi/*Graph.ts` | Per-actor LangChain graphs: analyst, architect, controller, blueprintChat, refinementChat, plannerChat, inspector, inspectorServer |
 | `realAi/client.ts` | Shared Gemini client init |
 | `rag/embeddings.ts` | `gemini-embedding-001` factory (3072d); `composeEpicEmbeddingText` pure helper |
-| `rag/store.ts` | `embedAndStoreEpic` (idempotent upsert), `searchSimilarEpics` (in-process cosine, orgId-scoped) |
+| `rag/store.ts` | Epic embeddings (`embedAndStoreEpic`, `searchSimilarEpics`, `countEpicEmbeddings`) + ticket embeddings (`embedAndStoreCommittedTickets` batch upsert, `searchSimilarTickets`, `countTicketEmbeddings`). All cosine, orgId-scoped, in-process. |
 | `tools/index.ts` | `OrionTool` type, `toolsForPhase` selector |
 | `tools/registry.ts` | `registerTool` API, per-phase buckets |
 | `tools/findSimilarEpics.ts` | orgId-scoped RAG tool factory; orgId captured in closure (never exposed to LLM) |
+| `tools/findSimilarTickets.ts` | Slice O — orgId-scoped semantic anchor tool for Phase 3 story-point estimation; returns hits with committed `storyPoints` |
 
 ### `src/infrastructure/observability/`
 
@@ -143,10 +144,11 @@ Dev server: `npm run dev` → port **3001**. Build output in `.next/`.
 | `PhaseHeader.tsx` | Top bar: 3-dot phase progress, save/discard/close, back-navigation, "Saving…" indicator |
 | `BackNavigationModal.tsx` | Styled confirmation modal for phase back-navigation (replaces browser `confirm()`) |
 | `Phase1Brainstorm.tsx` | Chat with Analyst — bubbles, typing dots, summary card, "Continue to backlog" CTA |
-| `Phase2BulkList.tsx` | Bulk-edit backlog: inline title, label dropdown, ↑↓ reorder, ✕ delete, + add + Phase 2 blueprint chat |
+| `Phase2BulkList.tsx` | Bulk-edit backlog: inline title, label dropdown, ↑↓ reorder, ✕ delete, + add + Phase 2 blueprint chat. List/Graph view toggle (Slice N). Inline dependency picker per ticket with live cycle detection. |
 | `Phase3Wizard.tsx` | One-by-one ticket refinement + Controller risks sidebar + per-ticket refinement chat |
 | `Phase4SprintPlan.tsx` | Sprint planning view — ticket→sprint→assignee assignments, planner chat, "Commit Epic" CTA |
 | `Phase5Inspector.tsx` | Post-commit chat: drift card pinned top, transcript bubbles, thinking dots, memories sidebar |
+| `DependencyGraphView.tsx` | Slice N — React Flow canvas, BFS DAG layout (left-to-right level assignment), color-coded nodes by label, blockedBy solid arrows, relatedTo/duplicates dashed |
 
 ---
 
@@ -289,15 +291,16 @@ CSS `transition-transform` on the `[sidebar | content]` row. Never Framer Motion
 - **Domain policies** — `capacityPolicy` (80% buffer, cold-start defaults), `slicingPolicy` (fit-first overflow, dep-aware), `dependencyPolicy` (topo sort + cycle detection).
 - **Org member roles** — `OrgMemberRole = "developer" | "ux" | "tester" | "po"` set via `setMemberRole` mutation; consumed by Phase 4 planner.
 - **E2E tests** — Playwright bootstrapped; `orchestrator-commit.spec.ts` (Phases 1–4 + commit approve branch) + `inspector.spec.ts` (Phase 5 chat + memory persistence).
-- **Tool infrastructure** — `OrionTool` registry, `toolsForPhase` selector, `bindOrionTools` helper, `findSimilarEpics` tool (Slice L). AC Linter + semantic point estimator pending (Slices M, O).
+- **Tool infrastructure** — `OrionTool` registry, `toolsForPhase` selector, `bindOrionTools` helper. Tools: `findSimilarEpics` (Slice L), `findSimilarTickets` (Slice O).
 - **Proposal label simplification** — `ProposalLabel = "ux" | "developer" | "po" | "qa"`, maps to `OrgMemberRole`. Old labels collapse on next save (Slice I).
+- **Dependency graph visualizer (Slice N)** — `DependencyGraphView.tsx` (React Flow + BFS DAG layout). Wired into `Phase2BulkList` as List/Graph view toggle. Architect prompt emits `dependencies[]` via `targetIndex`; resolved to real ids post-generation. Inline picker in TicketRow with live cycle detection.
+- **Semantic story-point estimator (Slice O)** — Ticket-level embeddings in `rag/store.ts` (`embedAndStoreCommittedTickets`, `searchSimilarTickets`, `countTicketEmbeddings`). `tools/findSimilarTickets.ts` returns hits with `storyPoints` for anchor estimation. Controller agent loop wired (3 rounds, 30s timeout) with corpus-empty fast path. `commitEpicDraft` embeds tickets best-effort alongside epic.
+- **UI polish (Slice P)** — chat textareas accept input during AI think across all phases (keep send disabled until reply arrives). `REDRAFT_BACKLOG` event re-runs architect with `blueprintTranscript` as `hints` so feedback gets incorporated. "Re-scope from Analyst" Phase 4→1 button deferred.
+- **AI-as-actor (Slice Q)** — Architect prompt minimizes `blockedBy`. Blueprint + refinement chat actors emit `mutations: BlueprintMutation[] | RefinementMutation[]` alongside `reply` (discriminated unions + Zod schemas in `domain/orchestrator/types.ts`). Pure `applyBlueprintMutation` / `applyRefinementMutation` helpers in the machine. Ephemeral context: `aiMode: "execute" | "confirm"`, `pending(Blueprint|Refinement)Mutations`, `aiTouchedTicketIds`. Events: `SET_AI_MODE`, `APPLY/DISCARD_PENDING_*`, `CLEAR_AI_TOUCH`. UI: per-phase mode toggle, pending-mutations preview banner (Confirm mode), 2s indigo pulse on AI-touched rows/editor, chat scroll containment (`h-full min-h-0`), AI replies render as ChatGPT-style prose (no bubble), user keeps the WhatsApp-style indigo bubble. Prompts now enumerate explicit capabilities AND non-capabilities so the AI doesn't claim work it can't do. Controller + refinement prompts now require AC to be Given/When/Then (new behavior) or as-is vs to-be (change).
 
 ### Not Built
 - **Capacity-aware planner wiring (Slice C)** — `capacityProvider` exists but orchestrator machine not yet wired to pass real `TeamMemberCapacity[]` into `PlannerInput`. Phase 4 UI: capacity panel, overflow callouts, approve/revise affordances.
-- **AC Linter tool (Slice M)** — pure-function linter for vague AC markers; registered for Phase 3 controller agent loop.
-- **Dependency graph visualizer (Slice N)** — Mermaid/React Flow render of `blockedBy` graph in Phase 2 UI.
-- **Semantic story-point estimator (Slice O)** — `findSimilarTickets` tool using Slice L vector index; wired into Phase 3 controller.
-- **UI polish / non-linear nav (Slice P)** — typing during AI think, re-scope-from-analyst button, re-draft-backlog button.
+- **AC Linter tool (Slice M)** — skipped. Prompt-level guidance in controller deemed sufficient. Reopen if AC quality regresses.
 - **Conflict UI for drag-and-drop** — `moveTicketToColumn` can return `ConflictError` but no UI handles it.
 
 ---

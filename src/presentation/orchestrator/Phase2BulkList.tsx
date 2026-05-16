@@ -1,13 +1,15 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type {
+  BlueprintMutation,
   BrainstormTurn,
   EpicDraft,
   LinkKind,
   ProposalDependency,
   ProposalLabel,
+  ProposalId,
   TicketProposal,
 } from "@/domain/orchestrator/types";
 import type { OrchestratorEvent } from "@/domain/orchestrator";
@@ -19,6 +21,9 @@ interface Props {
   draft: EpicDraft;
   isGenerating: boolean;
   isAwaitingBlueprintReply: boolean;
+  aiMode: "execute" | "confirm";
+  aiTouchedTicketIds: ProposalId[];
+  pendingBlueprintMutations: BlueprintMutation[];
   send: (event: OrchestratorEvent) => void;
 }
 
@@ -50,11 +55,27 @@ function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function Phase2BulkList({ draft, isGenerating, isAwaitingBlueprintReply, send }: Props) {
+export function Phase2BulkList({
+  draft,
+  isGenerating,
+  isAwaitingBlueprintReply,
+  aiMode,
+  aiTouchedTicketIds,
+  pendingBlueprintMutations,
+  send,
+}: Props) {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [backModalOpen, setBackModalOpen] = useState(false);
   const [view, setView] = useState<"list" | "graph">("list");
   const backlog = draft.backlog;
+
+  // Clear AI-touch highlights 2s after they appear so the pulse animation
+  // fires once per round-trip and stops accumulating across replies.
+  useEffect(() => {
+    if (aiTouchedTicketIds.length === 0) return;
+    const t = setTimeout(() => send({ type: "CLEAR_AI_TOUCH" }), 2000);
+    return () => clearTimeout(t);
+  }, [aiTouchedTicketIds, send]);
 
   if (isGenerating || !backlog) {
     return (
@@ -193,6 +214,7 @@ export function Phase2BulkList({ draft, isGenerating, isAwaitingBlueprintReply, 
                       index={idx}
                       total={backlog.tickets.length}
                       allTickets={backlog.tickets}
+                      aiTouched={aiTouchedTicketIds.includes(t.id)}
                       onPatch={(patch) =>
                         send({ type: "PATCH_TICKET", ticketId: t.id, patch, now: now() })
                       }
@@ -259,6 +281,12 @@ export function Phase2BulkList({ draft, isGenerating, isAwaitingBlueprintReply, 
       <BlueprintChatPanel
         transcript={draft.blueprintTranscript}
         isThinking={isAwaitingBlueprintReply}
+        aiMode={aiMode}
+        pendingMutations={pendingBlueprintMutations}
+        backlog={backlog}
+        onModeChange={(mode) => send({ type: "SET_AI_MODE", mode })}
+        onApplyPending={() => send({ type: "APPLY_PENDING_BLUEPRINT_MUTATIONS", now: now() })}
+        onDiscardPending={() => send({ type: "DISCARD_PENDING_BLUEPRINT_MUTATIONS" })}
         onSend={(text) =>
           send({
             type: "BLUEPRINT_USER_MESSAGE",
@@ -286,10 +314,22 @@ export function Phase2BulkList({ draft, isGenerating, isAwaitingBlueprintReply, 
 function BlueprintChatPanel({
   transcript,
   isThinking,
+  aiMode,
+  pendingMutations,
+  backlog,
+  onModeChange,
+  onApplyPending,
+  onDiscardPending,
   onSend,
 }: {
   transcript: BrainstormTurn[];
   isThinking: boolean;
+  aiMode: "execute" | "confirm";
+  pendingMutations: BlueprintMutation[];
+  backlog: { tickets: TicketProposal[]; epicTitle: string; epicDescription: string };
+  onModeChange: (mode: "execute" | "confirm") => void;
+  onApplyPending: () => void;
+  onDiscardPending: () => void;
   onSend: (text: string) => void;
 }) {
   const [input, setInput] = useState("");
@@ -304,54 +344,62 @@ function BlueprintChatPanel({
   };
 
   return (
-    <div className="w-80 xl:w-96 shrink-0 flex flex-col bg-zinc-50 dark:bg-zinc-950">
-      <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800">
-        <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">Blueprint Assistant</p>
-        <p className="text-[10px] text-zinc-500 dark:text-zinc-500 mt-0.5">
-          Ask about structure, scope, or ticket sizing
-        </p>
+    // h-full + min-h-0 lets the inner overflow container scroll independently of
+    // the page; without min-h-0 the flex child grows to fit its content and the
+    // whole window scrolls instead.
+    <div className="w-80 xl:w-96 shrink-0 h-full min-h-0 flex flex-col bg-zinc-50 dark:bg-zinc-950">
+      <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-start justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">Blueprint Assistant</p>
+          <p className="text-[10px] text-zinc-500 dark:text-zinc-500 mt-0.5">
+            Ask about structure, scope, or request changes
+          </p>
+        </div>
+        <ModeToggle mode={aiMode} onChange={onModeChange} />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4">
         {transcript.length === 0 && !isThinking && (
           <p className="text-xs text-zinc-400 dark:text-zinc-600 text-center mt-8">
             Ask the AI about the backlog structure or request changes.
           </p>
         )}
 
-        {transcript.map((turn) => (
-          <div
-            key={turn.id}
-            className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
-                turn.role === "user"
-                  ? "bg-indigo-500 text-white rounded-br-sm"
-                  : "bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 rounded-bl-sm"
-              }`}
-            >
-              {turn.text}
+        {transcript.map((turn) =>
+          turn.role === "user" ? (
+            <div key={turn.id} className="flex justify-end">
+              <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-500 text-white px-3 py-2 text-xs leading-relaxed">
+                {turn.text}
+              </div>
             </div>
-          </div>
-        ))}
+          ) : (
+            <AiTurn key={turn.id} text={turn.text} />
+          ),
+        )}
 
         {isThinking && (
-          <div className="flex justify-start">
-            <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl rounded-bl-sm px-3 py-2.5 flex items-center gap-1">
-              {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500 animate-bounce"
-                  style={{ animationDelay: `${i * 150}ms` }}
-                />
-              ))}
-            </div>
+          <div className="flex items-center gap-1.5 pl-1">
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500 animate-bounce"
+                style={{ animationDelay: `${i * 150}ms` }}
+              />
+            ))}
           </div>
         )}
 
         <div ref={bottomRef} />
       </div>
+
+      {aiMode === "confirm" && pendingMutations.length > 0 && (
+        <PendingMutationsPreview
+          mutations={pendingMutations}
+          backlog={backlog}
+          onApply={onApplyPending}
+          onDiscard={onDiscardPending}
+        />
+      )}
 
       <div className="border-t border-zinc-200 dark:border-zinc-800 p-3">
         <div className="flex items-end gap-2">
@@ -387,6 +435,7 @@ function TicketRow({
   index,
   total,
   allTickets,
+  aiTouched,
   onPatch,
   onRemove,
   onMove,
@@ -395,6 +444,7 @@ function TicketRow({
   index: number;
   total: number;
   allTickets: TicketProposal[];
+  aiTouched: boolean;
   onPatch: (patch: Partial<TicketProposal>) => void;
   onRemove: () => void;
   onMove: (direction: -1 | 1) => void;
@@ -429,13 +479,37 @@ function TicketRow({
     setCycleError(null);
   };
 
+  // 2-second indigo flash when the AI just touched this row. Keyed by
+  // aiTouched flip so a fresh wave re-triggers; the parent dispatches
+  // CLEAR_AI_TOUCH on a timer to reset the flag.
+  const pulseAnimate = aiTouched
+    ? {
+        backgroundColor: [
+          "rgba(99, 102, 241, 0.22)",
+          "rgba(99, 102, 241, 0)",
+        ],
+        borderColor: [
+          "rgba(99, 102, 241, 0.8)",
+          "rgba(228, 228, 231, 1)",
+        ],
+      }
+    : {};
+
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
+      animate={
+        Object.keys(pulseAnimate).length > 0
+          ? { opacity: 1, y: 0, ...pulseAnimate }
+          : { opacity: 1, y: 0 }
+      }
       exit={{ opacity: 0, scale: 0.97 }}
-      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+      transition={
+        aiTouched
+          ? { backgroundColor: { duration: 2, ease: "easeOut" }, borderColor: { duration: 2, ease: "easeOut" }, opacity: { duration: 0.16 }, y: { duration: 0.16 } }
+          : { duration: 0.16, ease: [0.16, 1, 0.3, 1] }
+      }
       className="group rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2.5 hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors"
     >
       {/* Main row */}
@@ -591,5 +665,134 @@ function TicketRow({
         )}
       </AnimatePresence>
     </motion.div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Slice Q helper components
+// ────────────────────────────────────────────────────────────────────────
+
+function ModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: "execute" | "confirm";
+  onChange: (mode: "execute" | "confirm") => void;
+}) {
+  return (
+    <div
+      className="flex rounded-md border border-zinc-200 dark:border-zinc-700 overflow-hidden text-[10px] font-medium"
+      title={
+        mode === "execute"
+          ? "AI applies changes immediately"
+          : "AI proposes; you approve before they land"
+      }
+    >
+      <button
+        onClick={() => onChange("execute")}
+        className={`px-2 py-0.5 transition-colors ${
+          mode === "execute"
+            ? "bg-indigo-500 text-white"
+            : "bg-transparent text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        }`}
+      >
+        Execute
+      </button>
+      <button
+        onClick={() => onChange("confirm")}
+        className={`px-2 py-0.5 border-l border-zinc-200 dark:border-zinc-700 transition-colors ${
+          mode === "confirm"
+            ? "bg-indigo-500 text-white"
+            : "bg-transparent text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        }`}
+      >
+        Confirm
+      </button>
+    </div>
+  );
+}
+
+function AiTurn({ text }: { text: string }) {
+  // Render AI replies as ChatGPT-style prose — no bubble. Preserves paragraph
+  // breaks so multi-paragraph answers read like written text, not chat blurbs.
+  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  return (
+    <div className="text-xs leading-relaxed text-zinc-700 dark:text-zinc-300 space-y-2 pr-2">
+      {paragraphs.map((p, i) => (
+        <p key={i} className="whitespace-pre-wrap">
+          {p}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function describeBlueprintMutation(
+  m: BlueprintMutation,
+  backlog: { tickets: TicketProposal[] },
+): string {
+  const titleOf = (id: string) =>
+    backlog.tickets.find((t) => t.id === id)?.title ?? "(unknown)";
+  switch (m.kind) {
+    case "addTicket":
+      return `Add ${m.hierarchyType} [${m.label}]: ${m.title}`;
+    case "removeTicket":
+      return `Remove: ${titleOf(m.ticketId)}`;
+    case "renameTicket":
+      return `Rename: ${titleOf(m.ticketId)} → ${m.title ?? "(title unchanged)"}`;
+    case "changeLabel":
+      return `Relabel ${titleOf(m.ticketId)} → ${m.label}`;
+    case "reorderTicket":
+      return `Move ${titleOf(m.ticketId)} to position ${m.newIndex + 1}`;
+    case "editEpicTitle":
+      return `Set Epic title: ${m.title}`;
+    case "editEpicDescription":
+      return `Edit Epic description`;
+    case "addDependency":
+      return `Link: ${titleOf(m.sourceTicketId)} ${m.linkKind} ${titleOf(m.targetTicketId)}`;
+    case "removeDependency":
+      return `Unlink: ${titleOf(m.sourceTicketId)} from ${titleOf(m.targetTicketId)}`;
+  }
+}
+
+function PendingMutationsPreview({
+  mutations,
+  backlog,
+  onApply,
+  onDiscard,
+}: {
+  mutations: BlueprintMutation[];
+  backlog: { tickets: TicketProposal[]; epicTitle: string; epicDescription: string };
+  onApply: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <div className="border-t border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 px-4 py-3 space-y-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+        Proposed changes ({mutations.length})
+      </p>
+      <ul className="space-y-1 text-xs text-zinc-700 dark:text-zinc-300 max-h-40 overflow-y-auto">
+        {mutations.map((m, i) => (
+          <li key={i} className="flex gap-1.5">
+            <span className="text-indigo-500 shrink-0">•</span>
+            <span>{describeBlueprintMutation(m, backlog)}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          onClick={onApply}
+          className="rounded bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-semibold px-3 py-1 transition-colors"
+        >
+          Apply
+        </button>
+        <button
+          onClick={onDiscard}
+          className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 px-1"
+        >
+          Discard
+        </button>
+      </div>
+    </div>
   );
 }

@@ -17,6 +17,7 @@ import type {
   BacklogProposal,
   BlueprintChatInput,
   BlueprintChatOutput,
+  BlueprintMutation,
   BrainstormTurn,
   ControllerInput,
   ControllerOutput,
@@ -31,6 +32,7 @@ import type {
   ProposalStoryPoints,
   RefinementChatInput,
   RefinementChatOutput,
+  RefinementMutation,
   SprintSnapshot,
   TeamMemberCapacity,
   TicketProposal,
@@ -100,7 +102,14 @@ export type OrchestratorEvent =
   // Commit / lifecycle
   | { type: "COMMIT_EPIC"; now: string }
   | { type: "ABANDON_DRAFT"; now: string }
-  | { type: "RETRY"; now: string };
+  | { type: "RETRY"; now: string }
+  // ── Slice Q: AI-as-actor ───────────────────────────────────────────
+  | { type: "SET_AI_MODE"; mode: "execute" | "confirm" }
+  | { type: "APPLY_PENDING_BLUEPRINT_MUTATIONS"; now: string }
+  | { type: "DISCARD_PENDING_BLUEPRINT_MUTATIONS" }
+  | { type: "APPLY_PENDING_REFINEMENT_MUTATIONS"; now: string }
+  | { type: "DISCARD_PENDING_REFINEMENT_MUTATIONS" }
+  | { type: "CLEAR_AI_TOUCH" };
 
 // ── Context ─────────────────────────────────────────────────────────
 
@@ -116,6 +125,21 @@ export interface OrchestratorContext {
    * would risk planning against stale numbers across long-lived sessions.
    */
   capacities: TeamMemberCapacity[];
+  /**
+   * UI-controlled mode for how AI-proposed mutations are handled:
+   * - "execute" (default): mutations apply immediately on chat reply.
+   * - "confirm": mutations land in `pending*Mutations` for the PO to accept/reject.
+   * Ephemeral — not persisted on the draft. Defaults to "execute" on each session boot.
+   */
+  aiMode: "execute" | "confirm";
+  pendingBlueprintMutations: BlueprintMutation[];
+  pendingRefinementMutations: RefinementMutation[];
+  /**
+   * Ticket ids the AI just touched (added / patched / reordered). The UI reads
+   * this to drive a 2s pulse animation, then dispatches `CLEAR_AI_TOUCH`.
+   * Ephemeral — not persisted on the draft.
+   */
+  aiTouchedTicketIds: ProposalId[];
 }
 
 export interface OrchestratorInput {
@@ -154,6 +178,210 @@ function patchTicket(
 function currentRefinementTicket(draft: EpicDraft): TicketProposal | null {
   if (!draft.backlog) return null;
   return draft.backlog.tickets[draft.refinementCursor] ?? null;
+}
+
+function uidProposal(): string {
+  if (typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto) {
+    return `prop-${globalThis.crypto.randomUUID().slice(0, 8)}`;
+  }
+  return `prop-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Extract a human-readable message from an unknown error. Handles Error,
+ * ApolloError (graphQLErrors[]/networkError), plain object, and string shapes
+ * — surfaces something useful instead of "undefined" when the LLM provider
+ * (LM Studio, Gemini) returns a malformed body that LangChain re-throws with
+ * an empty `.message`.
+ */
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (typeof err === "string" && err.trim()) return err;
+  if (err && typeof err === "object") {
+    const e = err as {
+      message?: unknown;
+      graphQLErrors?: Array<{ message?: unknown }>;
+      networkError?: { message?: unknown; result?: { errors?: Array<{ message?: unknown }> } };
+      cause?: unknown;
+    };
+    const gql = e.graphQLErrors?.find((g) => typeof g?.message === "string" && g.message);
+    if (gql && typeof gql.message === "string") return gql.message;
+    const netResult = e.networkError?.result?.errors?.find(
+      (g) => typeof g?.message === "string" && g.message,
+    );
+    if (netResult && typeof netResult.message === "string") return netResult.message;
+    if (typeof e.networkError?.message === "string" && e.networkError.message) {
+      return e.networkError.message;
+    }
+    if (typeof e.message === "string" && e.message.trim()) return e.message;
+    if (e.cause) {
+      const causeMsg = extractErrorMessage(e.cause, "");
+      if (causeMsg) return causeMsg;
+    }
+  }
+  return fallback;
+}
+
+/**
+ * Apply a single AI-proposed blueprint mutation to a backlog. Returns the
+ * next backlog plus the set of ticket ids touched (used to drive the pulse
+ * animation). Defensive: silently no-ops on invalid references rather than
+ * throwing — the AI may hallucinate ids.
+ */
+function applyBlueprintMutation(
+  backlog: BacklogProposal,
+  m: BlueprintMutation,
+): { backlog: BacklogProposal; touchedIds: ProposalId[] } {
+  switch (m.kind) {
+    case "addTicket": {
+      const newTicket: TicketProposal = {
+        id: uidProposal(),
+        hierarchyType: m.hierarchyType,
+        title: m.title,
+        oneLiner: m.oneLiner,
+        description: "",
+        label: m.label,
+        acceptanceCriteria: [],
+        storyPoints: null,
+        risks: [],
+        refined: false,
+        transcript: [],
+      };
+      const tickets = [...backlog.tickets];
+      if (typeof m.afterTicketId === "string") {
+        const idx = tickets.findIndex((t) => t.id === m.afterTicketId);
+        if (idx >= 0) tickets.splice(idx + 1, 0, newTicket);
+        else tickets.push(newTicket);
+      } else {
+        tickets.push(newTicket);
+      }
+      return { backlog: { ...backlog, tickets }, touchedIds: [newTicket.id] };
+    }
+    case "removeTicket": {
+      const exists = backlog.tickets.some((t) => t.id === m.ticketId);
+      if (!exists) return { backlog, touchedIds: [] };
+      return {
+        backlog: { ...backlog, tickets: backlog.tickets.filter((t) => t.id !== m.ticketId) },
+        touchedIds: [],
+      };
+    }
+    case "renameTicket": {
+      const patch: Partial<TicketProposal> = {};
+      if (m.title !== undefined) patch.title = m.title;
+      if (m.oneLiner !== undefined) patch.oneLiner = m.oneLiner;
+      if (Object.keys(patch).length === 0) return { backlog, touchedIds: [] };
+      return {
+        backlog: patchTicket(backlog, m.ticketId, patch),
+        touchedIds: [m.ticketId],
+      };
+    }
+    case "changeLabel": {
+      return {
+        backlog: patchTicket(backlog, m.ticketId, { label: m.label }),
+        touchedIds: [m.ticketId],
+      };
+    }
+    case "reorderTicket": {
+      const idx = backlog.tickets.findIndex((t) => t.id === m.ticketId);
+      if (idx < 0) return { backlog, touchedIds: [] };
+      const target = Math.max(0, Math.min(backlog.tickets.length - 1, m.newIndex));
+      if (idx === target) return { backlog, touchedIds: [] };
+      const tickets = [...backlog.tickets];
+      const [moved] = tickets.splice(idx, 1);
+      tickets.splice(target, 0, moved);
+      return { backlog: { ...backlog, tickets }, touchedIds: [m.ticketId] };
+    }
+    case "editEpicTitle": {
+      return { backlog: { ...backlog, epicTitle: m.title }, touchedIds: [] };
+    }
+    case "editEpicDescription": {
+      return { backlog: { ...backlog, epicDescription: m.description }, touchedIds: [] };
+    }
+    case "addDependency": {
+      const exists = backlog.tickets.some((t) => t.id === m.sourceTicketId);
+      const targetExists = backlog.tickets.some((t) => t.id === m.targetTicketId);
+      if (!exists || !targetExists || m.sourceTicketId === m.targetTicketId)
+        return { backlog, touchedIds: [] };
+      const next = backlog.tickets.map((t) => {
+        if (t.id !== m.sourceTicketId) return t;
+        const deps = t.dependencies ?? [];
+        const dup = deps.some(
+          (d) => d.kind === m.linkKind && d.targetProposalId === m.targetTicketId,
+        );
+        if (dup) return t;
+        return {
+          ...t,
+          dependencies: [
+            ...deps,
+            { kind: m.linkKind, targetProposalId: m.targetTicketId },
+          ],
+        };
+      });
+      return {
+        backlog: { ...backlog, tickets: next },
+        touchedIds: [m.sourceTicketId],
+      };
+    }
+    case "removeDependency": {
+      const next = backlog.tickets.map((t) => {
+        if (t.id !== m.sourceTicketId) return t;
+        const deps = t.dependencies ?? [];
+        return {
+          ...t,
+          dependencies: deps.filter(
+            (d) =>
+              !(d.kind === m.linkKind && d.targetProposalId === m.targetTicketId),
+          ),
+        };
+      });
+      return {
+        backlog: { ...backlog, tickets: next },
+        touchedIds: [m.sourceTicketId],
+      };
+    }
+  }
+}
+
+function applyBlueprintMutations(
+  backlog: BacklogProposal,
+  mutations: BlueprintMutation[],
+): { backlog: BacklogProposal; touchedIds: ProposalId[] } {
+  let current = backlog;
+  const touched: ProposalId[] = [];
+  for (const m of mutations) {
+    const { backlog: next, touchedIds } = applyBlueprintMutation(current, m);
+    current = next;
+    for (const id of touchedIds) {
+      if (!touched.includes(id)) touched.push(id);
+    }
+  }
+  return { backlog: current, touchedIds: touched };
+}
+
+function applyRefinementMutation(
+  ticket: TicketProposal,
+  m: RefinementMutation,
+): TicketProposal {
+  switch (m.kind) {
+    case "setDescription":
+      return { ...ticket, description: m.description };
+    case "setStoryPoints":
+      return { ...ticket, storyPoints: m.storyPoints };
+    case "setLabel":
+      return { ...ticket, label: m.label };
+    case "setDiscipline":
+      return { ...ticket, discipline: m.discipline };
+    case "replaceAcceptanceCriteria":
+      return { ...ticket, acceptanceCriteria: m.criteria };
+    case "replaceRisks":
+      return { ...ticket, risks: m.risks };
+  }
+}
+
+function applyRefinementMutations(
+  ticket: TicketProposal,
+  mutations: RefinementMutation[],
+): TicketProposal {
+  return mutations.reduce(applyRefinementMutation, ticket);
 }
 
 // ── Setup ───────────────────────────────────────────────────────────
@@ -268,12 +496,34 @@ export const orchestratorMachine = setup({
         text: params.output.reply,
         createdAt: params.now,
       };
+      const mutations = params.output.mutations ?? [];
+      // Execute mode: apply mutations immediately + track touched ids for pulse.
+      // Confirm mode: stage them for the PO to approve/reject.
+      if (context.aiMode === "execute" && context.draft.backlog && mutations.length > 0) {
+        const { backlog: nextBacklog, touchedIds } = applyBlueprintMutations(
+          context.draft.backlog,
+          mutations,
+        );
+        return {
+          draft: {
+            ...context.draft,
+            backlog: nextBacklog,
+            blueprintTranscript: [...context.draft.blueprintTranscript, turn],
+            updatedAt: params.now,
+          },
+          aiTouchedTicketIds: touchedIds,
+          pendingBlueprintMutations: [],
+          error: null,
+        };
+      }
       return {
         draft: {
           ...context.draft,
           blueprintTranscript: [...context.draft.blueprintTranscript, turn],
           updatedAt: params.now,
         },
+        pendingBlueprintMutations:
+          context.aiMode === "confirm" ? mutations : context.pendingBlueprintMutations,
         error: null,
       };
     }),
@@ -310,6 +560,26 @@ export const orchestratorMachine = setup({
         text: params.output.reply,
         createdAt: params.now,
       };
+      const mutations = params.output.mutations ?? [];
+      // Execute mode: apply field edits in place + pulse current ticket.
+      // Confirm mode: stage in pendingRefinementMutations for review.
+      if (context.aiMode === "execute" && mutations.length > 0) {
+        const nextTicket = applyRefinementMutations(ticket, mutations);
+        const withTurn: TicketProposal = {
+          ...nextTicket,
+          transcript: [...(nextTicket.transcript ?? []), turn],
+        };
+        return {
+          draft: withBacklog(
+            context.draft,
+            patchTicket(context.draft.backlog, ticket.id, withTurn),
+            params.now,
+          ),
+          aiTouchedTicketIds: [ticket.id],
+          pendingRefinementMutations: [],
+          error: null,
+        };
+      }
       return {
         draft: withBacklog(
           context.draft,
@@ -318,6 +588,8 @@ export const orchestratorMachine = setup({
           }),
           params.now,
         ),
+        pendingRefinementMutations:
+          context.aiMode === "confirm" ? mutations : context.pendingRefinementMutations,
         error: null,
       };
     }),
@@ -658,6 +930,63 @@ export const orchestratorMachine = setup({
     }),
 
     clearError: assign(() => ({ error: null })),
+
+    // ── Slice Q actions ───────────────────────────────────────────────
+    setAiMode: assign(({ event }) => {
+      if (event.type !== "SET_AI_MODE") return {};
+      return { aiMode: event.mode };
+    }),
+
+    applyPendingBlueprintMutations: assign(({ context, event }) => {
+      if (event.type !== "APPLY_PENDING_BLUEPRINT_MUTATIONS" || !context.draft.backlog)
+        return {};
+      const { backlog: nextBacklog, touchedIds } = applyBlueprintMutations(
+        context.draft.backlog,
+        context.pendingBlueprintMutations,
+      );
+      return {
+        draft: {
+          ...context.draft,
+          backlog: nextBacklog,
+          updatedAt: event.now,
+        },
+        pendingBlueprintMutations: [],
+        aiTouchedTicketIds: touchedIds,
+      };
+    }),
+
+    discardPendingBlueprintMutations: assign(() => ({
+      pendingBlueprintMutations: [],
+    })),
+
+    applyPendingRefinementMutations: assign(({ context, event }) => {
+      if (
+        event.type !== "APPLY_PENDING_REFINEMENT_MUTATIONS" ||
+        !context.draft.backlog
+      )
+        return {};
+      const ticket = currentRefinementTicket(context.draft);
+      if (!ticket) return {};
+      const nextTicket = applyRefinementMutations(
+        ticket,
+        context.pendingRefinementMutations,
+      );
+      return {
+        draft: withBacklog(
+          context.draft,
+          patchTicket(context.draft.backlog, ticket.id, nextTicket),
+          event.now,
+        ),
+        pendingRefinementMutations: [],
+        aiTouchedTicketIds: [ticket.id],
+      };
+    }),
+
+    discardPendingRefinementMutations: assign(() => ({
+      pendingRefinementMutations: [],
+    })),
+
+    clearAiTouch: assign(() => ({ aiTouchedTicketIds: [] })),
   },
 }).createMachine({
   id: "orchestrator",
@@ -667,6 +996,10 @@ export const orchestratorMachine = setup({
     draft: input.draft,
     error: null,
     capacities: input.capacities ?? [],
+    aiMode: "execute",
+    pendingBlueprintMutations: [],
+    pendingRefinementMutations: [],
+    aiTouchedTicketIds: [],
   }),
 
   states: {
@@ -677,6 +1010,21 @@ export const orchestratorMachine = setup({
         ABANDON_DRAFT: {
           target: ".abandoned",
           actions: { type: "markAbandoned" },
+        },
+        // Slice Q — mutation control events are valid in any workflow state.
+        SET_AI_MODE: { actions: "setAiMode" },
+        CLEAR_AI_TOUCH: { actions: "clearAiTouch" },
+        APPLY_PENDING_BLUEPRINT_MUTATIONS: {
+          actions: "applyPendingBlueprintMutations",
+        },
+        DISCARD_PENDING_BLUEPRINT_MUTATIONS: {
+          actions: "discardPendingBlueprintMutations",
+        },
+        APPLY_PENDING_REFINEMENT_MUTATIONS: {
+          actions: "applyPendingRefinementMutations",
+        },
+        DISCARD_PENDING_REFINEMENT_MUTATIONS: {
+          actions: "discardPendingRefinementMutations",
         },
       },
 
@@ -732,10 +1080,7 @@ export const orchestratorMachine = setup({
                   actions: {
                     type: "captureError",
                     params: ({ event }) => ({
-                      message:
-                        event.error instanceof Error
-                          ? event.error.message
-                          : "Analyst failed to respond",
+                      message: extractErrorMessage(event.error, "Analyst failed to respond"),
                     }),
                   },
                 },
@@ -754,7 +1099,7 @@ export const orchestratorMachine = setup({
                 { guard: "backlogNonEmpty", target: "reviewingBulk" },
               ],
               after: {
-                45000: {
+                120000: {
                   target: "#orchestrator.workflow.error",
                   actions: { type: "captureError", params: { message: "Architect timed out — AI didn't respond. Try again." } },
                 },
@@ -785,10 +1130,7 @@ export const orchestratorMachine = setup({
                   actions: {
                     type: "captureError",
                     params: ({ event }) => ({
-                      message:
-                        event.error instanceof Error
-                          ? event.error.message
-                          : "Architect failed to generate backlog",
+                      message: extractErrorMessage(event.error, "Architect failed to generate backlog"),
                     }),
                   },
                 },
@@ -861,10 +1203,7 @@ export const orchestratorMachine = setup({
                   actions: {
                     type: "captureError",
                     params: ({ event }) => ({
-                      message:
-                        event.error instanceof Error
-                          ? event.error.message
-                          : "Blueprint assistant failed",
+                      message: extractErrorMessage(event.error, "Blueprint assistant failed"),
                     }),
                   },
                 },
@@ -925,10 +1264,7 @@ export const orchestratorMachine = setup({
                   actions: {
                     type: "captureError",
                     params: ({ event }) => ({
-                      message:
-                        event.error instanceof Error
-                          ? event.error.message
-                          : "Controller failed to refine ticket",
+                      message: extractErrorMessage(event.error, "Controller failed to refine ticket"),
                     }),
                   },
                 },
@@ -993,10 +1329,7 @@ export const orchestratorMachine = setup({
                   actions: {
                     type: "captureError",
                     params: ({ event }) => ({
-                      message:
-                        event.error instanceof Error
-                          ? event.error.message
-                          : "Refinement assistant failed",
+                      message: extractErrorMessage(event.error, "Refinement assistant failed"),
                     }),
                   },
                 },
@@ -1059,10 +1392,7 @@ export const orchestratorMachine = setup({
                   actions: {
                     type: "captureError",
                     params: ({ event }) => ({
-                      message:
-                        event.error instanceof Error
-                          ? event.error.message
-                          : "Sprint planner failed",
+                      message: extractErrorMessage(event.error, "Sprint planner failed"),
                     }),
                   },
                 },
@@ -1122,10 +1452,7 @@ export const orchestratorMachine = setup({
                   actions: {
                     type: "captureError",
                     params: ({ event }) => ({
-                      message:
-                        event.error instanceof Error
-                          ? event.error.message
-                          : "Planner chat failed",
+                      message: extractErrorMessage(event.error, "Planner chat failed"),
                     }),
                   },
                 },

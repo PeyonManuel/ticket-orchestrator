@@ -25,7 +25,10 @@ const SYSTEM_PROMPT = `You are the Controller in a 4-phase AI orchestrator. The 
 
 Output discipline:
 - description: 1-2 paragraphs. State the WHAT and WHY clearly. Mention the boundary of the work (what's in, what's out for this ticket).
-- acceptanceCriteria: 3-5 items, phrased Given/When/Then. Each must be testable — no "the user should feel happy". Always cover happy path + at least one failure/edge case.
+- acceptanceCriteria: 3-5 items, each in ONE of two formats depending on what kind of statement it is:
+  • **New behavior / new requirement** → Given/When/Then. Example: "Given the cart is empty, when the user clicks Checkout, then a 'Your cart is empty' state is shown with a CTA to browse products."
+  • **Change to existing behavior** → as-is vs to-be. Example: "As-is: error toast disappears after 3s. To-be: error toast persists until dismissed or until the next user action."
+  Mixed lists are fine. Each AC must be testable, one or two sentences max — no "the user should feel happy", no "intuitive", no metric-less performance claims. Always cover happy path + at least one failure/edge case.
 - storyPoints: Fibonacci, one of 1, 2, 3, 5, 8, 13. Use 1 for trivial config; 2-3 for simple feature work; 5 for typical features; 8 for cross-cutting work; 13 if it really needs splitting (flag in risks).
 - risks: 1-3 specific concerns (dependencies, data migration, multi-tenancy, perf, integration). Empty array if genuinely none — don't pad.
 

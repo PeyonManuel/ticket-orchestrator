@@ -175,8 +175,50 @@ export interface BlueprintChatInput {
   userMessage: string;
 }
 
+/**
+ * Mutations the Architect can propose against the current backlog in Phase 2.
+ * Each variant is keyed by `kind` so the machine can dispatch a typed event.
+ * Tickets are referenced by id (LLM gets the ids in the system prompt).
+ * `addTicket.afterTicketId === null` means "insert at the top".
+ */
+export type BlueprintMutation =
+  | {
+      kind: "addTicket";
+      title: string;
+      oneLiner: string;
+      label: ProposalLabel;
+      hierarchyType: "story" | "task";
+      /** Insert immediately after this ticket. Absent → append at the end. */
+      afterTicketId?: string;
+    }
+  | { kind: "removeTicket"; ticketId: ProposalId }
+  | {
+      kind: "renameTicket";
+      ticketId: ProposalId;
+      title?: string;
+      oneLiner?: string;
+    }
+  | { kind: "changeLabel"; ticketId: ProposalId; label: ProposalLabel }
+  | { kind: "reorderTicket"; ticketId: ProposalId; newIndex: number }
+  | { kind: "editEpicTitle"; title: string }
+  | { kind: "editEpicDescription"; description: string }
+  | {
+      kind: "addDependency";
+      sourceTicketId: ProposalId;
+      targetTicketId: ProposalId;
+      linkKind: LinkKind;
+    }
+  | {
+      kind: "removeDependency";
+      sourceTicketId: ProposalId;
+      targetTicketId: ProposalId;
+      linkKind: LinkKind;
+    };
+
 export interface BlueprintChatOutput {
   reply: string;
+  /** Backlog edits the Architect proposes. Empty when the reply is purely conversational. */
+  mutations?: BlueprintMutation[];
 }
 
 export interface RefinementChatInput {
@@ -186,8 +228,23 @@ export interface RefinementChatInput {
   userMessage: string;
 }
 
+/**
+ * Single-ticket mutations the Controller can propose in Phase 3.
+ * Arrays use replace semantics (LLM emits the full new list) since the
+ * Controller's job is to refine the ticket as a whole.
+ */
+export type RefinementMutation =
+  | { kind: "setDescription"; description: string }
+  | { kind: "setStoryPoints"; storyPoints: ProposalStoryPoints }
+  | { kind: "setLabel"; label: ProposalLabel }
+  | { kind: "setDiscipline"; discipline: OrgMemberRole }
+  | { kind: "replaceAcceptanceCriteria"; criteria: string[] }
+  | { kind: "replaceRisks"; risks: string[] };
+
 export interface RefinementChatOutput {
   reply: string;
+  /** Field edits the Controller proposes for the active ticket. */
+  mutations?: RefinementMutation[];
 }
 
 // ── Phase 4 Sprint Planning ──────────────────────────────────────────
@@ -506,6 +563,86 @@ export const controllerOutputSchema = z.object({
   storyPoints: proposalStoryPointsSchema,
   risks: z.array(z.string()),
 });
+
+// ── Chat mutation schemas ────────────────────────────────────────────
+
+export const blueprintMutationSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("addTicket"),
+    title: z.string().min(1),
+    oneLiner: z.string(),
+    label: proposalLabelSchema,
+    hierarchyType: z.enum(["story", "task"]),
+    afterTicketId: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("removeTicket"),
+    ticketId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("renameTicket"),
+    ticketId: z.string().min(1),
+    title: z.string().optional(),
+    oneLiner: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("changeLabel"),
+    ticketId: z.string().min(1),
+    label: proposalLabelSchema,
+  }),
+  z.object({
+    kind: z.literal("reorderTicket"),
+    ticketId: z.string().min(1),
+    newIndex: z.number().int().min(0),
+  }),
+  z.object({
+    kind: z.literal("editEpicTitle"),
+    title: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("editEpicDescription"),
+    description: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("addDependency"),
+    sourceTicketId: z.string().min(1),
+    targetTicketId: z.string().min(1),
+    linkKind: linkKindSchema,
+  }),
+  z.object({
+    kind: z.literal("removeDependency"),
+    sourceTicketId: z.string().min(1),
+    targetTicketId: z.string().min(1),
+    linkKind: linkKindSchema,
+  }),
+]);
+
+export const refinementMutationSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("setDescription"),
+    description: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("setStoryPoints"),
+    storyPoints: proposalStoryPointsSchema,
+  }),
+  z.object({
+    kind: z.literal("setLabel"),
+    label: proposalLabelSchema,
+  }),
+  z.object({
+    kind: z.literal("setDiscipline"),
+    discipline: orgMemberRoleSchema,
+  }),
+  z.object({
+    kind: z.literal("replaceAcceptanceCriteria"),
+    criteria: z.array(z.string().min(1)).min(1),
+  }),
+  z.object({
+    kind: z.literal("replaceRisks"),
+    risks: z.array(z.string().min(1)),
+  }),
+]);
 
 const sprintSnapshotSchema = z.object({
   id: z.string(),

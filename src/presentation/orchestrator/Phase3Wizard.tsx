@@ -1,11 +1,14 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import type {
   BrainstormTurn,
   EpicDraft,
+  ProposalId,
+  ProposalLabel,
   ProposalStoryPoints,
+  RefinementMutation,
   TicketProposal,
 } from "@/domain/orchestrator/types";
 import type { OrchestratorEvent } from "@/domain/orchestrator";
@@ -17,6 +20,9 @@ interface Props {
   isAwaitingRefinementReply: boolean;
   /** True once the cursor is past the last ticket. */
   atSummary: boolean;
+  aiMode: "execute" | "confirm";
+  aiTouchedTicketIds: ProposalId[];
+  pendingRefinementMutations: RefinementMutation[];
   send: (event: OrchestratorEvent) => void;
   onAdvanceToPlan: () => void;
 }
@@ -35,10 +41,21 @@ export function Phase3Wizard({
   isAnalyzing,
   isAwaitingRefinementReply,
   atSummary,
+  aiMode,
+  aiTouchedTicketIds,
+  pendingRefinementMutations,
   send,
   onAdvanceToPlan,
 }: Props) {
   const backlog = draft.backlog;
+
+  // Clear AI-touch flag 2s after it lights up, so the editor pulse fires once.
+  useEffect(() => {
+    if (aiTouchedTicketIds.length === 0) return;
+    const t = setTimeout(() => send({ type: "CLEAR_AI_TOUCH" }), 2000);
+    return () => clearTimeout(t);
+  }, [aiTouchedTicketIds, send]);
+
   if (!backlog) return null;
 
   if (atSummary) {
@@ -51,6 +68,7 @@ export function Phase3Wizard({
   const cursor = draft.refinementCursor;
   const now = () => new Date().toISOString();
   const isThinking = isAnalyzing || isAwaitingRefinementReply;
+  const aiTouched = aiTouchedTicketIds.includes(ticket.id);
 
   return (
     <div className="flex flex-col h-full">
@@ -84,9 +102,10 @@ export function Phase3Wizard({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 h-[calc(100vh-220px)]">
               <TicketEditor
                 ticket={ticket}
+                aiTouched={aiTouched}
                 onPatch={(patch) =>
                   send({
                     type: "PATCH_TICKET",
@@ -99,6 +118,15 @@ export function Phase3Wizard({
               <RefinementPanel
                 ticket={ticket}
                 isThinking={isAwaitingRefinementReply}
+                aiMode={aiMode}
+                pendingMutations={pendingRefinementMutations}
+                onModeChange={(mode) => send({ type: "SET_AI_MODE", mode })}
+                onApplyPending={() =>
+                  send({ type: "APPLY_PENDING_REFINEMENT_MUTATIONS", now: now() })
+                }
+                onDiscardPending={() =>
+                  send({ type: "DISCARD_PENDING_REFINEMENT_MUTATIONS" })
+                }
                 onSend={(text) =>
                   send({
                     type: "REFINEMENT_USER_MESSAGE",
@@ -136,13 +164,30 @@ export function Phase3Wizard({
 
   function TicketEditor({
     ticket,
+    aiTouched,
     onPatch,
   }: {
     ticket: TicketProposal;
+    aiTouched: boolean;
     onPatch: (patch: Partial<TicketProposal>) => void;
   }) {
     return (
-      <div className="space-y-4">
+      <motion.div
+        animate={
+          aiTouched
+            ? {
+                backgroundColor: [
+                  "rgba(99, 102, 241, 0.10)",
+                  "rgba(99, 102, 241, 0)",
+                ],
+              }
+            : {}
+        }
+        transition={
+          aiTouched ? { duration: 2, ease: "easeOut" } : { duration: 0 }
+        }
+        className="space-y-4 rounded-xl p-2 overflow-y-auto min-h-0"
+      >
         <div>
           <label className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
             Title
@@ -235,7 +280,7 @@ export function Phase3Wizard({
             })}
           </div>
         </div>
-      </div>
+      </motion.div>
     );
   }
 }
@@ -243,10 +288,20 @@ export function Phase3Wizard({
 function RefinementPanel({
   ticket,
   isThinking,
+  aiMode,
+  pendingMutations,
+  onModeChange,
+  onApplyPending,
+  onDiscardPending,
   onSend,
 }: {
   ticket: TicketProposal;
   isThinking: boolean;
+  aiMode: "execute" | "confirm";
+  pendingMutations: RefinementMutation[];
+  onModeChange: (mode: "execute" | "confirm") => void;
+  onApplyPending: () => void;
+  onDiscardPending: () => void;
   onSend: (text: string) => void;
 }) {
   const [input, setInput] = useState("");
@@ -261,52 +316,56 @@ function RefinementPanel({
   };
 
   return (
-    <aside className="flex flex-col gap-4">
-      {/* Refinement chat */}
-      <div className="flex flex-col rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden flex-1 min-h-[220px]">
-        <div className="px-3 py-2.5 border-b border-zinc-100 dark:border-zinc-800">
+    <aside className="flex flex-col gap-4 h-full min-h-0">
+      {/* Refinement chat — h-full + min-h-0 so the message list scrolls internally
+          rather than pushing the whole page. */}
+      <div className="flex flex-col rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden flex-1 min-h-0">
+        <div className="px-3 py-2.5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Refinement
           </p>
+          <ChatModeToggle mode={aiMode} onChange={onModeChange} />
         </div>
 
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
           {ticket.transcript.length === 0 && !isThinking && (
             <p className="text-[10px] text-zinc-400 dark:text-zinc-600 text-center mt-4">
               Keep refining — adjust scope, points, risks, or criteria.
             </p>
           )}
-          {ticket.transcript.map((turn: BrainstormTurn) => (
-            <div
-              key={turn.id}
-              className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[90%] rounded-xl px-2.5 py-1.5 text-[11px] leading-relaxed ${
-                  turn.role === "user"
-                    ? "bg-indigo-500 text-white rounded-br-sm"
-                    : "bg-zinc-50 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 rounded-bl-sm"
-                }`}
-              >
-                {turn.text}
+          {ticket.transcript.map((turn: BrainstormTurn) =>
+            turn.role === "user" ? (
+              <div key={turn.id} className="flex justify-end">
+                <div className="max-w-[90%] rounded-xl rounded-br-sm bg-indigo-500 text-white px-2.5 py-1.5 text-[11px] leading-relaxed">
+                  {turn.text}
+                </div>
               </div>
-            </div>
-          ))}
+            ) : (
+              <ProseTurn key={turn.id} text={turn.text} />
+            ),
+          )}
           {isThinking && (
-            <div className="flex justify-start">
-              <div className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl rounded-bl-sm px-2.5 py-2 flex items-center gap-1">
-                {[0, 1, 2].map((i) => (
-                  <span
-                    key={i}
-                    className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500 animate-bounce"
-                    style={{ animationDelay: `${i * 150}ms` }}
-                  />
-                ))}
-              </div>
+            <div className="flex items-center gap-1.5 pl-1">
+              {[0, 1, 2].map((i) => (
+                <span
+                  key={i}
+                  className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500 animate-bounce"
+                  style={{ animationDelay: `${i * 150}ms` }}
+                />
+              ))}
             </div>
           )}
           <div ref={bottomRef} />
         </div>
+
+        {aiMode === "confirm" && pendingMutations.length > 0 && (
+          <PendingRefinementPreview
+            mutations={pendingMutations}
+            ticket={ticket}
+            onApply={onApplyPending}
+            onDiscard={onDiscardPending}
+          />
+        )}
 
         <div className="border-t border-zinc-100 dark:border-zinc-800 p-2.5">
           <div className="flex items-end gap-1.5">
@@ -335,6 +394,123 @@ function RefinementPanel({
         </div>
       </div>
     </aside>
+  );
+}
+
+function ChatModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: "execute" | "confirm";
+  onChange: (mode: "execute" | "confirm") => void;
+}) {
+  return (
+    <div
+      className="flex rounded-md border border-zinc-200 dark:border-zinc-700 overflow-hidden text-[9px] font-medium"
+      title={
+        mode === "execute"
+          ? "AI applies changes immediately"
+          : "AI proposes; you approve before they land"
+      }
+    >
+      <button
+        onClick={() => onChange("execute")}
+        className={`px-1.5 py-0.5 transition-colors ${
+          mode === "execute"
+            ? "bg-indigo-500 text-white"
+            : "bg-transparent text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        }`}
+      >
+        Execute
+      </button>
+      <button
+        onClick={() => onChange("confirm")}
+        className={`px-1.5 py-0.5 border-l border-zinc-200 dark:border-zinc-700 transition-colors ${
+          mode === "confirm"
+            ? "bg-indigo-500 text-white"
+            : "bg-transparent text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        }`}
+      >
+        Confirm
+      </button>
+    </div>
+  );
+}
+
+function ProseTurn({ text }: { text: string }) {
+  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  return (
+    <div className="text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-300 space-y-2 pr-1">
+      {paragraphs.map((p, i) => (
+        <p key={i} className="whitespace-pre-wrap">
+          {p}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function describeRefinementMutation(
+  m: RefinementMutation,
+  ticket: TicketProposal,
+): string {
+  switch (m.kind) {
+    case "setDescription": {
+      const before = ticket.description?.slice(0, 60) ?? "(empty)";
+      return `Rewrite description (was: "${before}${ticket.description.length > 60 ? "…" : ""}")`;
+    }
+    case "setStoryPoints":
+      return `Set story points: ${ticket.storyPoints ?? "—"} → ${m.storyPoints}`;
+    case "setLabel":
+      return `Relabel: ${ticket.label} → ${m.label as ProposalLabel}`;
+    case "setDiscipline":
+      return `Set discipline: ${ticket.discipline ?? "(unset)"} → ${m.discipline}`;
+    case "replaceAcceptanceCriteria":
+      return `Replace acceptance criteria (${ticket.acceptanceCriteria.length} → ${m.criteria.length} items)`;
+    case "replaceRisks":
+      return `Replace risks (${ticket.risks.length} → ${m.risks.length} items)`;
+  }
+}
+
+function PendingRefinementPreview({
+  mutations,
+  ticket,
+  onApply,
+  onDiscard,
+}: {
+  mutations: RefinementMutation[];
+  ticket: TicketProposal;
+  onApply: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <div className="border-t border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 px-3 py-2.5 space-y-1.5">
+      <p className="text-[9px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+        Proposed changes ({mutations.length})
+      </p>
+      <ul className="space-y-1 text-[11px] text-zinc-700 dark:text-zinc-300 max-h-32 overflow-y-auto">
+        {mutations.map((m, i) => (
+          <li key={i} className="flex gap-1.5">
+            <span className="text-indigo-500 shrink-0">•</span>
+            <span>{describeRefinementMutation(m, ticket)}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-center gap-2 pt-0.5">
+        <button
+          onClick={onApply}
+          className="rounded bg-indigo-500 hover:bg-indigo-600 text-white text-[11px] font-semibold px-2.5 py-0.5 transition-colors"
+        >
+          Apply
+        </button>
+        <button
+          onClick={onDiscard}
+          className="text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 px-1"
+        >
+          Discard
+        </button>
+      </div>
+    </div>
   );
 }
 

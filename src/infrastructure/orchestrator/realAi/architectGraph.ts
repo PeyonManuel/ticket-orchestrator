@@ -32,7 +32,7 @@ Output discipline:
 - hierarchyType "story" for user-visible outcomes; "task" for internal supporting work.
 - Consider the magnitude of the work to decide how many tickets to propose. Cover: data model / contracts, core flow, edge cases (empty / error / loading), persistence, observability, tests, rollout/flag, UX polish.
 - Do not invent scope beyond the Phase 1 summary. If the summary explicitly excludes something, exclude it.
-- Dependencies: after drafting the ticket list, add blockedBy links where one ticket genuinely cannot start until another finishes (e.g. "DB schema" blockedBy "data model design"). Use targetIndex (0-based position in the tickets array). Leave empty when order is flexible. Never create cycles.
+- Dependencies: minimize blockedBy — most work should be parallelizable. Add blockedBy only when one ticket truly cannot start before another finishes (e.g. "DB schema" blockedBy "data model design"). Use targetIndex (0-based position in the tickets array). Leave empty when order is flexible. Never create cycles.
 
 Tool use:
 - If 'find_similar_epics' is available, call it once with a short query describing this epic BEFORE drafting the backlog. Mirror successful structure (granularity, ordering, label distribution) when patterns clearly match. If hits are empty or unrelated, proceed from the summary alone.
@@ -119,7 +119,7 @@ export async function runArchitectBacklog(
     ),
   ];
 
-  const signal = AbortSignal.timeout(45_000);
+  const signal = AbortSignal.timeout(120_000);
   const messages = await runAgentLoop(llm, tools, initialMessages, 4, signal);
 
   const structured = llm.withStructuredOutput(architectResponseSchema, {

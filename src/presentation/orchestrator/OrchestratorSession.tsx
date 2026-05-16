@@ -282,6 +282,9 @@ function ActiveSession({
                 draft={draft}
                 isGenerating={isPhase2Generating}
                 isAwaitingBlueprintReply={isAwaitingBlueprintReply}
+                aiMode={state.context.aiMode}
+                aiTouchedTicketIds={state.context.aiTouchedTicketIds}
+                pendingBlueprintMutations={state.context.pendingBlueprintMutations}
                 send={send}
               />
             </PhasePane>
@@ -293,6 +296,9 @@ function ActiveSession({
                 isAnalyzing={isPhase3Analyzing}
                 isAwaitingRefinementReply={isAwaitingRefinementReply}
                 atSummary={atSummary}
+                aiMode={state.context.aiMode}
+                aiTouchedTicketIds={state.context.aiTouchedTicketIds}
+                pendingRefinementMutations={state.context.pendingRefinementMutations}
                 send={send}
                 onAdvanceToPlan={handleAdvanceToPlan}
               />

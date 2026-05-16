@@ -4,27 +4,55 @@ import type {
   BlueprintChatInput,
   BlueprintChatOutput,
 } from "@/domain/orchestrator/types";
+import { blueprintMutationSchema } from "@/domain/orchestrator/types";
 import { createOrchestratorLLM } from "../llm";
 
 /**
- * Phase 2 chat: PO asks questions / requests changes about the proposed
- * backlog. Returns a single conversational reply. Backlog edits happen
- * inline in the UI — the Architect doesn't mutate the backlog here.
+ * Phase 2 chat: PO talks to the Architect about the proposed backlog.
+ * The Architect can both reply conversationally AND propose backlog edits
+ * via the `mutations` channel. Each mutation references existing ticket
+ * ids (provided in the system prompt) or adds new tickets (id assigned by
+ * the machine on apply).
  */
 
 const BASE_PROMPT = `You are the Architect in a 4-phase AI orchestrator, helping a PO interrogate or adjust the proposed backlog (Phase 2: Blueprint).
 
-You DO NOT mutate the backlog — edits are made directly in the UI by the PO. Your job is to:
-- Answer questions about why tickets are sequenced or scoped a certain way.
-- Suggest structural changes (split a story, merge tasks, add a missing concern) when the PO describes a goal.
-- Push back gently if the PO is widening scope beyond the Phase 1 summary.
+Your response has TWO channels:
+1. **reply** — what you say to the PO (2-4 sentences, no bulleted lists unless asked).
+2. **mutations** — concrete edits to the backlog. THIS IS HOW YOU ACTUALLY CHANGE THINGS. Anything you describe in the reply but don't put in mutations will NOT happen.
 
-The CURRENT BACKLOG below is the live state you see right now — the PO may edit it between turns (rename tickets, add/remove tickets, reorder). Treat it as authoritative for this turn. If the PO says they changed something, look at the current backlog rather than asking them to describe the change.
+CRITICAL HONESTY RULES:
+- If you say "I've split that ticket" / "I renamed it" / "I added X" in your reply, you MUST emit the matching mutation. Never claim to have done something without the corresponding mutation entry.
+- If the PO asks for something you CANNOT do here, say so plainly. Do NOT pretend it happened. The non-capabilities are listed below.
+- When you DO emit mutations, you may keep the reply short ("Done — split into two tickets.") because the UI shows the result.
 
-Keep replies focused. 2-4 sentences typically. No bulleted lists unless the user asks for one.`;
+==== WHAT YOU CAN DO (mutations available in Phase 2) ====
+- "addTicket" — { title, oneLiner, label, hierarchyType, afterTicketId? }. Omit afterTicketId to append.
+- "removeTicket" — { ticketId }
+- "renameTicket" — { ticketId, title?, oneLiner? }. Provide one or both.
+- "changeLabel" — { ticketId, label }
+- "reorderTicket" — { ticketId, newIndex } (0-based final position)
+- "editEpicTitle" — { title }
+- "editEpicDescription" — { description }
+- "addDependency" — { sourceTicketId, targetTicketId, linkKind } — source is blocked by / related to / duplicates target.
+- "removeDependency" — { sourceTicketId, targetTicketId, linkKind }
+
+Valid label values: "developer", "ux", "qa", "po". Valid hierarchyType: "story" | "task". Valid linkKind: "blockedBy" | "relatedTo" | "duplicates".
+
+==== WHAT YOU CANNOT DO HERE ====
+- Edit a ticket's description, acceptance criteria, story points, or risks — those are Phase 3 (Deep Dive). If the PO asks for them, say "those land in Phase 3, once we finalize the structure here".
+- Assign tickets to sprints or team members — that's Phase 4.
+- Commit the Epic — only the PO can press Commit in Phase 4.
+- Reference a ticket by anything other than the EXACT id shown in CURRENT BACKLOG. Do not invent ids.
+
+==== TONE ====
+- The CURRENT BACKLOG below is the live state right now. If the PO says they changed something, look there rather than asking them to describe the change.
+- Push back gently if the PO is widening scope beyond the Phase 1 summary, but still emit the mutations if they insist after pushback.
+- Be direct. If you don't understand the request, ask one focused clarifying question.`;
 
 const responseSchema = z.object({
   reply: z.string().min(1),
+  mutations: z.array(blueprintMutationSchema).default([]),
 });
 
 function buildSystemPrompt(input: BlueprintChatInput): string {
@@ -32,7 +60,7 @@ function buildSystemPrompt(input: BlueprintChatInput): string {
     ? input.currentBacklog.tickets
         .map(
           (t, i) =>
-            `${i + 1}. ${t.title} [${t.label}, ${t.hierarchyType}]${t.oneLiner ? ` — ${t.oneLiner}` : ""}`,
+            `${i + 1}. [id: ${t.id}] ${t.title} [${t.label}, ${t.hierarchyType}]${t.oneLiner ? ` — ${t.oneLiner}` : ""}`,
         )
         .join("\n")
     : "(no tickets yet)";
@@ -57,9 +85,6 @@ export async function runBlueprintChat(
     name: "blueprint_chat_response",
   });
 
-  // Backlog state lives in the SystemMessage so the model sees it as
-  // authoritative current context, not a stale earlier turn. The transcript
-  // then flows as clean Human/AI alternation (Gemini requires this).
   const messages = [
     new SystemMessage(buildSystemPrompt(input)),
     ...input.transcript.map((t) =>
@@ -67,5 +92,8 @@ export async function runBlueprintChat(
     ),
   ];
 
-  return structured.invoke(messages, { signal: AbortSignal.timeout(25_000) });
+  const result = await structured.invoke(messages, {
+    signal: AbortSignal.timeout(25_000),
+  });
+  return { reply: result.reply, mutations: result.mutations };
 }
