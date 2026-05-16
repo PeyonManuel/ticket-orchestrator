@@ -1493,19 +1493,19 @@ export const orchestratorMachine = setup({
               {
                 guard: ({ context }) =>
                   context.draft.phase === "phase2Structuring",
-                target: "phase2Structuring.reviewingBulk",
+                target: "phase2Structuring.generatingBacklog",
                 actions: "clearError",
               },
               {
                 guard: ({ context }) =>
                   context.draft.phase === "phase3Refining",
-                target: "phase3Refining.awaitingTicketApproval",
+                target: "phase3Refining.decideTicket",
                 actions: "clearError",
               },
               {
                 guard: ({ context }) =>
                   context.draft.phase === "phase4SprintPlanning",
-                target: "phase4SprintPlanning.reviewingPlan",
+                target: "phase4SprintPlanning.generatingPlan",
                 actions: "clearError",
               },
               {

@@ -223,13 +223,6 @@ function ActiveSession({
     send({ type: "REFRESH_CAPACITIES", capacities: refreshed });
   }, [draft.phase, draft.planningMembers, sprints, allTickets, boardColumns, send]);
 
-  const handleAbandon = async () => {
-    if (!confirm("Abandon this draft? It will be removed from your active drafts.")) return;
-    send({ type: "ABANDON_DRAFT", now: new Date().toISOString() });
-    await flush();
-    onBackToPicker();
-  };
-
   return (
     <div className="flex h-full flex-col bg-zinc-50 dark:bg-zinc-950">
       <PhaseHeader
@@ -237,7 +230,7 @@ function ActiveSession({
         title={draftDisplayTitle(draft)}
         saving={saving}
         onClose={onClose}
-        onAbandon={handleAbandon}
+        onBackToPicker={onBackToPicker}
       />
 
       {(error || commitError) && (

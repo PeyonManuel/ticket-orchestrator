@@ -25,10 +25,10 @@ interface Props {
   title: string;
   saving: boolean;
   onClose: () => void;
-  onAbandon: () => void;
+  onBackToPicker: () => void;
 }
 
-export function PhaseHeader({ phase, title, saving, onClose, onAbandon }: Props) {
+export function PhaseHeader({ phase, title, saving, onClose, onBackToPicker }: Props) {
   const currentIndex = PHASE_ORDER.indexOf(phase);
 
   return (
@@ -53,10 +53,10 @@ export function PhaseHeader({ phase, title, saving, onClose, onAbandon }: Props)
             {saving ? "Saving…" : "Saved"}
           </span>
           <button
-            onClick={onAbandon}
-            className="rounded-md border border-rose-200 dark:border-rose-900/50 px-3 py-1.5 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+            onClick={onBackToPicker}
+            className="rounded-md border border-zinc-200 dark:border-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
           >
-            Abandon
+            ← Back
           </button>
           <button
             onClick={onClose}
