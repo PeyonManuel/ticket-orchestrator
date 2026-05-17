@@ -19,6 +19,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const stored = localStorage.getItem("orion-theme") as Theme | null;
     const initial = stored ?? "dark";
+    // setState-in-effect is intentional: localStorage isn't available during
+    // SSR, so we hydrate with the default ("dark"), then sync to the user's
+    // saved choice client-side. Lazy `useState(() => ...)` would crash on
+    // server-render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(initial);
     document.documentElement.classList.toggle("dark", initial === "dark");
   }, []);

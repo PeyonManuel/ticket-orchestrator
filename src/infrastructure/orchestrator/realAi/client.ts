@@ -17,6 +17,8 @@ import {
   backlogProposalSchema,
   blueprintMutationSchema,
   controllerOutputSchema,
+  inspectorTurnOutputSchema,
+  plannerChatOutputSchema,
   refinementMutationSchema,
   type AnalystTurnInput,
   type AnalystTurnOutput,
@@ -148,10 +150,7 @@ export function createRealAi(apollo: ApolloClient) {
       if (!result.data?.runPlannerChat) {
         throw new Error("runPlannerChat returned no data");
       }
-      return {
-        reply: String(result.data.runPlannerChat.reply),
-        updatedPlan: result.data.runPlannerChat.updatedPlan ?? null,
-      };
+      return plannerChatOutputSchema.parse(result.data.runPlannerChat);
     },
 
     runInspectorTurn: async (
@@ -172,10 +171,7 @@ export function createRealAi(apollo: ApolloClient) {
       if (!result.data?.runInspectorTurn) {
         throw new Error("runInspectorTurn returned no data");
       }
-      return {
-        reply: String(result.data.runInspectorTurn.reply),
-        insightsToSave: result.data.runInspectorTurn.insightsToSave ?? [],
-      };
+      return inspectorTurnOutputSchema.parse(result.data.runInspectorTurn);
     },
   };
 }

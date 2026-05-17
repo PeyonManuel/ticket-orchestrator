@@ -1,40 +1,22 @@
 "use client";
 
-import React, { useMemo } from "react";
 import { Plus } from "lucide-react";
 import {
   useBoardActions,
   useBoardData,
 } from "@/presentation/board/BoardContext";
-import { SimpleDropdown } from "@/presentation/shared/dropdowns/SimpleDropdown";
 import { useIsAdmin } from "@/presentation/shared/hooks/useIsAdmin";
 
 /**
- * Sub-toolbar: [ Board | Backlog ]  [sprint dropdown — board mode only]  [ + New Sprint ]
+ * Sub-toolbar: [ Board | Backlog ]  [ + New Sprint ]
  *
  * Board mode shows the filtered kanban for the selected sprint.
  * Backlog mode shows the expandable all-sprints + backlog list view.
  */
 export function SprintViewSwitcher() {
-  const { viewMode, sprints, selectedSprintId, hasNoSprints } = useBoardData();
-  const { setViewMode, selectSprint, openCreateSprint } = useBoardActions();
+  const { viewMode, hasNoSprints } = useBoardData();
+  const { setViewMode, openCreateSprint } = useBoardActions();
   const isAdmin = useIsAdmin();
-
-  const sprintOptions = useMemo(() => {
-    return sprints
-      .slice()
-      .sort((a, b) => a.startDate.localeCompare(b.startDate))
-      .map((s) => ({
-        label: s.name,
-        value: s.id,
-        meta:
-          s.status === "active"
-            ? "active"
-            : s.status === "completed"
-              ? "done"
-              : undefined,
-      }));
-  }, [sprints]);
 
   const base =
     "px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap";

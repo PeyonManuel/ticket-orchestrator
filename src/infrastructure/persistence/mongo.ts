@@ -9,7 +9,6 @@ if (!uri) {
 
 declare global {
   // Preserve connection across Next.js hot reloads in dev
-  // eslint-disable-next-line no-var
   var _mongoClientPromise: Promise<MongoClient> | undefined;
 }
 

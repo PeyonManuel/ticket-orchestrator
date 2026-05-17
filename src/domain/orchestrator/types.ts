@@ -568,6 +568,8 @@ export const controllerOutputSchema = z.object({
   risks: z.array(z.string()),
 });
 
+const epicMemorySourceSchema = z.enum(["chat", "ticketEvolution"]);
+
 // ── Chat mutation schemas ────────────────────────────────────────────
 
 export const blueprintMutationSchema = z.discriminatedUnion("kind", [
@@ -686,6 +688,24 @@ const sprintPlanSchema = z.object({
   overflow: z.array(ticketProposalSchema).optional(),
   proposedSprints: z.array(proposedSprintSchema).optional(),
   bufferRule: sprintPlanBufferRuleSchema.optional(),
+});
+
+export const plannerChatOutputSchema = z.object({
+  reply: z.string().min(1),
+  updatedPlan: sprintPlanSchema.nullable(),
+});
+
+export const inspectorTurnOutputSchema = z.object({
+  reply: z.string().min(1),
+  insightsToSave: z
+    .array(
+      z.object({
+        content: z.string().min(1),
+        tags: z.array(z.string()).default([]),
+        source: epicMemorySourceSchema,
+      }),
+    )
+    .default([]),
 });
 
 // ── EpicSnapshot schema ──────────────────────────────────────────────

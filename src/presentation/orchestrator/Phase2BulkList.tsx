@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type {
   BlueprintMutation,
@@ -441,7 +441,7 @@ function BlueprintChatPanel({
   );
 }
 
-function TicketRow({
+const TicketRow = memo(function TicketRow({
   ticket,
   index,
   total,
@@ -490,38 +490,20 @@ function TicketRow({
     setCycleError(null);
   };
 
-  // 2-second indigo flash when the AI just touched this row. Keyed by
-  // aiTouched flip so a fresh wave re-triggers; the parent dispatches
-  // CLEAR_AI_TOUCH on a timer to reset the flag.
-  const pulseAnimate = aiTouched
-    ? {
-        backgroundColor: [
-          "rgba(99, 102, 241, 0.22)",
-          "rgba(99, 102, 241, 0)",
-        ],
-        borderColor: [
-          "rgba(99, 102, 241, 0.8)",
-          "rgba(228, 228, 231, 1)",
-        ],
-      }
-    : {};
-
+  // AI-touch flash is delegated to the shared `.ai-touched-glow` CSS animation
+  // (indigo→violet pulse + sweep). Keeps the visual language consistent with
+  // Phase 3's MDX editor and avoids re-running framer-motion bg/border tweens
+  // on every parent render.
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 4 }}
-      animate={
-        Object.keys(pulseAnimate).length > 0
-          ? { opacity: 1, y: 0, ...pulseAnimate }
-          : { opacity: 1, y: 0 }
-      }
+      animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.97 }}
-      transition={
-        aiTouched
-          ? { backgroundColor: { duration: 2, ease: "easeOut" }, borderColor: { duration: 2, ease: "easeOut" }, opacity: { duration: 0.16 }, y: { duration: 0.16 } }
-          : { duration: 0.16, ease: [0.16, 1, 0.3, 1] }
-      }
-      className="group rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2.5 hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors"
+      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+      className={`group rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2.5 hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors ${
+        aiTouched ? "ai-touched-glow" : ""
+      }`}
     >
       {/* Main row */}
       <div className="flex items-center gap-2">
@@ -677,7 +659,7 @@ function TicketRow({
       </AnimatePresence>
     </motion.div>
   );
-}
+});
 
 // ────────────────────────────────────────────────────────────────────────
 // Slice Q helper components

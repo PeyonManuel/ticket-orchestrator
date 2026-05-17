@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
 import { useBoardActions, useBoardData } from "@/presentation/board/BoardContext";
@@ -218,7 +218,7 @@ export function EditSprintModal() {
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">Date conflict</h3>
                 <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                  This sprint's dates overlap with {conflictingSprints.length} other sprint{conflictingSprints.length !== 1 ? "s" : ""}:
+                  This sprint&apos;s dates overlap with {conflictingSprints.length} other sprint{conflictingSprints.length !== 1 ? "s" : ""}:
                 </p>
                 <div className="mt-2 space-y-1">
                   {conflictingSprints.map((s) => (

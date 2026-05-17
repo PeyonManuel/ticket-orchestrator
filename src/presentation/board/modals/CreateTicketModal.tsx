@@ -175,8 +175,8 @@ export function CreateTicketModal() {
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-white dark:bg-zinc-900 z-10 border-b border-zinc-100 dark:border-zinc-800">
           <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-            Create ticket for board "
-            {boards.find((b) => b.id === selectedBoardId)?.name ?? "N/A"}"
+            Create ticket for board &ldquo;
+            {boards.find((b) => b.id === selectedBoardId)?.name ?? "N/A"}&rdquo;
           </h2>
           <button
             type="button"

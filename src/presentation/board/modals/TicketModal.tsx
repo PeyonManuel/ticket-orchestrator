@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Check, ChevronRight, Clock, Link2, MessageSquare, Plus, X } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
@@ -48,7 +48,6 @@ export function TicketModal() {
     boardColumns,
     linkTickets,
     unlinkTickets,
-    openCreateTicket,
     openCreateTicketLinkedTo,
     openCreateTicketAsChildOf,
     workflowChoicesOrdered,
@@ -75,6 +74,14 @@ export function TicketModal() {
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const childPickerRef = useRef<HTMLDivElement>(null);
   useClickOutside(childPickerRef, childPickerOpen, () => setChildPickerOpen(false));
+
+  // Link-copied flash timer. Tracked here (above the early `return null`) so
+  // hooks order stays stable; cleared if the modal unmounts mid-flash to avoid
+  // a setState-after-unmount warning.
+  const linkCopiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (linkCopiedTimerRef.current) clearTimeout(linkCopiedTimerRef.current);
+  }, []);
 
   React.useEffect(() => {
     if (!childPickerOpen || !childPickerRef.current) {
@@ -210,7 +217,8 @@ export function TicketModal() {
     if (!url) return;
     await navigator.clipboard.writeText(url);
     setLinkCopied(true);
-    window.setTimeout(() => setLinkCopied(false), 1200);
+    if (linkCopiedTimerRef.current) clearTimeout(linkCopiedTimerRef.current);
+    linkCopiedTimerRef.current = setTimeout(() => setLinkCopied(false), 1200);
   };
 
   const renderEditableField = (field: "title" | "description", className: string) => {

@@ -216,7 +216,7 @@ function ChatPane({
           {transcript.length === 0 && !isThinking && (
             <div className="text-center pt-6">
               <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                Ask me anything about this Epic — what changed, how it's tracking,
+                Ask me anything about this Epic — what changed, how it&apos;s tracking,
                 or whether the original plan still holds.
               </p>
             </div>

@@ -1145,7 +1145,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
         updateUrlParams({ ticketId: null, modal: "members" });
       },
 
-      openEditSprint: (sprintId) => {
+      openEditSprint: (_sprintId) => {
         setActiveModal("editSprint");
         updateUrlParams({ ticketId: null, modal: "edit-sprint" });
       },

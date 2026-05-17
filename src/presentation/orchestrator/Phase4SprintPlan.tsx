@@ -487,10 +487,12 @@ function PlannerChatPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
   const now = () => new Date().toISOString();
 
-  // Auto-scroll on mount (when navigating back to this phase).
+  // Auto-scroll on mount (when navigating back to this phase) and on every new
+  // turn arriving — replaces the prior post-send setTimeout(50ms) which leaked
+  // if the user navigated away mid-scroll.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView();
-  }, []);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [transcript.length, isThinking]);
 
   const handleSend = () => {
     const text = input.trim();
@@ -502,7 +504,6 @@ function PlannerChatPanel({
       now: now(),
       turnId: uid("pt"),
     });
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   };
 
   return (

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, User, Pencil } from "lucide-react";
 import { useBoardActions, useBoardData } from "@/presentation/board/BoardContext";
 import { useIsAdmin } from "@/presentation/shared/hooks/useIsAdmin";
