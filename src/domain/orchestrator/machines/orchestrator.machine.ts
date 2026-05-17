@@ -229,7 +229,7 @@ function extractErrorMessage(err: unknown, fallback: string): string {
  * animation). Defensive: silently no-ops on invalid references rather than
  * throwing — the AI may hallucinate ids.
  */
-function applyBlueprintMutation(
+export function applyBlueprintMutation(
   backlog: BacklogProposal,
   m: BlueprintMutation,
 ): { backlog: BacklogProposal; touchedIds: ProposalId[] } {
@@ -343,7 +343,7 @@ function applyBlueprintMutation(
   }
 }
 
-function applyBlueprintMutations(
+export function applyBlueprintMutations(
   backlog: BacklogProposal,
   mutations: BlueprintMutation[],
 ): { backlog: BacklogProposal; touchedIds: ProposalId[] } {
@@ -359,7 +359,7 @@ function applyBlueprintMutations(
   return { backlog: current, touchedIds: touched };
 }
 
-function applyRefinementMutation(
+export function applyRefinementMutation(
   ticket: TicketProposal,
   m: RefinementMutation,
 ): TicketProposal {
@@ -377,7 +377,7 @@ function applyRefinementMutation(
   }
 }
 
-function applyRefinementMutations(
+export function applyRefinementMutations(
   ticket: TicketProposal,
   mutations: RefinementMutation[],
 ): TicketProposal {

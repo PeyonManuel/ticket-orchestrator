@@ -271,6 +271,18 @@ CSS `transition-transform` on the `[sidebar | content]` row. Never Framer Motion
 ### DataLoader
 `loaders.ts` batches comment queries. Never N+1 in resolvers.
 
+### Testing
+Two runners coexist:
+- **Vitest** (`npm test`) — unit tests, colocated with source as `*.test.ts`. Currently covers pure domain policies, mutation validation, drift detection, and machine apply helpers. See `REFACTORS.md` Refactor A for what's tested vs parked.
+- **Playwright** (`npm run e2e`) — E2E specs in `tests/e2e/`. Orchestrator commit flow + Inspector chat.
+
+Conventions for adding tests:
+- Mirror the source path: `src/foo/bar.ts` → `src/foo/bar.test.ts`.
+- Use a small `mk*(...)` factory at the top of each spec to build fixtures.
+- Test behavior, not implementation (don't mock internal calls).
+- Never mock the DB (per prior incident — use Testcontainers when DB tests land).
+- Coverage thresholds in `vitest.config.ts` apply only to files explicitly listed in `coverage.include`. Add new files there as you cover them.
+
 ---
 
 ## What's Built vs Not

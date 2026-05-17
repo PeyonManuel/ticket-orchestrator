@@ -1,8 +1,10 @@
 # REFACTORS.md — General Refactors & Improvements
 
 App-wide refactors, cleanups, and quality improvements that aren't tied to a
-specific feature slice. Distinct from `ORION_PLAN.md` (orchestrator scope) and
-`AGENTS.md` (architecture contract).
+specific feature slice. Distinct from `ORION_PLAN.md` (orchestrator scope, uses
+Slice A/B/C…) and `AGENTS.md` (architecture contract).
+
+Items here are numbered **Refactor A/B/C…** to keep the namespaces separate.
 
 ---
 
@@ -37,32 +39,47 @@ Result: 0 ESLint errors, 2 intentional warnings.
 
 ---
 
-## Parked
+## In progress
 
-### Slice U — Unit-test coverage
+### Refactor A — Unit-test coverage
 
 User-requested: unit-test absolutely every functionality.
 
-Likely scope:
-- **Domain policies** (`capacityPolicy`, `slicingPolicy`, `dependencyPolicy`) — pure functions, easiest wins.
-- **Orchestrator state machine** — transitions, guards, action context. `@xstate/test` or hand-rolled drivers.
-- **AI graph adapters** — stub the LLM (canned structured outputs), assert reply + mutation parsing + Zod-validation correction loop.
-- **Mutation validators + apply helpers** — pure, high-value.
-- **Persistence layer** — integration tests against real Mongo via Testcontainers (don't mock the DB; prior incident).
-- **React leaf components** — `TicketCard`, `TicketRow`, `ProseTurn`, `RichMarkdownEditor` toolbar via React Testing Library.
+**A.1 — Pure-function baseline (shipped).** Vitest runner, coverage thresholds enforced on scoped files. 116 tests across 8 spec files. Each tested file at ≥94% statement coverage:
 
-Open decisions to make at slice intro:
-- Vitest vs Jest (lean Vitest — faster, modern, plays well with Next).
-- Coverage threshold (suggest 80% on domain + infra, none on presentation).
-- CI wiring — add `npm test` to the build pipeline.
+| File | Tests | Stmts |
+|---|---|---|
+| `domain/orchestrator/policies/dependencyPolicy.ts` | 13 | 97.5% |
+| `domain/orchestrator/policies/capacityPolicy.ts` | 19 | 100% |
+| `domain/orchestrator/policies/slicingPolicy.ts` | 16 | 98.1% |
+| `domain/orchestrator/machines/orchestrator.machine.ts` (apply helpers) | 29 | n/a (file-level coverage tracked separately) |
+| `infrastructure/orchestrator/realAi/mutationValidation.ts` | 14 | 94.7% |
+| `infrastructure/orchestrator/driftDetection.ts` | 11 | 100% |
+| `infrastructure/orchestrator/stripTypename.ts` | 9 | 100% |
+| `infrastructure/orchestrator/tools/registry.ts` | 5 | 100% |
 
-### Slice V — `noUncheckedIndexedAccess`
+Runner: **Vitest** (`npm test`, `npm run test:watch`, `npm run test:coverage`).
+Conventions: `*.test.ts` colocated with source, fixture factories at top of each spec, tests assert behavior — not implementation.
+
+**A.2 — Wiring tests (parked).** Targets that need integration scaffolding before they're worth writing:
+
+- **AI graph adapters** (`realAi/*.ts`) — need a `BaseChatModel` stub that returns canned tool-calls + structured outputs. Worth doing because the agent-loop + structured-output split is the most subtle code path. ~1 day.
+- **Orchestrator XState machine** (transitions, guards, action context) — `@xstate/test` or hand-rolled drivers. The pure helpers (`applyBlueprintMutation` etc.) are already tested; this would cover phase transitions and event handling.
+- **Persistence layer** (`infrastructure/persistence/repository.ts`) — Testcontainers-Mongo, real driver. ~half day to wire, then mostly straightforward CRUD coverage.
+- **GraphQL resolvers** — once the persistence harness exists, resolvers test as `repo + auth + zod` happy paths.
+- **React leaf components** (`TicketCard`, `TicketRow`, `ProseTurn`, `RichMarkdownEditor` toolbar) — React Testing Library. Lower-value than the layers above; defer until logic coverage is complete.
+
+CI: `npm test` is plain `vitest run`; ready to add to a CI pipeline once one exists.
+
+## Parked
+
+### Refactor B — `noUncheckedIndexedAccess`
 
 The audit enabled most strict TS flags but stopped short of this one. Surfaces 76 errors at ~25 sites (each `arr[0]` becomes `T | undefined`).
 
 Real safety improvement; tedious to apply. Most sites already have a length check earlier — TS just can't see it. A few are legitimately "did I forget to handle this case?"
 
-Lower priority than Slice U.
+Lower priority than Refactor A.
 
 ### Stale eslint-disable annotations
 
