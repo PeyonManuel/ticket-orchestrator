@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- this module IS the console wrapper. */
 /**
  * Orion centralized logger.
  *

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useState } from "react";
+import { memo, useState } from "react";
 import type { BoardColumn } from "@/domain/analyst";
 import { StatesTagInput } from "@/presentation/shared/inputs/StatesTagInput";
 

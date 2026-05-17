@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ChevronDown, Search, X } from "lucide-react";
 import { useClickOutside } from "@/presentation/shared/hooks/useClickOutside";
 import { TICKET_TYPE_COLORS } from "@/presentation/shared/utils/ticketTypeColors";

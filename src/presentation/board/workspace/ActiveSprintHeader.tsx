@@ -1,6 +1,5 @@
 "use client";
 
-import React from "react";
 import { Target, TrendingUp, Pencil } from "lucide-react";
 import { useBoardActions, useBoardData } from "@/presentation/board/BoardContext";
 import { useIsAdmin } from "@/presentation/shared/hooks/useIsAdmin";

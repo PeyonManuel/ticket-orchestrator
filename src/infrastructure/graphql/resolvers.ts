@@ -1,9 +1,15 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import * as repo from "@/infrastructure/persistence/repository";
 import type { RequestLoaders } from "@/infrastructure/persistence/loaders";
-import type { Ticket, BoardMember } from "@/domain/analyst";
+import type { Ticket, BoardMember, OrgMemberRole } from "@/domain/analyst";
 import type { EpicDraft } from "@/domain/orchestrator/types";
 import { logger } from "@/infrastructure/observability/logger";
+import type { runAnalystTurn } from "@/infrastructure/orchestrator/realAi/analystGraph";
+import type { runArchitectBacklog } from "@/infrastructure/orchestrator/realAi/architectGraph";
+import type { runControllerRefinement } from "@/infrastructure/orchestrator/realAi/controllerGraph";
+import type { runBlueprintChat } from "@/infrastructure/orchestrator/realAi/blueprintChatGraph";
+import type { runRefinementChat } from "@/infrastructure/orchestrator/realAi/refinementChatGraph";
+import type { runPlannerChat } from "@/infrastructure/orchestrator/realAi/plannerChatGraph";
 
 export interface GraphQLContext {
   userId: string | null;
@@ -394,7 +400,7 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       requireAdmin(ctx);
-      return repo.setMemberRole(ctx.orgId, userId, (role ?? null) as import("@/domain/analyst").OrgMemberRole | null);
+      return repo.setMemberRole(ctx.orgId, userId, (role ?? null) as OrgMemberRole | null);
     },
 
     createEpicDraft: (
@@ -502,7 +508,7 @@ export const resolvers = {
 
     runAnalystTurn: async (
       _p: unknown,
-      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/analystGraph").runAnalystTurn>[0] },
+      { input }: { input: Parameters<typeof runAnalystTurn>[0] },
       ctx: GraphQLContext,
     ) => {
       requireAuth(ctx);
@@ -517,7 +523,7 @@ export const resolvers = {
 
     runArchitectBacklog: async (
       _p: unknown,
-      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/architectGraph").runArchitectBacklog>[0] },
+      { input }: { input: Parameters<typeof runArchitectBacklog>[0] },
       ctx: GraphQLContext,
     ) => {
       requireAuth(ctx);
@@ -529,7 +535,7 @@ export const resolvers = {
 
     runControllerRefinement: async (
       _p: unknown,
-      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/controllerGraph").runControllerRefinement>[0] },
+      { input }: { input: Parameters<typeof runControllerRefinement>[0] },
       ctx: GraphQLContext,
     ) => {
       requireAuth(ctx);
@@ -541,7 +547,7 @@ export const resolvers = {
 
     runBlueprintChat: async (
       _p: unknown,
-      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/blueprintChatGraph").runBlueprintChat>[0] },
+      { input }: { input: Parameters<typeof runBlueprintChat>[0] },
       ctx: GraphQLContext,
     ) => {
       requireAuth(ctx);
@@ -562,7 +568,7 @@ export const resolvers = {
 
     runRefinementChat: async (
       _p: unknown,
-      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/refinementChatGraph").runRefinementChat>[0] },
+      { input }: { input: Parameters<typeof runRefinementChat>[0] },
       ctx: GraphQLContext,
     ) => {
       requireAuth(ctx);
@@ -578,7 +584,7 @@ export const resolvers = {
 
     runPlannerChat: async (
       _p: unknown,
-      { input }: { input: Parameters<typeof import("@/infrastructure/orchestrator/realAi/plannerChatGraph").runPlannerChat>[0] },
+      { input }: { input: Parameters<typeof runPlannerChat>[0] },
       ctx: GraphQLContext,
     ) => {
       requireAuth(ctx);

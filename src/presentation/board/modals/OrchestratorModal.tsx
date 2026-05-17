@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useBoardData, useBoardActions } from "@/presentation/board/BoardContext";
 import { OrchestratorRoot } from "@/presentation/orchestrator/OrchestratorRoot";

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { PanelLeftClose, PanelLeftOpen, Search, Plus, Sun, Moon, Users } from "lucide-react";
 import { dark } from "@clerk/themes";

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useBoardActions, useBoardData } from "@/presentation/board/BoardContext";
 import { useIsAdmin } from "@/presentation/shared/hooks/useIsAdmin";
 import { ColumnCard } from "./ColumnCard";

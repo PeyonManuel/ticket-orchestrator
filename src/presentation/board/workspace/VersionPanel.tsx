@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { Calendar, X } from "lucide-react";
 import type { ReleaseVersion } from "@/domain/analyst";
 

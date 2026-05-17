@@ -339,14 +339,22 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   // ── Queries ──────────────────────────────────────────────────────
   const { data: boardsData, loading: boardsLoading } =
     useQuery<GetBoardsResult>(GET_BOARDS, { skip: !sessionReady });
-  const boards = boardsData?.boards ?? [];
+  // Stabilize the reference: `data?.boards ?? []` returns a fresh array every
+  // render, which would invalidate downstream useMemo deps each tick.
+  const boards = useMemo(() => boardsData?.boards ?? [], [boardsData]);
 
   // Auto-select a board once boards load.
   // Priority: ?board=X URL param (deep-link) > first available board.
+  // setState-in-effect is intentional: boards are loaded async via Apollo
+  // and the choice depends on the URL, so we can't derive the initial value
+  // at render time. searchParams is excluded from deps to avoid re-running
+  // when the user navigates within the app — the effect only owns the
+  // first selection.
   useEffect(() => {
     if (activeBoardId || boards.length === 0) return;
     const fromUrl = searchParams.get("board");
     const matched = fromUrl ? boards.find((b) => b.id === fromUrl) : null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveBoardId(matched?.id ?? boards[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boards]);
@@ -378,12 +386,15 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       skip: !activeBoardId,
     },
   );
-  const releaseVersions = versionsData?.releaseVersions ?? [];
+  const releaseVersions = useMemo(
+    () => versionsData?.releaseVersions ?? [],
+    [versionsData],
+  );
 
   const { data: labelsData } = useQuery<GetLabelsResult>(GET_LABELS, {
     skip: !sessionReady,
   });
-  const labels = labelsData?.labels ?? [];
+  const labels = useMemo(() => labelsData?.labels ?? [], [labelsData]);
 
   const { data: orgMembersData } = useQuery<GetOrgMembersResult>(
     GET_ORG_MEMBERS,
@@ -484,7 +495,11 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  // URL → UI: open modals/tickets when query params change
+  // URL → UI: open modals/tickets when query params change. This is a
+  // legitimate "sync with external system" (the URL bar) — we can't derive
+  // these modal states at render because URL changes are imperative
+  // navigation events. setState-in-effect is correct here.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const modal = searchParams.get("modal");
     const ticketNumber = searchParams.get("ticket");
@@ -525,6 +540,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, allTickets]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // ── Sprint selection / view-mode derivations ─────────────────────
   /**

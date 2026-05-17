@@ -22,8 +22,19 @@ function addWeeks(start: Date, weeks: number): Date {
   return d;
 }
 
+/**
+ * Outer wrapper only handles the open/closed switch. Form state lives in the
+ * inner component which mounts when the modal opens and unmounts on close —
+ * so every reopen gets fresh defaults without an effect-based reset.
+ */
 export function CreateSprintModal() {
-  const { createSprintModalOpen, boards, activeBoardId, sprints } = useBoardData();
+  const { createSprintModalOpen } = useBoardData();
+  if (!createSprintModalOpen) return null;
+  return <CreateSprintModalInner />;
+}
+
+function CreateSprintModalInner() {
+  const { boards, activeBoardId, sprints } = useBoardData();
   const { createSprint, closeModal, selectSprint } = useBoardActions();
 
   const today = useMemo(() => isoDate(new Date()), []);
@@ -49,23 +60,10 @@ export function CreateSprintModal() {
 
   const [description, setDescription] = useState("");
   const [goal, setGoal] = useState("");
-  const [startDate, setStartDate] = useState(today);
+  const [startDate, setStartDate] = useState(suggestedStartDate);
   const [weeks, setWeeks] = useState<Weeks>(2);
   const [capacityPoints, setCapacityPoints] = useState("0");
   const [submitting, setSubmitting] = useState(false);
-
-  // Reset transient fields each time the modal opens; keep weeks + capacity as sticky preferences.
-  // Set startDate to the suggested date (day after latest sprint, or today).
-  React.useEffect(() => {
-    if (createSprintModalOpen) {
-      setDescription("");
-      setGoal("");
-      setStartDate(suggestedStartDate);
-      setSubmitting(false);
-    }
-  }, [createSprintModalOpen, suggestedStartDate]);
-
-  if (!createSprintModalOpen) return null;
 
   const endDate = isoDate(addWeeks(new Date(startDate), weeks));
 

@@ -151,7 +151,7 @@ export function useOrchestrator(
       if (!result.data?.commitEpicDraft) throw new Error("Commit returned no data");
       return result.data.commitEpicDraft;
     },
-    [apollo, state.context.draft.id],
+    [apollo, state.context.draft.id, state.context.draft.boardId],
   );
 
   return {

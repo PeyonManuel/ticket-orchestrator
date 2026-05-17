@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Users } from "lucide-react";
 import { useBoardActions, useBoardData } from "@/presentation/board/BoardContext";

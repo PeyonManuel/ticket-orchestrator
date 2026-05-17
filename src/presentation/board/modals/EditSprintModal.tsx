@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { X } from "lucide-react";
 import { useBoardActions, useBoardData } from "@/presentation/board/BoardContext";
 import { SimpleDropdown } from "@/presentation/shared/dropdowns/SimpleDropdown";
+import type { Sprint } from "@/domain/analyst";
 
 type Weeks = 1 | 2 | 3 | 4;
 
@@ -28,32 +29,32 @@ function weeksFromDates(startStr: string, endStr: string): Weeks {
   return [1, 2, 3, 4].includes(w) ? w : 2;
 }
 
+/**
+ * Outer switch: mounts the form once the modal is open AND a sprint is
+ * selected. Form state initializes from the sprint at mount, so reopening on
+ * a different sprint cleanly remounts with that sprint's data — no
+ * effect-based re-sync.
+ */
 export function EditSprintModal() {
-  const { activeModal, selectedSprint, sprints } = useBoardData();
+  const { activeModal, selectedSprint } = useBoardData();
+  if (activeModal !== "editSprint" || !selectedSprint) return null;
+  return <EditSprintModalInner sprint={selectedSprint} key={selectedSprint.id} />;
+}
+
+function EditSprintModalInner({ sprint }: { sprint: Sprint }) {
+  const { sprints } = useBoardData();
   const { updateSprint, closeModal } = useBoardActions();
 
-  const [description, setDescription] = useState("");
-  const [goal, setGoal] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [weeks, setWeeks] = useState<Weeks>(2);
-  const [capacityPoints, setCapacityPoints] = useState("0");
+  const [description, setDescription] = useState(sprint.description || "");
+  const [goal, setGoal] = useState(sprint.goal || "");
+  const [startDate, setStartDate] = useState(sprint.startDate);
+  const [weeks, setWeeks] = useState<Weeks>(weeksFromDates(sprint.startDate, sprint.endDate));
+  const [capacityPoints, setCapacityPoints] = useState(String(sprint.capacityPoints));
   const [submitting, setSubmitting] = useState(false);
   const [showOverlapWarning, setShowOverlapWarning] = useState(false);
   const [conflictingSprints, setConflictingSprints] = useState<typeof sprints>([]);
 
-  // Pre-fill from selectedSprint when modal opens
-  React.useEffect(() => {
-    if (activeModal === "editSprint" && selectedSprint) {
-      setDescription(selectedSprint.description || "");
-      setGoal(selectedSprint.goal || "");
-      setStartDate(selectedSprint.startDate);
-      setWeeks(weeksFromDates(selectedSprint.startDate, selectedSprint.endDate));
-      setCapacityPoints(String(selectedSprint.capacityPoints));
-      setSubmitting(false);
-    }
-  }, [activeModal, selectedSprint]);
-
-  if (activeModal !== "editSprint" || !selectedSprint) return null;
+  const selectedSprint = sprint;
 
   const endDate = startDate ? isoDate(addWeeks(new Date(startDate + "T00:00:00Z"), weeks)) : "";
 

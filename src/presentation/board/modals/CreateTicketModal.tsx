@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
 import { useBoardContext } from "@/presentation/board/BoardContext";
@@ -9,14 +9,25 @@ import { SimpleDropdown } from "@/presentation/shared/dropdowns/SimpleDropdown";
 import { ParentTicketSelect } from "@/presentation/shared/dropdowns/ParentTicketSelect";
 import type { TicketHierarchyType } from "@/domain/analyst";
 
+/**
+ * Outer switch: render the form only when the modal is open. State lives in
+ * the inner component, which mounts fresh each time — defaults flow from the
+ * current activeBoard / active sprint / parent-preset directly into useState
+ * instead of being re-synced via effects on every reopen.
+ */
 export function CreateTicketModal() {
+  const { createModalOpen } = useBoardContext();
+  if (!createModalOpen) return null;
+  return <CreateTicketModalInner />;
+}
+
+function CreateTicketModalInner() {
   const {
     boards,
     activeBoardId,
     boardColumns,
     releaseVersions,
     sprints,
-    createModalOpen,
     createTicket,
     closeModal,
     labels,
@@ -24,15 +35,10 @@ export function CreateTicketModal() {
     allTickets,
     createTicketParentId,
   } = useBoardContext();
-  const [selectedBoardId, setSelectedBoardId] = useState<string>(
-    activeBoardId ?? "",
-  );
 
-  React.useEffect(() => {
-    if (activeBoardId) {
-      setSelectedBoardId(activeBoardId);
-    }
-  }, [activeBoardId]);
+  // Board the user is creating in. There's no UI to switch boards from this
+  // modal yet, so for now this is just the active board at mount-time.
+  const [selectedBoardId] = useState<string>(activeBoardId ?? "");
 
   const columnsForBoard = useMemo(
     () => boardColumns.filter((c) => c.boardId === selectedBoardId),
@@ -52,6 +58,12 @@ export function CreateTicketModal() {
     [sprintsForBoard],
   );
 
+  // Initial hierarchyType: "story" if a parent was preset (you can't have a
+  // child of an epic that is itself an epic); "task" otherwise.
+  const initialHierarchy: TicketHierarchyType = createTicketParentId
+    ? "story"
+    : "task";
+
   const [form, setForm] = useState<{
     title: string;
     description: string;
@@ -69,10 +81,10 @@ export function CreateTicketModal() {
     label: labels[0] ?? "backend",
     fixVersion: releaseVersions[0]?.name ?? "",
     storyPoints: 3,
-    hierarchyType: "task",
+    hierarchyType: initialHierarchy,
     priority: "medium",
     columnId: columnsForBoard[0]?.id ?? "",
-    parentTicketId: null,
+    parentTicketId: createTicketParentId ?? null,
     sprintId: defaultSprintId,
   });
 
@@ -85,47 +97,27 @@ export function CreateTicketModal() {
     [allTickets, selectedBoardId],
   );
 
-  // Sync sprint default whenever the modal opens or the active sprint changes.
-  React.useEffect(() => {
-    if (createModalOpen) {
-      setForm((prev) => ({ ...prev, sprintId: defaultSprintId }));
-    }
-  }, [createModalOpen, defaultSprintId]);
+  // Derive the effective parent at render: clears the slot when the user
+  // promotes to epic or switches to a board where the prior parent doesn't
+  // exist. Replaces two setState-in-effect blocks that did the same thing.
+  const effectiveParentTicketId =
+    form.hierarchyType === "epic" ||
+    !form.parentTicketId ||
+    !epicOptions.some((t) => t.id === form.parentTicketId)
+      ? null
+      : form.parentTicketId;
 
-  // When the modal is opened "as child of <epic>", pre-fill the parent ID.
-  // Default to story (the more common child type) when a parent is preset.
-  React.useEffect(() => {
-    if (createModalOpen && createTicketParentId) {
-      setForm((prev) => ({
-        ...prev,
-        parentTicketId: createTicketParentId,
-        hierarchyType: prev.hierarchyType === "epic" ? "story" : prev.hierarchyType,
-      }));
-    }
-  }, [createModalOpen, createTicketParentId]);
-
-  // Clear stale parent selection when the user switches board or promotes to epic.
-  React.useEffect(() => {
-    if (form.hierarchyType === "epic" && form.parentTicketId !== null) {
-      setForm((prev) => ({ ...prev, parentTicketId: null }));
-    }
-  }, [form.hierarchyType, form.parentTicketId]);
-
-  React.useEffect(() => {
-    if (
-      form.parentTicketId &&
-      !epicOptions.some((t) => t.id === form.parentTicketId)
-    ) {
-      setForm((prev) => ({ ...prev, parentTicketId: null }));
-    }
-  }, [epicOptions, form.parentTicketId]);
+  // Derive sprint similarly: if the board switched and the prior sprint
+  // doesn't apply to the new board, fall back to that board's default.
+  const effectiveSprintId =
+    form.sprintId && sprintsForBoard.some((s) => s.id === form.sprintId)
+      ? form.sprintId
+      : defaultSprintId;
 
   const effectiveColumnId =
     columnsForBoard.find((c) => c.id === form.columnId)?.id ??
     columnsForBoard[0]?.id ??
     "";
-
-  if (!createModalOpen) return null;
 
   const chosenColumn = columnsForBoard.find((c) => c.id === effectiveColumnId);
   const canSubmit =
@@ -157,8 +149,7 @@ export function CreateTicketModal() {
             boardId: selectedBoardId,
             columnId: effectiveColumnId,
             hierarchyType: form.hierarchyType,
-            parentTicketId:
-              form.hierarchyType === "epic" ? null : form.parentTicketId,
+            parentTicketId: effectiveParentTicketId,
             title: form.title.trim(),
             description: form.description.trim(),
             label: form.label.trim(),
@@ -166,7 +157,7 @@ export function CreateTicketModal() {
             workflowState: chosenColumn?.states[0] ?? "todo",
             priority: form.priority,
             storyPoints: form.storyPoints,
-            sprintIds: form.sprintId ? [form.sprintId] : [],
+            sprintIds: effectiveSprintId ? [effectiveSprintId] : [],
           });
           setForm((prev) => ({ ...prev, title: "", description: "" }));
         }}
@@ -283,7 +274,7 @@ export function CreateTicketModal() {
           )}
 
           <SimpleDropdown
-            value={form.sprintId ?? ""}
+            value={effectiveSprintId ?? ""}
             options={[
               { label: "Backlog", value: "" },
               ...sprintsForBoard.map((s) => ({
@@ -301,7 +292,7 @@ export function CreateTicketModal() {
             <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
               Parent epic
               <ParentTicketSelect
-                value={form.parentTicketId}
+                value={effectiveParentTicketId}
                 options={epicOptions}
                 onChange={(parentId) =>
                   setForm((prev) => ({ ...prev, parentTicketId: parentId }))
