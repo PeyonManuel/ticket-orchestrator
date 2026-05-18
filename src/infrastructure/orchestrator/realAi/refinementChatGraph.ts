@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { SystemMessage, HumanMessage, AIMessage } from "@langchain/core/messages";
+import {
+  SystemMessage,
+  HumanMessage,
+  AIMessage,
+  type BaseMessage,
+} from "@langchain/core/messages";
 import type {
   RefinementChatInput,
   RefinementChatOutput,
@@ -7,6 +12,12 @@ import type {
 } from "@/domain/orchestrator/types";
 import { refinementMutationSchema } from "@/domain/orchestrator/types";
 import { createOrchestratorLLM } from "../llm";
+import { toolsForPhase } from "../tools";
+import { createGetOtherTicketProposalTool } from "../tools/getOtherTicketProposal";
+import { createFindSimilarTicketsTool } from "../tools/findSimilarTickets";
+import { createFindSimilarEpicsTool } from "../tools/findSimilarEpics";
+import { countTicketEmbeddings, countEpicEmbeddings } from "../rag/store";
+import { runAgentLoop } from "./agentLoop";
 import {
   validateRefinementMutations,
   describeRefinementMutationForFeedback,
@@ -67,7 +78,16 @@ Categorize the request:
 CURRENT TICKET below is fresh this turn. If the PO mentions a change, find it there before claiming you can't see it. Anchor briefly on current state ("the 5-pointer with acceptance criteria about...") so the PO knows you're reading the live ticket.
 
 ==== TICKET IDENTITY ====
-You are refining ONE ticket (shown below in CURRENT TICKET). To the PO, this ticket is identified by its title and position in the backlog. The internal \`id\` field is backend-only and never exposed. Refer to it as "the current ticket" or by its title (e.g., "#7 User onboarding flow"). Never mention or imply any internal IDs, indices, or backend identifiers. If the PO mentions other tickets, ask for their names or positions — the PO thinks in terms of title and position only.
+You are refining ONE ticket (shown below in CURRENT TICKET). To the PO, this ticket is identified by its title and position in the backlog. The internal \`id\` field is backend-only and never exposed. Refer to it as "the current ticket" or by its title (e.g., "#7 User onboarding flow"). Never mention or imply any internal IDs, indices, or backend identifiers. If the PO mentions other tickets, use them by position/title — the PO thinks in terms of title and position only.
+
+==== ON-DEMAND CONTEXT (TOOLS) ====
+You have tools to fetch additional context when the PO's question can't be answered from CURRENT TICKET alone. CALL a tool only when the answer materially depends on what it returns — do not call tools as a reflex.
+
+- \`get_ticket_details(ticketId)\` — fetch a sibling ticket's full block (description, AC, risks, points). Use ONLY when the PO references another ticket (by #N or title) and you need its body to give a grounded answer (consistency check, dependency reasoning, "is this duplicate of #5?"). The SIBLINGS listing below shows their ids — pass the exact \`prop-xxxxxxxx\`. Do NOT call this for the active ticket — it is already in CURRENT TICKET.
+- \`find_similar_tickets(query, topK)\` — semantic search over past committed tickets in this org; each hit carries its stored Fibonacci storyPoints. Use ONLY when the PO asks about effort/estimation or you're about to revise storyPoints. Skip if the conversation is about description/AC tone.
+- \`find_similar_epics(query, topK)\` — semantic search over past committed Epics. Use ONLY when the PO asks "have we done something like this before?" or you're considering a structural risk that might have a known pattern. Skip for routine refinement.
+
+If a tool returns \`{ error }\` or empty hits, ACKNOWLEDGE it ("I couldn't find a related ticket for that") rather than pretending. Tool results are visible to you alone — paraphrase them in plain language for the PO; never dump JSON.
 
 ==== DESCRIPTION (includes acceptance criteria) ====
 The description field is a single markdown text that includes both:
@@ -102,12 +122,30 @@ function buildSystemPrompt(input: RefinementChatInput): string {
     ? input.ticket.risks.map((r, i) => `  ${i + 1}. ${r}`).join("\n")
     : "  (none yet)";
 
+  // Position numbers mirror the PO's view of the backlog (1-indexed). We expose
+  // both the position (#N — what the PO says) and the id (prop-xxx — what tools
+  // need) so the AI can translate between them when calling `get_ticket_details`.
+  const activeIdx = input.backlog.tickets.findIndex(
+    (t) => t.id === input.ticket.id,
+  );
+  const siblingsList = input.backlog.tickets
+    .map((t, i) =>
+      t.id === input.ticket.id
+        ? null
+        : `  #${i + 1} ${t.title} [${t.label}] | id=${t.id}`,
+    )
+    .filter((s): s is string => s !== null);
+  const siblingsBlock = siblingsList.length
+    ? siblingsList.join("\n")
+    : "  (none — this is the only ticket in the backlog)";
+
   return [
     BASE_PROMPT,
     "",
     "==================================================",
     "=== CURRENT TICKET (live state, fresh this turn) ===",
     "==================================================",
+    `Position: #${activeIdx + 1}`,
     `Title: ${input.ticket.title}`,
     `One-liner: ${input.ticket.oneLiner}`,
     `Label: ${input.ticket.label}`,
@@ -121,6 +159,12 @@ function buildSystemPrompt(input: RefinementChatInput): string {
     "==================================================",
     "",
     `Epic context: ${input.backlog.epicTitle} — ${input.backlog.epicDescription}`,
+    "",
+    "==================================================",
+    "=== SIBLINGS (other tickets in the backlog) ======",
+    "==================================================",
+    "Listed by position (#N), title, label, and id. Pass the exact id to `get_ticket_details` if you need full body. In your reply to the PO, refer to siblings by `#N Title` only — never expose the id.",
+    siblingsBlock,
   ].join("\n");
 }
 
@@ -140,22 +184,48 @@ function buildFailureCorrection(failures: RefinementMutationFailure[]): string {
 
 export async function runRefinementChat(
   input: RefinementChatInput,
+  ctx?: { orgId?: string },
 ): Promise<RefinementChatOutput> {
   const llm = createOrchestratorLLM({ temperature: 0.5 });
-  const structured = llm.withStructuredOutput(responseSchema, {
-    name: "refinement_chat_response",
-  });
 
-  const messages = [
+  // Slice T: tool-calling pre-step. Bind:
+  //   - get_ticket_details: fetch any sibling ticket's field block (always available)
+  //   - find_similar_tickets: anchor advice in past committed tickets (org-scoped, gated on corpus)
+  //   - find_similar_epics: surface lessons from past Epics (org-scoped, gated on corpus)
+  // Plus anything else registered for the `refinementChat` scope. Fast-path skips
+  // the loop entirely if there are no tools to call (e.g. mock-AI smoke / empty corpus).
+  const siblings = input.backlog.tickets.filter((t) => t.id !== input.ticket.id);
+  const hasTicketCorpus =
+    !!ctx?.orgId && (await countTicketEmbeddings(ctx.orgId)) > 0;
+  const hasEpicCorpus =
+    !!ctx?.orgId && (await countEpicEmbeddings(ctx.orgId)) > 0;
+  const tools = [
+    ...toolsForPhase("refinementChat"),
+    ...(siblings.length > 0
+      ? [createGetOtherTicketProposalTool(siblings, input.ticket.id)]
+      : []),
+    ...(hasTicketCorpus ? [createFindSimilarTicketsTool(ctx!.orgId!)] : []),
+    ...(hasEpicCorpus ? [createFindSimilarEpicsTool(ctx!.orgId!)] : []),
+  ];
+
+  const initialMessages: BaseMessage[] = [
     new SystemMessage(buildSystemPrompt(input)),
     ...input.transcript.map((t) =>
       t.role === "user" ? new HumanMessage(t.text) : new AIMessage(t.text),
     ),
   ];
 
-  const result = await structured.invoke(messages, {
-    signal: AbortSignal.timeout(25_000),
+  const signal = AbortSignal.timeout(30_000);
+  const messages =
+    tools.length > 0
+      ? await runAgentLoop(llm, tools, initialMessages, 3, signal)
+      : initialMessages;
+
+  const structured = llm.withStructuredOutput(responseSchema, {
+    name: "refinement_chat_response",
   });
+
+  const result = await structured.invoke(messages, { signal });
 
   const { valid, failed } = validateRefinementMutations(
     result.mutations as RefinementMutation[],

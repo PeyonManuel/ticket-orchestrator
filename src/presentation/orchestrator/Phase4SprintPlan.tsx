@@ -27,6 +27,7 @@ import {
   DEFAULT_BUFFER_PERCENT,
   disciplineCapacity,
 } from "@/domain/orchestrator/policies/capacityPolicy";
+import { ticketDiscipline } from "@/domain/orchestrator/policies/slicingPolicy";
 import { BackNavigationModal } from "./BackNavigationModal";
 
 interface Props {
@@ -170,6 +171,8 @@ export function Phase4SprintPlan({
                   pct={pct}
                   over={over}
                   memberById={memberById}
+                  capacities={capacities}
+                  bufferPercent={bufferPercent}
                 />
               );
             })}
@@ -195,6 +198,8 @@ export function Phase4SprintPlan({
                   pct={pct}
                   over={over}
                   memberById={memberById}
+                  capacities={capacities}
+                  bufferPercent={bufferPercent}
                   proposed
                 />
               );
@@ -382,6 +387,8 @@ function SprintLane({
   pct,
   over,
   memberById,
+  capacities,
+  bufferPercent,
   proposed,
 }: {
   sprint: { id: string; name: string; startDate: string; endDate: string; capacityPoints: number };
@@ -390,6 +397,8 @@ function SprintLane({
   pct: number;
   over: boolean;
   memberById: (id: string | null) => MemberSnapshot | undefined;
+  capacities: TeamMemberCapacity[];
+  bufferPercent: number;
   proposed?: boolean;
 }) {
   return (
@@ -425,6 +434,11 @@ function SprintLane({
             style={{ width: `${pct}%` }}
           />
         </div>
+        <DisciplineUsageRow
+          tickets={tickets}
+          capacities={capacities}
+          bufferPercent={bufferPercent}
+        />
       </div>
 
       {tickets.length === 0 ? (
@@ -436,6 +450,70 @@ function SprintLane({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/**
+ * Compact per-discipline used/cap row beneath the sprint capacity bar. Mirrors
+ * the planner's discipline math (via the shared `ticketDiscipline` helper) so
+ * the PO sees the same partition the slicing policy used. Hidden disciplines:
+ * roles with zero capacity AND zero usage stay off the row to avoid noise on
+ * small teams.
+ */
+function DisciplineUsageRow({
+  tickets,
+  capacities,
+  bufferPercent,
+}: {
+  tickets: Array<{ ticket: NonNullable<EpicDraft["backlog"]>["tickets"][number]; assignment: TicketAssignment }>;
+  capacities: TeamMemberCapacity[];
+  bufferPercent: number;
+}) {
+  const roles: OrgMemberRole[] = ["developer", "ux", "tester", "po"];
+  const rows = roles
+    .map((role) => {
+      const used = tickets
+        .filter(({ ticket }) => ticketDiscipline(ticket) === role)
+        .reduce((sum, { ticket }) => sum + (ticket.storyPoints ?? 0), 0);
+      const cap = disciplineCapacity(capacities, role, bufferPercent);
+      return { role, used, cap };
+    })
+    .filter((r) => r.used > 0 || r.cap > 0);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {rows.map(({ role, used, cap }) => {
+        const pct = cap > 0 ? (used / cap) * 100 : used > 0 ? 100 : 0;
+        const tone =
+          pct >= 100
+            ? "text-rose-600 dark:text-rose-400"
+            : pct >= 80
+              ? "text-amber-600 dark:text-amber-400"
+              : "text-zinc-500 dark:text-zinc-400";
+        return (
+          <span
+            key={role}
+            className="inline-flex items-center gap-1 text-[10px]"
+            title={
+              cap === 0
+                ? `${ROLE_LABEL[role]}: ${used} SP assigned but no team capacity for this discipline`
+                : `${ROLE_LABEL[role]}: ${used} of ${cap} SP used (${Math.round(pct)}%)`
+            }
+          >
+            <span
+              className={`text-[9px] font-semibold px-1 py-0.5 rounded ${ROLE_BADGE[role]}`}
+            >
+              {ROLE_LABEL[role]}
+            </span>
+            <span className={`tabular-nums ${tone}`}>
+              {used}/{cap}
+            </span>
+          </span>
+        );
+      })}
     </div>
   );
 }

@@ -38,7 +38,15 @@ const ROLE_FOR_LABEL: Record<string, OrgMemberRole> = {
   po: "po",
 };
 
-function ticketDiscipline(t: TicketProposal): OrgMemberRole {
+/**
+ * Resolve a ticket's discipline for capacity-matching purposes. Prefer the
+ * explicit `discipline` field; fall back to the legacy `label`-derived role
+ * (for proposals predating Slice A.1); finally default to `developer`.
+ *
+ * Exported so the Phase 4 UI can mirror the planner's discipline math when
+ * rendering per-sprint per-discipline usage breakdowns.
+ */
+export function ticketDiscipline(t: TicketProposal): OrgMemberRole {
   return t.discipline ?? ROLE_FOR_LABEL[t.label] ?? "developer";
 }
 

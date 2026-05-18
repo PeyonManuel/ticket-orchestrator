@@ -6,11 +6,25 @@ import type { StructuredToolInterface } from "@langchain/core/tools";
  */
 export type OrionTool = StructuredToolInterface;
 
-export type OrionPhase = "phase1" | "phase2" | "phase3" | "phase4" | "phase5";
+export type OrionPhase =
+  | "phase1"
+  | "phase2"
+  | "phase3"
+  | "phase4"
+  | "phase5"
+  | "blueprintChat"
+  | "refinementChat"
+  | "plannerChat"
+  | "inspectorChat";
 
 /**
- * Per-phase tool sets. Empty by default — future slices register concrete tools
- * here (RAG retrieval in L, AC linter in M, semantic point estimator in O).
+ * Per-scope tool sets. Empty by default — slices register concrete tools here
+ * (RAG retrieval in L/O, chat context-fetch tools in T).
+ *
+ * Phase keys (`phase1`…`phase5`) scope tools to the structured-output actors:
+ * analyst (phase1), architect (phase2), controller (phase3), planner (phase4),
+ * inspector-server (phase5). Chat keys scope tools to the chat actors that run
+ * a tool-calling pre-step before producing their structured reply (Slice T).
  *
  * Registration pattern: a tool module imports this object and pushes itself in
  * at module load. Order doesn't matter for tool calling; the model picks based
@@ -22,6 +36,10 @@ const REGISTRY: Record<OrionPhase, OrionTool[]> = {
   phase3: [],
   phase4: [],
   phase5: [],
+  blueprintChat: [],
+  refinementChat: [],
+  plannerChat: [],
+  inspectorChat: [],
 };
 
 export function toolsForPhase(phase: OrionPhase): OrionTool[] {

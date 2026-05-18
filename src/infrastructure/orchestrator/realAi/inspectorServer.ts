@@ -53,13 +53,16 @@ export async function runInspectorTurnServer(
 
   const drift = computeDrift(snapshot, liveTickets, columns);
 
-  return runInspectorTurn({
-    snapshot,
-    liveTickets,
-    columns,
-    drift,
-    transcript,
-    memories,
-    userMessage: input.userMessage,
-  });
+  return runInspectorTurn(
+    {
+      snapshot,
+      liveTickets,
+      columns,
+      drift,
+      transcript,
+      memories,
+      userMessage: input.userMessage,
+    },
+    { orgId: input.orgId },
+  );
 }

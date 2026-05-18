@@ -39,7 +39,6 @@ export function TicketModal() {
     selectBoard,
     updateTicketField,
     updateTicketWorkflowState,
-    updateTicketStoryPoints,
     updateTicketPriority,
     setTicketAssignee,
     setTicketParent,
@@ -472,16 +471,9 @@ export function TicketModal() {
 
             <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">
               Story Points
-              <SimpleDropdown
-                value={String(selectedTicket.storyPoints)}
-                options={[1, 2, 3, 5, 8, 13].map((p) => ({
-                  label: `${p} SP`,
-                  value: String(p),
-                }))}
-                onChange={(v) =>
-                  updateTicketStoryPoints(selectedTicket.id, Number(v) as 1 | 2 | 3 | 5 | 8 | 13)
-                }
-              />
+              <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 font-normal">
+                {selectedTicket.storyPoints ? `${selectedTicket.storyPoints} SP` : "—"}
+              </div>
             </div>
 
             <div className="grid gap-1 text-xs text-zinc-600 dark:text-zinc-400 font-semibold">

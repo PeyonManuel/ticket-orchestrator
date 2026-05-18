@@ -698,6 +698,16 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
           message: payload.message,
           pendingPatch: patch,
         });
+        // Surface the resolution banner. For modal-internal edits (typing,
+        // dropdowns) the modal is already open and this is a no-op. For
+        // out-of-modal patch paths (drag-and-drop, programmatic moves) this
+        // is what makes the conflict reachable instead of silently failing.
+        setSelectedTicketId(ticketId);
+        setActiveModal("ticket");
+        updateUrlParams({
+          ticketId: payload.currentState.ticketNumber,
+          modal: "ticket",
+        });
       }
     };
 

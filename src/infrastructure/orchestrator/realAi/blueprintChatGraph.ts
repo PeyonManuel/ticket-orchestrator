@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { SystemMessage, HumanMessage, AIMessage } from "@langchain/core/messages";
+import {
+  SystemMessage,
+  HumanMessage,
+  AIMessage,
+  type BaseMessage,
+} from "@langchain/core/messages";
 import type {
   BlueprintChatInput,
   BlueprintChatOutput,
@@ -7,6 +12,10 @@ import type {
 } from "@/domain/orchestrator/types";
 import { blueprintMutationSchema } from "@/domain/orchestrator/types";
 import { createOrchestratorLLM } from "../llm";
+import { toolsForPhase } from "../tools";
+import { createFindSimilarEpicsTool } from "../tools/findSimilarEpics";
+import { countEpicEmbeddings } from "../rag/store";
+import { runAgentLoop } from "./agentLoop";
 import {
   validateBlueprintMutations,
   describeBlueprintMutationForFeedback,
@@ -45,6 +54,13 @@ To the PO, a ticket exists only as a position (#N) and a title. The PO never see
 
 ==== LIVE STATE ====
 CURRENT BACKLOG below is fresh this turn. If the PO mentions a ticket, find it there before saying you can't see it. If genuinely missing, quote the ticket count and ask.
+
+==== ON-DEMAND CONTEXT (TOOLS) ====
+You have a tool to fetch historical context when it would change your answer. CALL it only when relevant — do not call as a reflex.
+
+- \`find_similar_epics(query, topK)\` — semantic search over Epics this team has committed before. Use ONLY when the PO asks "have we done something like this?", you're considering scope/structure and a known pattern might exist, or the PO references a past Epic by name. Skip for routine edits (renames, reorders, label changes). Pass a natural-language query summarizing the current Epic's goal.
+
+If the tool returns empty hits, ACKNOWLEDGE it ("no prior Epic matched") rather than pretending. Tool results are visible to you alone — paraphrase findings in plain language for the PO; never dump JSON.
 
 ==== MUTATIONS ====
 - addTicket — { title, oneLiner, label, hierarchyType, afterTicketId? }
@@ -111,22 +127,38 @@ function buildFailureCorrection(failures: BlueprintMutationFailure[]): string {
 
 export async function runBlueprintChat(
   input: BlueprintChatInput,
+  ctx?: { orgId?: string },
 ): Promise<BlueprintChatOutput> {
   const llm = createOrchestratorLLM({ temperature: 0.5 });
-  const structured = llm.withStructuredOutput(responseSchema, {
-    name: "blueprint_chat_response",
-  });
 
-  const messages = [
+  // Slice T: tool-calling pre-step. The current backlog is already inline in
+  // the system prompt — what the AI can't see is the team's past Epics. Bind
+  // `find_similar_epics` gated on corpus availability so first-run orgs skip
+  // the loop entirely.
+  const hasEpicCorpus =
+    !!ctx?.orgId && (await countEpicEmbeddings(ctx.orgId)) > 0;
+  const tools = [
+    ...toolsForPhase("blueprintChat"),
+    ...(hasEpicCorpus ? [createFindSimilarEpicsTool(ctx!.orgId!)] : []),
+  ];
+
+  const initialMessages: BaseMessage[] = [
     new SystemMessage(buildSystemPrompt(input)),
     ...input.transcript.map((t) =>
       t.role === "user" ? new HumanMessage(t.text) : new AIMessage(t.text),
     ),
   ];
 
-  const result = await structured.invoke(messages, {
-    signal: AbortSignal.timeout(25_000),
+  const signal = AbortSignal.timeout(30_000);
+  const messages =
+    tools.length > 0
+      ? await runAgentLoop(llm, tools, initialMessages, 3, signal)
+      : initialMessages;
+
+  const structured = llm.withStructuredOutput(responseSchema, {
+    name: "blueprint_chat_response",
   });
+  const result = await structured.invoke(messages, { signal });
 
   // Server-side validation drops mutations the AI hallucinated. Rather than
   // retry (costly on local Gemma), we splice a correction into the reply in

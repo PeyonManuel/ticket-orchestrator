@@ -1,10 +1,20 @@
 import { z } from "zod";
-import { SystemMessage, HumanMessage, AIMessage } from "@langchain/core/messages";
+import {
+  SystemMessage,
+  HumanMessage,
+  AIMessage,
+  type BaseMessage,
+} from "@langchain/core/messages";
 import type {
   InspectorTurnInput,
   InspectorTurnOutput,
 } from "@/domain/orchestrator/types";
 import { createOrchestratorLLM } from "../llm";
+import { toolsForPhase } from "../tools";
+import { createFindSimilarEpicsTool } from "../tools/findSimilarEpics";
+import { createFindSimilarTicketsTool } from "../tools/findSimilarTickets";
+import { countEpicEmbeddings, countTicketEmbeddings } from "../rag/store";
+import { runAgentLoop } from "./agentLoop";
 
 /**
  * Phase 5 Inspector — post-commit chat over a committed Epic.
@@ -34,6 +44,15 @@ ${summariseContext(input)}
 - Concrete over vague: "3 tickets changed titles, 2 dropped points" beats "there were some changes".
 - Short by default. Go longer only if the question warrants it.
 - Never invent state not in the context above.
+
+## On-demand context (tools)
+
+You may have these tools available; call them only when the PO's question can't be answered from the Epic context above.
+
+- \`find_similar_epics(query, topK)\` — search past committed Epics in this org. Use when the PO asks "have we built something like this?" or you want to compare patterns ("this drift looks like what happened with the auth Epic"). Skip for status questions about THIS Epic.
+- \`find_similar_tickets(query, topK)\` — semantic search across past committed tickets with their stored points. Use when the PO asks about effort/estimation across Epics, or a ticket here reminds you of one elsewhere.
+
+Tool results are visible only to you — paraphrase them in plain language; never dump JSON. If a tool returns empty hits, acknowledge it instead of pretending.
 
 ## Output format
 
@@ -99,24 +118,43 @@ function summariseContext(input: InspectorTurnInput): string {
 
 export async function runInspectorTurn(
   input: InspectorTurnInput,
+  ctx?: { orgId?: string },
 ): Promise<InspectorTurnOutput> {
   const llm = createOrchestratorLLM({ temperature: 0.4 });
-  const structured = llm.withStructuredOutput(responseSchema, {
-    name: "inspector_response",
-  });
+
+  // Slice T: tool-calling pre-step. Inspector benefits from cross-Epic search
+  // (its "Living Memory" persona) more than any other chat. Bind RAG tools
+  // gated on corpus availability so first-run orgs skip the loop entirely.
+  const hasEpicCorpus =
+    !!ctx?.orgId && (await countEpicEmbeddings(ctx.orgId)) > 0;
+  const hasTicketCorpus =
+    !!ctx?.orgId && (await countTicketEmbeddings(ctx.orgId)) > 0;
+  const tools = [
+    ...toolsForPhase("inspectorChat"),
+    ...(hasEpicCorpus ? [createFindSimilarEpicsTool(ctx!.orgId!)] : []),
+    ...(hasTicketCorpus ? [createFindSimilarTicketsTool(ctx!.orgId!)] : []),
+  ];
 
   // Context lives in the system prompt. Transcript is pure Human/AI alternation
   // so Gemini's strict turn-order requirement is satisfied.
-  const messages = [
+  const initialMessages: BaseMessage[] = [
     new SystemMessage(buildSystemPrompt(input)),
     ...input.transcript.map((t) =>
       t.role === "user" ? new HumanMessage(t.text) : new AIMessage(t.text),
     ),
   ];
 
-  const result = await structured.invoke(messages, {
-    signal: AbortSignal.timeout(25_000),
+  const signal = AbortSignal.timeout(30_000);
+  const messages =
+    tools.length > 0
+      ? await runAgentLoop(llm, tools, initialMessages, 3, signal)
+      : initialMessages;
+
+  const structured = llm.withStructuredOutput(responseSchema, {
+    name: "inspector_response",
   });
+  const result = await structured.invoke(messages, { signal });
+
   return {
     reply: result.reply,
     insightsToSave: result.insightsToSave,

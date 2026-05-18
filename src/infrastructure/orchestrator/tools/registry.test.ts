@@ -11,7 +11,17 @@ describe("toolsForPhase + registerTool", () => {
   // Reset any tools left over by other tests / by app bootstrap before each
   // test — the registry is a singleton; tests share state otherwise.
   beforeEach(() => {
-    const phases = ["phase1", "phase2", "phase3", "phase4", "phase5"] as const;
+    const phases = [
+      "phase1",
+      "phase2",
+      "phase3",
+      "phase4",
+      "phase5",
+      "blueprintChat",
+      "refinementChat",
+      "plannerChat",
+      "inspectorChat",
+    ] as const;
     for (const phase of phases) {
       const bucket = toolsForPhase(phase);
       bucket.length = 0;
@@ -21,6 +31,8 @@ describe("toolsForPhase + registerTool", () => {
   it("starts empty for every phase", () => {
     expect(toolsForPhase("phase1")).toEqual([]);
     expect(toolsForPhase("phase5")).toEqual([]);
+    expect(toolsForPhase("refinementChat")).toEqual([]);
+    expect(toolsForPhase("inspectorChat")).toEqual([]);
   });
 
   it("registers a tool for a single phase", () => {
