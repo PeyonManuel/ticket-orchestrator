@@ -21,6 +21,7 @@ import type {
   BacklogProposal,
   BlueprintChatInput,
   BlueprintChatOutput,
+  BlueprintMutation,
   BrainstormSummary,
   ControllerInput,
   ControllerOutput,
@@ -34,10 +35,17 @@ import type {
   ProposalStoryPoints,
   RefinementChatInput,
   RefinementChatOutput,
+  RefinementMutation,
   TicketProposal,
 } from "@/domain/orchestrator/types";
+import type { OrgMemberRole } from "@/domain/analyst";
 import { defaultCapacityFor } from "@/domain/orchestrator/policies/capacityPolicy";
 import { produceSprintPlan } from "@/domain/orchestrator/policies/slicingPolicy";
+import {
+  validateBlueprintMutations,
+  describeBlueprintMutationForFeedback,
+  type BlueprintMutationFailure,
+} from "./realAi/mutationValidation";
 
 const MIN_LATENCY_MS = 600;
 const MAX_LATENCY_MS = 1400;
@@ -52,6 +60,8 @@ const READY_CUES = [
 ];
 
 function delay(): Promise<void> {
+  // Skip simulated latency under Vitest so the unit suite stays fast.
+  if (process.env.VITEST) return Promise.resolve();
   const ms =
     MIN_LATENCY_MS +
     Math.floor(Math.random() * (MAX_LATENCY_MS - MIN_LATENCY_MS));
@@ -348,10 +358,112 @@ export async function runControllerRefinement(
 
 // ─── Blueprint Chat (Phase 2) ────────────────────────────────────────
 
+/**
+ * Deterministic trigger parser for the mock blueprint chat. Lets E2E tests
+ * exercise the mutation channel without requiring a real LLM. Patterns:
+ *
+ *   "rename ticket N to X"   → renameTicket targeting position N
+ *   "remove ticket N"        → removeTicket targeting position N
+ *   "change label of ticket N to <label>" → changeLabel
+ *
+ * Out-of-range N produces a mutation with a fabricated `prop-bogus*` id so
+ * the validation-splice path is exercisable end-to-end.
+ */
+function parseBlueprintTrigger(
+  message: string,
+  backlog: BacklogProposal,
+): BlueprintMutation[] {
+  const ticketAtPosition = (pos: number): TicketProposal | undefined =>
+    pos >= 1 && pos <= backlog.tickets.length
+      ? backlog.tickets[pos - 1]
+      : undefined;
+
+  const renameMatch = message.match(
+    /rename\s+ticket\s+#?(\d+)\s+to\s+["']?(.+?)["']?\s*$/i,
+  );
+  if (renameMatch) {
+    const pos = Number(renameMatch[1]);
+    const newTitle = renameMatch[2].trim();
+    const target = ticketAtPosition(pos);
+    return [
+      {
+        kind: "renameTicket",
+        ticketId: target?.id ?? `prop-bogus${pos}`,
+        title: newTitle,
+      },
+    ];
+  }
+
+  const removeMatch = message.match(/remove\s+ticket\s+#?(\d+)\s*$/i);
+  if (removeMatch) {
+    const pos = Number(removeMatch[1]);
+    const target = ticketAtPosition(pos);
+    return [
+      {
+        kind: "removeTicket",
+        ticketId: target?.id ?? `prop-bogus${pos}`,
+      },
+    ];
+  }
+
+  const labelMatch = message.match(
+    /change\s+label\s+of\s+ticket\s+#?(\d+)\s+to\s+(developer|ux|qa|po)\b/i,
+  );
+  if (labelMatch) {
+    const pos = Number(labelMatch[1]);
+    const label = labelMatch[2].toLowerCase() as ProposalLabel;
+    const target = ticketAtPosition(pos);
+    return [
+      {
+        kind: "changeLabel",
+        ticketId: target?.id ?? `prop-bogus${pos}`,
+        label,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function buildBlueprintFailureCorrection(
+  failures: BlueprintMutationFailure[],
+): string {
+  if (failures.length === 1) {
+    const f = failures[0];
+    return `\n\n— Correction: I also attempted \`${describeBlueprintMutationForFeedback(f.mutation)}\` but the system rejected it: ${f.reason}. That change was NOT applied.`;
+  }
+  const list = failures
+    .map(
+      (f) =>
+        `  • \`${describeBlueprintMutationForFeedback(f.mutation)}\` — ${f.reason}`,
+    )
+    .join("\n");
+  return `\n\n— Correction: ${failures.length} of my proposed changes were rejected and were NOT applied:\n${list}`;
+}
+
 export async function runBlueprintChat(
   input: BlueprintChatInput,
 ): Promise<BlueprintChatOutput> {
   await delay();
+
+  // Deterministic mutation trigger path (used by E2E and demos). If the user
+  // message matches a known pattern, emit the mutation, run server-side
+  // validation, and splice any rejections into the reply — matching the
+  // real-AI path's behavior 1:1.
+  const triggered = parseBlueprintTrigger(input.userMessage, input.currentBacklog);
+  if (triggered.length > 0) {
+    const { valid, failed } = validateBlueprintMutations(
+      triggered,
+      input.currentBacklog,
+    );
+    const baseReply =
+      valid.length > 0
+        ? `Applied ${valid.length} change${valid.length === 1 ? "" : "s"} to the backlog.`
+        : `I tried to apply your change but the system rejected it.`;
+    const reply =
+      failed.length === 0 ? baseReply : baseReply + buildBlueprintFailureCorrection(failed);
+    return { reply, mutations: valid };
+  }
 
   const lower = input.userMessage.toLowerCase();
   const isChanging = ["add", "remove", "split", "change", "modify", "delete", "replace", "update"].some(
@@ -473,10 +585,67 @@ export async function runPlannerChat(
 
 // ─── Refinement Chat (Phase 3) ───────────────────────────────────────
 
+const LABEL_TO_DISCIPLINE: Record<ProposalLabel, OrgMemberRole> = {
+  developer: "developer",
+  ux: "ux",
+  qa: "tester",
+  po: "po",
+};
+
+/**
+ * Deterministic trigger parser for the mock refinement chat. Patterns:
+ *
+ *   "make it N points" / "set to N points" → setStoryPoints (Fibonacci snap)
+ *   "change label to <label>"              → setLabel + setDiscipline (paired)
+ *
+ * Refinement mutations only target the active ticket, so no id-based failure
+ * path exists — the realAi validator has no semantic failures for these
+ * shapes, only Zod-level enum/Fibonacci checks (which are filtered upstream
+ * by the parser itself: bogus point values just don't match).
+ */
+function parseRefinementTrigger(message: string): RefinementMutation[] {
+  const pointsMatch = message.match(
+    /(?:make\s+it|set(?:\s+to)?|change\s+to)\s+(\d+)\s*(?:sp|points?|pts?)/i,
+  );
+  if (pointsMatch) {
+    const n = Number(pointsMatch[1]);
+    const allowed: ProposalStoryPoints[] = [1, 2, 3, 5, 8, 13];
+    if ((allowed as number[]).includes(n)) {
+      return [{ kind: "setStoryPoints", storyPoints: n as ProposalStoryPoints }];
+    }
+    return [];
+  }
+
+  const labelMatch = message.match(
+    /change\s+(?:the\s+)?label(?:\s+of\s+(?:this|the)?\s*ticket)?\s+to\s+(developer|ux|qa|po)\b/i,
+  );
+  if (labelMatch) {
+    const label = labelMatch[1].toLowerCase() as ProposalLabel;
+    const discipline = LABEL_TO_DISCIPLINE[label];
+    return [
+      { kind: "setLabel", label },
+      { kind: "setDiscipline", discipline },
+    ];
+  }
+
+  return [];
+}
+
 export async function runRefinementChat(
   input: RefinementChatInput,
 ): Promise<RefinementChatOutput> {
   await delay();
+
+  // Deterministic mutation trigger path. Refinement mutations can't fail
+  // server-side validation (no id lookup, Zod handles enum/Fibonacci) so we
+  // skip the splice — emit + reply.
+  const triggered = parseRefinementTrigger(input.userMessage);
+  if (triggered.length > 0) {
+    return {
+      reply: `Applied ${triggered.length} change${triggered.length === 1 ? "" : "s"} to the current ticket.`,
+      mutations: triggered,
+    };
+  }
 
   const lower = input.userMessage.toLowerCase();
   const { ticket } = input;

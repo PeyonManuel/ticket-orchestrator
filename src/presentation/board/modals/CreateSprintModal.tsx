@@ -62,6 +62,7 @@ function CreateSprintModalInner() {
   const [goal, setGoal] = useState("");
   const [startDate, setStartDate] = useState(suggestedStartDate);
   const [weeks, setWeeks] = useState<Weeks>(2);
+  const [capacityPoints, setCapacityPoints] = useState("0");
   const [submitting, setSubmitting] = useState(false);
 
   const endDate = isoDate(addWeeks(new Date(startDate), weeks));
@@ -82,7 +83,7 @@ function CreateSprintModalInner() {
       goal: goal.trim(),
       startDate,
       endDate,
-      capacityPoints: 0,
+      capacityPoints: Number(capacityPoints) || 0,
     });
     if (created) {
       selectSprint(created.id);
@@ -155,6 +156,19 @@ function CreateSprintModalInner() {
           <p className="text-xs text-zinc-500">
             Ends <span className="font-medium text-zinc-700 dark:text-zinc-300">{endDate}</span>
           </p>
+
+          <label className="grid gap-1 text-xs text-zinc-500">
+            Capacity (story points)
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={capacityPoints}
+              onChange={(e) => setCapacityPoints(e.target.value)}
+              placeholder="0"
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </label>
 
           {hasConflict && (
             <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3">

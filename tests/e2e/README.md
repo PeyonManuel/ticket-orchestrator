@@ -5,7 +5,7 @@ Playwright specs covering the critical AI-decision paths required by `AGENTS.md`
 - `orchestrator-commit.spec.ts` — full happy path: new draft → Phases 1-4 → commit to board.
 - `inspector.spec.ts` — Phase 5 chat + memory persistence over a committed Epic.
 - `phase4-visualization.spec.ts` — Phase 4 CapacityPanel + per-discipline chips render; OverflowBanner asserted when triggered.
-- `ai-mutation.spec.ts` — Slice Q/R: Execute / Confirm mode toggle (interactive + persistent). Full validation-splice and pending-mutation Accept/Reject flows are `test.fixme` until mock AI gains a mutation channel (or real AI is gated in via `E2E_REAL_AI=1`).
+- `ai-mutation.spec.ts` — Slice Q/R: Execute / Confirm mode toggle (interactive + persistent); Confirm-mode pending-preview + Accept flow; validation-splice on bogus-id renames. Drives the mock-AI mutation channel via deterministic keyword triggers ("rename ticket N to X", "make it N points", etc).
 - `tool-calls.spec.ts` — Slice T tool-call smoke. Skipped by default; runs only when `E2E_REAL_AI=1` is set (requires `GOOGLE_API_KEY` and dev server started without `NEXT_PUBLIC_MOCK_AI=1`).
 
 ## One-time setup
@@ -43,7 +43,6 @@ Playwright will boot `npm run dev` automatically and tear it down after.
 ## Known gaps
 
 - **Phase 4 "over-capacity" branch** is partially covered: `phase4-visualization.spec.ts` asserts the OverflowBanner / footer rendering when overflow occurs naturally, but the mock backlog doesn't always overflow. A `seed?forceOverflow=1` knob (one-developer team or zero upcoming sprints) would tighten the assertion from conditional to required.
-- **Mock AI mutation channel.** `mockAi.runBlueprintChat` / `runRefinementChat` return `{ reply }` only — they never emit `mutations[]`. That makes the validation-splice path and the Confirm-mode Accept/Reject UI invisible to E2E. Either enhance the mocks to emit deterministic mutations on keyword triggers ("rename ticket 1 to X") or rely on real AI (`E2E_REAL_AI=1`).
 - **Phase 4 back-to-refine** flow lands in Slice H+I (back-navigation modal). Add a spec there.
 - **Auth setup selectors** target Clerk's default sign-in form; if the hosted UI has been heavily themed, `auth.setup.ts` may need adjustment.
 
