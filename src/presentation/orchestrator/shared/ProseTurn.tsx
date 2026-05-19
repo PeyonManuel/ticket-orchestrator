@@ -10,6 +10,7 @@
  */
 
 import React from "react";
+import { CopyButton } from "./CopyButton";
 
 type Token =
   | { type: "text"; content: string }
@@ -100,33 +101,38 @@ function blocksOfParagraph(paragraph: string): Block[] {
 export function ProseTurn({ text, className }: { text: string; className?: string }) {
   const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
   return (
-    <div
-      className={
-        className ?? "text-xs leading-relaxed text-zinc-700 dark:text-zinc-300 space-y-2 pr-2"
-      }
-    >
-      {paragraphs.map((para, pi) => {
-        const blocks = blocksOfParagraph(para);
-        return (
-          <div key={pi} className="space-y-1.5">
-            {blocks.map((b, bi) =>
-              b.type === "list" ? (
-                <ul key={bi} className="list-disc list-outside pl-4 space-y-1">
-                  {b.items.map((item, ii) => (
-                    <li key={ii} className="whitespace-pre-wrap">
-                      {renderInline(item, `${pi}-${bi}-${ii}`)}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p key={bi} className="whitespace-pre-wrap">
-                  {renderInline(b.text, `${pi}-${bi}`)}
-                </p>
-              ),
-            )}
-          </div>
-        );
-      })}
+    <div className="group relative">
+      <div
+        className={
+          className ?? "text-xs leading-relaxed text-zinc-700 dark:text-zinc-300 space-y-2 pr-2"
+        }
+      >
+        {paragraphs.map((para, pi) => {
+          const blocks = blocksOfParagraph(para);
+          return (
+            <div key={pi} className="space-y-1.5">
+              {blocks.map((b, bi) =>
+                b.type === "list" ? (
+                  <ul key={bi} className="list-disc list-outside pl-4 space-y-1">
+                    {b.items.map((item, ii) => (
+                      <li key={ii} className="whitespace-pre-wrap">
+                        {renderInline(item, `${pi}-${bi}-${ii}`)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p key={bi} className="whitespace-pre-wrap">
+                    {renderInline(b.text, `${pi}-${bi}`)}
+                  </p>
+                ),
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1.5">
+        <CopyButton text={text} className="text-zinc-400 hover:text-zinc-600 dark:text-zinc-600 dark:hover:text-zinc-400" />
+      </div>
     </div>
   );
 }

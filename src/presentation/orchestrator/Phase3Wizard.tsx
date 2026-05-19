@@ -11,6 +11,7 @@ import type {
   RefinementMutation,
   TicketProposal,
 } from "@/domain/orchestrator/types";
+import { composeDescriptionWithAcceptanceCriteria } from "@/domain/orchestrator/types";
 import type { OrchestratorEvent } from "@/domain/orchestrator";
 import { BackNavigationModal } from "./BackNavigationModal";
 import { ProseTurn } from "./shared/ProseTurn";
@@ -164,65 +165,67 @@ export function Phase3Wizard({
     </div>
   );
 
-  function TicketEditor({
-    ticket,
-    aiTouched,
-    onPatch,
-  }: {
-    ticket: TicketProposal;
-    aiTouched: boolean;
-    onPatch: (patch: Partial<TicketProposal>) => void;
-  }) {
-    return (
-      <div className="flex flex-col gap-3 rounded-xl p-2 h-full min-h-0">
-        <div>
-          <label className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
-            Title
-          </label>
-          <input
-            value={ticket.title}
-            onChange={(e) => onPatch({ title: e.target.value })}
-            className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-          />
-        </div>
+}
 
-        <div className="flex-1 min-h-0 flex flex-col">
-          <label className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
-            Description & Acceptance Criteria
-          </label>
-          <RichMarkdownEditor
-            value={ticket.description}
-            onChange={(value) => onPatch({ description: value })}
-            aiTouched={aiTouched}
-          />
-        </div>
 
-        <div>
-          <label className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
-            Story points
-          </label>
-          <div className="flex gap-1.5">
-            {STORY_POINT_OPTIONS.map((p) => {
-              const active = ticket.storyPoints === p;
-              return (
-                <button
-                  key={p}
-                  onClick={() => onPatch({ storyPoints: p })}
-                  className={`h-9 w-9 rounded-lg text-sm font-semibold tabular-nums transition-all ${
-                    active
-                      ? "bg-indigo-500 text-white shadow-sm"
-                      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                  }`}
-                >
-                  {p}
-                </button>
-              );
-            })}
-          </div>
+function TicketEditor({
+  ticket,
+  aiTouched,
+  onPatch,
+}: {
+  ticket: TicketProposal;
+  aiTouched: boolean;
+  onPatch: (patch: Partial<TicketProposal>) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-xl p-2 h-full min-h-0">
+      <div>
+        <label className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
+          Title
+        </label>
+        <input
+          value={ticket.title}
+          onChange={(e) => onPatch({ title: e.target.value })}
+          className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+        />
+      </div>
+
+      <div className="flex-1 min-h-0 flex flex-col">
+        <label className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
+          Description &amp; Acceptance Criteria
+        </label>
+        <RichMarkdownEditor
+          value={composeDescriptionWithAcceptanceCriteria(ticket.description, ticket.acceptanceCriteria)}
+          onChange={(value) => onPatch({ description: value, acceptanceCriteria: [] })}
+          aiTouched={aiTouched}
+        />
+      </div>
+
+      <div>
+        <label className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-1.5">
+          Story points
+        </label>
+        <div className="flex gap-1.5">
+          {STORY_POINT_OPTIONS.map((p) => {
+            const active = ticket.storyPoints === p;
+            return (
+              <button
+                key={p}
+                onClick={() => onPatch({ storyPoints: p })}
+                className={`h-9 w-9 rounded-lg text-sm font-semibold tabular-nums transition-all ${
+                  active
+                    ? "bg-indigo-500 text-white shadow-sm"
+                    : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                }`}
+              >
+                {p}
+              </button>
+            );
+          })}
         </div>
       </div>
-    );
-  }
+    </div>
+  );
 }
 
 function RefinementPanel({
@@ -402,6 +405,10 @@ function describeRefinementMutation(
     case "setDescription": {
       const before = ticket.description?.slice(0, 60) ?? "(empty)";
       return `Rewrite description (was: "${before}${ticket.description.length > 60 ? "…" : ""}")`;
+    }
+    case "setAcceptanceCriteria": {
+      const before = ticket.acceptanceCriteria?.length ?? 0;
+      return `Replace acceptance criteria (${before} → ${m.acceptanceCriteria.length} items)`;
     }
     case "setStoryPoints":
       return `Set story points: ${ticket.storyPoints ?? "—"} → ${m.storyPoints}`;
