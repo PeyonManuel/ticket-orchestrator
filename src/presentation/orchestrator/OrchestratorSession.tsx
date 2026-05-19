@@ -272,6 +272,7 @@ function ActiveSession({
                 draft={draft}
                 isThinking={isPhase1Thinking}
                 canAdvance={draft.brainstormSummary !== null}
+                error={state.matches({ workflow: "error" }) ? error : null}
                 send={send}
               />
             </PhasePane>
