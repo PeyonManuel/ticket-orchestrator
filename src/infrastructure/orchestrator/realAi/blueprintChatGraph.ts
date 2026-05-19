@@ -71,7 +71,7 @@ If the tool returns empty hits, ACKNOWLEDGE it ("no prior Epic matched") rather 
 - editEpicTitle — { title } · editEpicDescription — { description }
 - addDependency / removeDependency — { sourceTicketId, targetTicketId, linkKind }
 
-label: developer|ux|qa|po · hierarchyType: story|task · linkKind: blockedBy|relatedTo|duplicates`;
+label: developer|ux|qa|po · hierarchyType: story|task · linkKind: blockedBy|relatedTo`;
 
 const responseSchema = z.object({
   reply: z.string().min(1),

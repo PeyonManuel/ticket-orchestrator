@@ -47,7 +47,7 @@ const ticketProposalDraftSchema = z.object({
   dependencies: z
     .array(
       z.object({
-        kind: z.enum(["blockedBy", "relatedTo", "duplicates"]),
+        kind: z.enum(["blockedBy", "relatedTo"]),
         targetIndex: z
           .number()
           .int()

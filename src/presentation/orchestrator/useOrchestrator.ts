@@ -63,15 +63,19 @@ export function useOrchestrator(
   // on context.draft.phase — no enter actions run, so cursor/sprintPlan/etc.
   // remain at their persisted values. Phase entry guards (backlogNonEmpty,
   // planExists, decideTicket always-array) handle sub-state from there.
+  // True until RESUME_PHASE fires so the session doesn't flash Phase 1 before
+  // jumping to the real phase.
+  const [isRestoring, setIsRestoring] = useState(
+    initialDraft.phase !== "phase1Brainstorming",
+  );
   const resumeFiredRef = useRef(false);
   useEffect(() => {
     if (resumeFiredRef.current) return;
-    if (initialDraft.phase === "phase1Brainstorming") {
-      resumeFiredRef.current = true;
-      return;
-    }
     resumeFiredRef.current = true;
-    send({ type: "RESUME_PHASE" });
+    if (initialDraft.phase !== "phase1Brainstorming") {
+      send({ type: "RESUME_PHASE" });
+    }
+    setIsRestoring(false);
   }, [initialDraft.phase, send]);
 
   // Status drives the "Saving…" indicator in the header.
@@ -163,6 +167,7 @@ export function useOrchestrator(
     draft: state.context.draft,
     error: state.context.error,
     saveStatus,
+    isRestoring,
   };
 }
 

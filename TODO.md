@@ -2,7 +2,7 @@
 
 Anytime for any reason a user message is left unnanwered, there needs to be a programatically added "AI message" saying that something went wrong, and a button to try again. Like in gemini or chatgpt
 
-If the AI already generated ticket 5, then i leave and come back, it generates ticket 5 again. It needs to remember it already generated it.
+**DONE** If the AI already generated ticket 5, then i leave and come back, it generates ticket 5 again. It needs to remember it already generated it.
 
 Now the Architect/blueprint is creating tickets that are duplicated, or at least its setting two tickets as duplications of each other, what is this?
 

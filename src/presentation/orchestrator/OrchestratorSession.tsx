@@ -100,7 +100,7 @@ function ActiveSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { state, send, flush, forceFlush, commitDraft, draft, error, saveStatus } =
+  const { state, send, flush, forceFlush, commitDraft, draft, error, saveStatus, isRestoring } =
     useOrchestrator(initialDraft, initialCapacities);
   const saving = saveStatus !== "idle";
 
@@ -266,7 +266,7 @@ function ActiveSession({
 
       <div className="flex-1 min-h-0 relative">
         <AnimatePresence mode="sync" initial={false}>
-          {inPhase1 && (
+          {!isRestoring && inPhase1 && (
             <PhasePane key="p1">
               <Phase1Brainstorm
                 draft={draft}
@@ -277,7 +277,7 @@ function ActiveSession({
               />
             </PhasePane>
           )}
-          {inPhase2 && (
+          {!isRestoring && inPhase2 && (
             <PhasePane key="p2">
               <Phase2BulkList
                 draft={draft}
@@ -291,7 +291,7 @@ function ActiveSession({
               />
             </PhasePane>
           )}
-          {inPhase3 && (
+          {!isRestoring && inPhase3 && (
             <PhasePane key="p3">
               <Phase3Wizard
                 draft={draft}
@@ -307,7 +307,7 @@ function ActiveSession({
               />
             </PhasePane>
           )}
-          {inPhase4 && (
+          {!isRestoring && inPhase4 && (
             <PhasePane key="p4">
               <Phase4SprintPlan
                 draft={draft}
@@ -321,7 +321,7 @@ function ActiveSession({
               />
             </PhasePane>
           )}
-          {inCommittingOrDone && (
+          {!isRestoring && inCommittingOrDone && (
             <PhasePane key="committed">
               <div className="flex h-full flex-col items-center justify-center gap-3 px-6">
                 <div className="h-12 w-12 rounded-2xl bg-emerald-500 flex items-center justify-center text-white text-2xl">
