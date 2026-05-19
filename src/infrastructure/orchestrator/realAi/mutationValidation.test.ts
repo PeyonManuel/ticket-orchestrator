@@ -20,7 +20,6 @@ function mkTicket(id: string): TicketProposal {
     oneLiner: "",
     description: "",
     label: "developer",
-    acceptanceCriteria: [],
     storyPoints: 3,
     risks: [],
     refined: false,
@@ -167,6 +166,12 @@ describe("validateRefinementMutations", () => {
   it("passes all currently-supported mutation kinds", () => {
     const mutations: RefinementMutation[] = [
       { kind: "setDescription", description: "new" },
+      {
+        kind: "setAcceptanceCriteria",
+        acceptanceCriteria: [
+          { kind: "gherkin", given: "g", when: "w", outcome: "t" },
+        ],
+      },
       { kind: "setStoryPoints", storyPoints: 5 },
       { kind: "setLabel", label: "ux" },
       { kind: "setDiscipline", discipline: "developer" },
@@ -181,6 +186,17 @@ describe("validateRefinementMutations", () => {
     const m: RefinementMutation = { kind: "replaceRisks", risks: [] };
     const { valid } = validateRefinementMutations([m], ticket);
     expect(valid).toHaveLength(1);
+  });
+
+  it("rejects setAcceptanceCriteria with empty array (AC of nothing is meaningless)", () => {
+    const m: RefinementMutation = {
+      kind: "setAcceptanceCriteria",
+      acceptanceCriteria: [],
+    };
+    const { valid, failed } = validateRefinementMutations([m], ticket);
+    expect(valid).toEqual([]);
+    expect(failed).toHaveLength(1);
+    expect(failed[0].reason).toMatch(/at least one criterion/);
   });
 });
 
@@ -214,6 +230,15 @@ describe("describeRefinementMutationForFeedback", () => {
     expect(describeRefinementMutationForFeedback({ kind: "setDescription", description: "x" })).toBe(
       "setDescription",
     );
+    expect(
+      describeRefinementMutationForFeedback({
+        kind: "setAcceptanceCriteria",
+        acceptanceCriteria: [
+          { kind: "gherkin", given: "a", when: "b", outcome: "c" },
+          { kind: "narrative", text: "d" },
+        ],
+      }),
+    ).toBe("setAcceptanceCriteria(2 items)");
     expect(describeRefinementMutationForFeedback({ kind: "setStoryPoints", storyPoints: 8 })).toBe(
       "setStoryPoints(8)",
     );

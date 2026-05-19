@@ -19,7 +19,6 @@ function mkTicket(id: string, overrides: Partial<TicketProposal> = {}): TicketPr
     oneLiner: "",
     description: "",
     label: "developer",
-    acceptanceCriteria: [],
     storyPoints: 3,
     risks: [],
     refined: false,
