@@ -13,7 +13,6 @@ function mkProposal(over: Partial<TicketProposal> = {}): TicketProposal {
     oneLiner: "A short summary",
     description: "",
     label: "developer",
-    acceptanceCriteria: [],
     storyPoints: null,
     risks: [],
     refined: false,

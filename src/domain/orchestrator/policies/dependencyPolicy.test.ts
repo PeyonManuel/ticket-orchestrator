@@ -18,7 +18,6 @@ function mkProposal(
     oneLiner: "",
     description: "",
     label: "developer",
-    acceptanceCriteria: [],
     storyPoints: null,
     risks: [],
     refined: false,
