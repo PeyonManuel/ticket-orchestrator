@@ -453,7 +453,6 @@ export const TICKET_PROPOSAL_FIELDS = gql`
     oneLiner
     description
     label
-    acceptanceCriteria
     storyPoints
     risks
     refined
@@ -464,6 +463,15 @@ export const TICKET_PROPOSAL_FIELDS = gql`
       createdAt
       authorId
       authorName
+    }
+    acceptanceCriteria {
+      kind
+      title
+      given
+      when
+      outcome
+      and
+      text
     }
   }
 `;
@@ -741,8 +749,7 @@ export const RUN_ARCHITECT_BACKLOG = gql`
         oneLiner
         description
         label
-        acceptanceCriteria
-        storyPoints
+            storyPoints
         risks
         refined
         transcript {
@@ -758,6 +765,15 @@ export const RUN_ARCHITECT_BACKLOG = gql`
           kind
           targetProposalId
         }
+        acceptanceCriteria {
+          kind
+          title
+          given
+          when
+          outcome
+          and
+          text
+        }
       }
     }
   }
@@ -767,7 +783,15 @@ export const RUN_CONTROLLER_REFINEMENT = gql`
   mutation RunControllerRefinement($input: ControllerTurnInput!) {
     runControllerRefinement(input: $input) {
       description
-      acceptanceCriteria
+      acceptanceCriteria {
+        kind
+        title
+        given
+        when
+        outcome
+        and
+        text
+      }
       storyPoints
       risks
     }

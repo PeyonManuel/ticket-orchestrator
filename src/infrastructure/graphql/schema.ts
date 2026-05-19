@@ -207,6 +207,37 @@ export const typeDefs = /* GraphQL */ `
     targetProposalId: ID!
   }
 
+  enum AcceptanceCriterionKind {
+    gherkin
+    narrative
+  }
+
+  """
+  Flat shape for a single acceptance criterion. The discriminator is \`kind\`;
+  gherkin variants populate given/when/then (+optional title/and); narrative
+  variants populate text. Unused-variant fields are null on the wire — the
+  domain-side Zod parser narrows back to the discriminated union.
+  """
+  type AcceptanceCriterion {
+    kind: AcceptanceCriterionKind!
+    title: String
+    given: String
+    when: String
+    outcome: String
+    and: String
+    text: String
+  }
+
+  input AcceptanceCriterionInput {
+    kind: AcceptanceCriterionKind!
+    title: String
+    given: String
+    when: String
+    outcome: String
+    and: String
+    text: String
+  }
+
   type BrainstormTurn {
     id: ID!
     role: BrainstormRole!
@@ -228,7 +259,6 @@ export const typeDefs = /* GraphQL */ `
     oneLiner: String!
     description: String!
     label: ProposalLabel!
-    acceptanceCriteria: [String!]!
     """null until the Controller has refined this ticket."""
     storyPoints: Int
     risks: [String!]!
@@ -239,6 +269,8 @@ export const typeDefs = /* GraphQL */ `
     discipline: OrgMemberRole
     """Within-draft dependency edges. blockedBy participates in topo-sort during Phase 4."""
     dependencies: [ProposalDependency!]
+    """Structured acceptance criteria. Empty/null on Phase 2 architect output; populated by Phase 3 Controller refinement."""
+    acceptanceCriteria: [AcceptanceCriterion!]
   }
 
   type BacklogProposal {
@@ -425,13 +457,13 @@ export const typeDefs = /* GraphQL */ `
     oneLiner: String!
     description: String!
     label: ProposalLabel!
-    acceptanceCriteria: [String!]!
     storyPoints: Int
     risks: [String!]!
     refined: Boolean!
     transcript: [BrainstormTurnInput!]!
     discipline: OrgMemberRole
     dependencies: [ProposalDependencyInput!]
+    acceptanceCriteria: [AcceptanceCriterionInput!]
   }
 
   input BacklogProposalInput {
@@ -696,7 +728,7 @@ export const typeDefs = /* GraphQL */ `
 
   type ControllerTurnOutput {
     description: String!
-    acceptanceCriteria: [String!]!
+    acceptanceCriteria: [AcceptanceCriterion!]!
     storyPoints: Int!
     risks: [String!]!
   }
