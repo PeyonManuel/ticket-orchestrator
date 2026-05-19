@@ -50,7 +50,6 @@ async function main() {
   });
   console.log("description:", refined.description);
   console.log("storyPoints:", refined.storyPoints);
-  console.log("AC:", refined.acceptanceCriteria);
   console.log("risks:", refined.risks);
 }
 

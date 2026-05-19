@@ -399,9 +399,7 @@ export function TicketModal() {
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Description</p>
             <RichMarkdownEditor
               value={selectedTicket.description ?? ""}
-              onChange={(value) =>
-                updateTicketField(selectedTicket.id, "description", value)
-              }
+              onChange={(value) => updateTicketField(selectedTicket.id, "description", value)}
             />
           </div>
 

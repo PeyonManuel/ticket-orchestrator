@@ -277,7 +277,6 @@ export async function runArchitectBacklog(
     oneLiner: tpl.oneLiner(primaryKeyword),
     description: "",
     label: tpl.label,
-    acceptanceCriteria: [],
     storyPoints: null,
     risks: [],
     refined: false,
@@ -332,15 +331,29 @@ export async function runControllerRefinement(
 
   const description =
     ticket.description ||
-    `${ticket.oneLiner || ticket.title}\n\nThis ticket is part of the "${input.backlog.epicTitle}" Epic. Implement against the contract defined in ${ticket.label === "ux" ? "the presentation layer" : ticket.label === "qa" ? "the test suite" : ticket.label === "po" ? "the product spec" : "the relevant module"}, keeping the engineering rules (typed, multi-tenant scoped, no booleans for lifecycle state) in mind.`;
+    `${ticket.oneLiner || ticket.title}\n\nThis ticket is part of the "${input.backlog.epicTitle}" Epic.`;
 
-  const acceptanceCriteria = ticket.acceptanceCriteria.length
-    ? ticket.acceptanceCriteria
-    : [
-        `Given the user is in the relevant flow, when they complete the action, then the change is persisted and visible across reloads.`,
-        `The implementation must not introduce any \`any\` casts or boolean lifecycle flags.`,
-        `Loading and error states render explicitly without spinners over content.`,
-      ];
+  // Mock structured AC. Real graph emits richer scenarios; this is enough to
+  // exercise the refinement → display → commit pipeline under mock mode.
+  const acceptanceCriteria =
+    ticket.acceptanceCriteria && ticket.acceptanceCriteria.length > 0
+      ? ticket.acceptanceCriteria
+      : [
+          {
+            kind: "gherkin" as const,
+            title: "Happy path",
+            given: "the user is in the relevant flow",
+            when: "they complete the action",
+            outcome: "the change is persisted and visible across reloads",
+          },
+          {
+            kind: "gherkin" as const,
+            title: "Unsaved changes",
+            given: "the user has unsaved changes",
+            when: "they navigate away",
+            outcome: "they see a confirmation prompt",
+          },
+        ];
 
   const risks = ticket.risks.length
     ? ticket.risks

@@ -71,7 +71,6 @@ export type OrchestratorEvent =
           | "oneLiner"
           | "description"
           | "label"
-          | "acceptanceCriteria"
           | "storyPoints"
           | "risks"
           | "hierarchyType"
@@ -242,7 +241,6 @@ export function applyBlueprintMutation(
         oneLiner: m.oneLiner,
         description: "",
         label: m.label,
-        acceptanceCriteria: [],
         storyPoints: null,
         risks: [],
         refined: false,
@@ -366,6 +364,8 @@ export function applyRefinementMutation(
   switch (m.kind) {
     case "setDescription":
       return { ...ticket, description: m.description };
+    case "setAcceptanceCriteria":
+      return { ...ticket, acceptanceCriteria: m.acceptanceCriteria };
     case "setStoryPoints":
       return { ...ticket, storyPoints: m.storyPoints };
     case "setLabel":
@@ -685,7 +685,6 @@ export const orchestratorMachine = setup({
         oneLiner: event.ticket.oneLiner ?? "",
         description: "",
         label: event.ticket.label ?? "developer",
-        acceptanceCriteria: [],
         storyPoints: null,
         risks: [],
         refined: false,
@@ -1254,7 +1253,10 @@ export const orchestratorMachine = setup({
 
             refiningTicket: {
               after: {
-                30000: {
+                // 30s → 95s for parity with controllerGraph's 90s AbortSignal +
+                // a small buffer for the structured-AC payload. Local Gemma 4B
+                // routinely exceeds the old budget on the new schema.
+                95000: {
                   target: "#orchestrator.workflow.error",
                   actions: { type: "captureError", params: { message: "Controller timed out. Try again." } },
                 },

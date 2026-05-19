@@ -52,6 +52,16 @@ body {
   background: transparent;
 }
 
+/* Text selection color — contrasts with indigo bubbles and zinc text */
+::selection {
+  background-color: #fbbf24 !important;
+  color: #18181b !important;
+}
+::-moz-selection {
+  background-color: #fbbf24 !important;
+  color: #18181b !important;
+}
+
 /* ─── Clerk modal dark-mode overrides ──────────────────────────────────────
    Targets every text node inside Clerk modals/popups when the html.dark
    class is active. The cl-* classes are Clerk's stable BEM class names. */
@@ -475,7 +485,7 @@ html:not(.dark) [class*="cl-selectOption"]:hover {
    immediate, smooth exponential decay so it doesn't linger or feel sluggish.
    The class is added when aiTouched=true; CSS animation runs once. */
 .ai-touched-glow {
-  animation: ai-pulse 1.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: ai-pulse 2.8s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
 }
 @keyframes ai-pulse {
@@ -517,7 +527,7 @@ html:not(.dark) [class*="cl-selectOption"]:hover {
     transparent 70%
   );
   background-size: 220% 100%;
-  animation: ai-sweep 1.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: ai-sweep 2.8s cubic-bezier(0.16, 1, 0.3, 1);
   opacity: 0;
 }
 @keyframes ai-sweep {

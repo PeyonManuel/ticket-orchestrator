@@ -118,6 +118,14 @@ function checkRefinementMutation(m: RefinementMutation): string | null {
   // Zod already enforces enum + schema-level constraints. This pass catches
   // residual semantic issues. Most mutations pass straight through.
   switch (m.kind) {
+    case "setAcceptanceCriteria":
+      // Zod enforces min(1) at the array level and per-AC fields; this pass
+      // is defensive in case the array snuck through. Keep here so the
+      // failure reason is human-readable instead of a Zod stack trace.
+      if (m.acceptanceCriteria.length === 0) {
+        return "setAcceptanceCriteria requires at least one criterion";
+      }
+      return null;
     case "setDescription":
     case "setStoryPoints":
     case "setLabel":
@@ -162,6 +170,8 @@ export function describeRefinementMutationForFeedback(
   switch (m.kind) {
     case "setDescription":
       return "setDescription";
+    case "setAcceptanceCriteria":
+      return `setAcceptanceCriteria(${m.acceptanceCriteria.length} items)`;
     case "setStoryPoints":
       return `setStoryPoints(${m.storyPoints})`;
     case "setLabel":

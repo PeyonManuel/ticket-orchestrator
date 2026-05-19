@@ -21,15 +21,8 @@ import {
   codeBlockPlugin,
   codeMirrorPlugin,
 } from "@mdxeditor/editor";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
-/**
- * Rich markdown editor backed by MDXEditor. Stores/emits plain markdown so the
- * DB stays clean and the AI can read descriptions as text.
- *
- * Visual markdown: typing `# `, `- `, `**bold**` renders instantly via
- * markdownShortcutPlugin. Toolbar mirrors that for users who prefer buttons.
- */
 export function RichMarkdownEditor({
   value,
   onChange,
@@ -39,20 +32,93 @@ export function RichMarkdownEditor({
   value: string;
   onChange: (markdown: string) => void;
   className?: string;
-  /** When true, pulses a yellow "ghost diff" highlight for ~3s to flag an AI edit. */
   aiTouched?: boolean;
 }) {
   const editorRef = useRef<MDXEditorMethods>(null);
 
-  // MDXEditor caches its document on mount; pushing a new `value` (e.g. AI
-  // mutation applied to the underlying ticket) needs an imperative setMarkdown
-  // call or the editor stays stuck on the prior text.
+  // Tracks the last markdown string the editor emitted — updated immediately
+  // on every keystroke so the echo guard in the useEffect is always current.
+  const lastEmittedRef = useRef<string>(value);
+  // Pending debounce timer — non-null while the user is actively typing.
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pending value waiting to be flushed to the parent.
+  const pendingRef = useRef<string | null>(null);
+  // Always-current reference to the onChange prop so the stable handleChange
+  // callback never captures a stale closure.
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  // Only push the external value into the editor when it genuinely came from
+  // outside (AI mutation, ticket navigation). Skip if the user is actively
+  // typing (debounce pending) or if we already told the parent this value.
   useEffect(() => {
-    const current = editorRef.current?.getMarkdown();
-    if (current !== undefined && current !== value) {
+    if (debounceTimerRef.current) return; // user is typing — don't interrupt
+    if (value !== lastEmittedRef.current) {
       editorRef.current?.setMarkdown(value);
+      lastEmittedRef.current = value;
     }
   }, [value]);
+
+  // Flush any pending change on unmount so a quick "approve & next" doesn't
+  // silently drop the last few keystrokes.
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        if (pendingRef.current !== null) {
+          onChangeRef.current(pendingRef.current);
+        }
+      }
+    };
+  }, []);
+
+  // Stable callback (no deps — uses only refs). Debounces the upward call so
+  // XState / Apollo only update every ~400ms instead of on every keystroke.
+  const handleChange = useCallback((markdown: string) => {
+    lastEmittedRef.current = markdown;
+    pendingRef.current = markdown;
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null;
+      pendingRef.current = null;
+      onChangeRef.current(markdown);
+    }, 400);
+  }, []);
+
+  // Plugin instances are stable for the lifetime of the component. Recreating
+  // them on every render causes MDXEditor to tear down and rebuild its entire
+  // ProseMirror document, which is the primary source of typing lag.
+  const plugins = useMemo(
+    () => [
+      headingsPlugin(),
+      listsPlugin(),
+      quotePlugin(),
+      thematicBreakPlugin(),
+      linkPlugin(),
+      linkDialogPlugin(),
+      codeBlockPlugin({ defaultCodeBlockLanguage: "" }),
+      codeMirrorPlugin({
+        codeBlockLanguages: { "": "Plain", js: "JavaScript", ts: "TypeScript" },
+      }),
+      markdownShortcutPlugin(),
+      toolbarPlugin({
+        toolbarContents: () => (
+          <>
+            <UndoRedo />
+            <Separator />
+            <BoldItalicUnderlineToggles />
+            <Separator />
+            <BlockTypeSelect />
+            <Separator />
+            <ListsToggle />
+            <Separator />
+            <CreateLink />
+          </>
+        ),
+      }),
+    ],
+    [],
+  );
 
   return (
     <div
@@ -63,36 +129,11 @@ export function RichMarkdownEditor({
       <MDXEditor
         ref={editorRef}
         markdown={value}
-        onChange={onChange}
+        onChange={handleChange}
         placeholder="Write description and acceptance criteria here. Try # heading, **bold**, - bullet, > quote…"
         contentEditableClassName="orion-mdx-content"
         className="orion-mdx-editor flex-1 min-h-0 overflow-y-auto"
-        plugins={[
-          headingsPlugin(),
-          listsPlugin(),
-          quotePlugin(),
-          thematicBreakPlugin(),
-          linkPlugin(),
-          linkDialogPlugin(),
-          codeBlockPlugin({ defaultCodeBlockLanguage: "" }),
-          codeMirrorPlugin({ codeBlockLanguages: { "": "Plain", js: "JavaScript", ts: "TypeScript" } }),
-          markdownShortcutPlugin(),
-          toolbarPlugin({
-            toolbarContents: () => (
-              <>
-                <UndoRedo />
-                <Separator />
-                <BoldItalicUnderlineToggles />
-                <Separator />
-                <BlockTypeSelect />
-                <Separator />
-                <ListsToggle />
-                <Separator />
-                <CreateLink />
-              </>
-            ),
-          }),
-        ]}
+        plugins={plugins}
       />
     </div>
   );

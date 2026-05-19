@@ -10,7 +10,6 @@ function mkProposal(over: Partial<TicketProposal> = {}): TicketProposal {
     oneLiner: "A short summary",
     description: "A longer description.",
     label: "developer",
-    acceptanceCriteria: [],
     storyPoints: null,
     risks: [],
     refined: false,
@@ -27,11 +26,10 @@ describe("createGetOtherTicketProposalTool", () => {
         id: "prop-bbbb2222",
         title: "Auth API",
         oneLiner: "REST endpoints for login/logout",
-        description: "Stateless JWT auth.",
+        description: "Stateless JWT auth. GIVEN valid creds, WHEN POST /login, THEN 200 with token.",
         label: "developer",
         discipline: "developer",
         storyPoints: 5,
-        acceptanceCriteria: ["Given valid creds When POST /login Then 200 with token"],
         risks: ["Token rotation TBD"],
       }),
     ];
@@ -42,13 +40,10 @@ describe("createGetOtherTicketProposalTool", () => {
 
     expect(parsed.title).toBe("Auth API");
     expect(parsed.oneLiner).toBe("REST endpoints for login/logout");
-    expect(parsed.description).toBe("Stateless JWT auth.");
+    expect(parsed.description).toBe("Stateless JWT auth. GIVEN valid creds, WHEN POST /login, THEN 200 with token.");
     expect(parsed.label).toBe("developer");
     expect(parsed.discipline).toBe("developer");
     expect(parsed.storyPoints).toBe(5);
-    expect(parsed.acceptanceCriteria).toEqual([
-      "Given valid creds When POST /login Then 200 with token",
-    ]);
     expect(parsed.risks).toEqual(["Token rotation TBD"]);
   });
 

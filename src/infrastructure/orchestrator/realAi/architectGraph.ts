@@ -37,7 +37,7 @@ Output discipline:
 Tool use:
 - If 'find_similar_epics' is available, call it once with a short query describing this epic BEFORE drafting the backlog. Mirror successful structure (granularity, ordering, label distribution) when patterns clearly match. If hits are empty or unrelated, proceed from the summary alone.
 
-Do NOT fill description, acceptanceCriteria, storyPoints, or risks — the Controller does that in Phase 3. Leave them as defaults.`;
+Do NOT fill description, storyPoints, or risks — the Controller does that in Phase 3. Leave them as defaults.`;
 
 const ticketProposalDraftSchema = z.object({
   hierarchyType: z.enum(["story", "task"]),
@@ -140,7 +140,6 @@ export async function runArchitectBacklog(
       oneLiner: t.oneLiner,
       description: "",
       label: t.label,
-      acceptanceCriteria: [],
       storyPoints: null,
       risks: [],
       refined: false,

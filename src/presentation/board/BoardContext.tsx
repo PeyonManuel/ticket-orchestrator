@@ -331,6 +331,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const [conflictError, setConflictError] = useState<ActiveConflict | null>(
     null,
   );
+  // Per-ticket mutation queue: serializes patches so two rapid edits never
+  // share the same expectedVersion and trigger a false self-conflict.
+  const ticketPatchQueues = useRef<Map<string, Promise<void>>>(new Map());
   const [viewMode, setViewModeState] = useState<BoardViewMode>("board");
   const [selectedSprintIdState, setSelectedSprintIdState] = useState<
     string | null
@@ -664,51 +667,59 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
      * On `ConflictError`, sets `conflictError` UI state so TicketModal
      * can render a diff/resolve banner.
      */
-    const dispatchTicketPatch = async (
+    const dispatchTicketPatch = (
       ticketId: string,
       patch: Record<string, unknown>,
-    ) => {
-      const current = findTicket(ticketId);
-      if (!current) return;
-      const result = await updateTicketMutation({
-        variables: {
-          id: ticketId,
-          input: { ...patch, expectedVersion: current.version },
-        },
-        // Keep the History tab in sync when the user toggles it open after an edit.
-        refetchQueries: [
-          { query: GET_TICKET_HISTORY, variables: { ticketId } },
-        ],
-      });
-      const payload = (result.data as Record<string, unknown> | undefined)
-        ?.updateTicket as
-        | ({ __typename: "Ticket" } & Ticket)
-        | {
-            __typename: "ConflictError";
-            currentState: Ticket;
-            conflictedFields: string[];
-            message: string;
+    ): Promise<void> => {
+      const queues = ticketPatchQueues.current;
+      const prev = queues.get(ticketId) ?? Promise.resolve();
+      const next = prev
+        .then(async () => {
+          const current = findTicket(ticketId);
+          if (!current) return;
+          const result = await updateTicketMutation({
+            variables: {
+              id: ticketId,
+              input: { ...patch, expectedVersion: current.version },
+            },
+            // Keep the History tab in sync when the user toggles it open after an edit.
+            refetchQueries: [
+              { query: GET_TICKET_HISTORY, variables: { ticketId } },
+            ],
+          });
+          const payload = (result.data as Record<string, unknown> | undefined)
+            ?.updateTicket as
+            | ({ __typename: "Ticket" } & Ticket)
+            | {
+                __typename: "ConflictError";
+                currentState: Ticket;
+                conflictedFields: string[];
+                message: string;
+              }
+            | undefined;
+          if (payload?.__typename === "ConflictError") {
+            setConflictError({
+              ticketId,
+              currentState: payload.currentState,
+              conflictedFields: payload.conflictedFields,
+              message: payload.message,
+              pendingPatch: patch,
+            });
+            // Surface the resolution banner. For modal-internal edits (typing,
+            // dropdowns) the modal is already open and this is a no-op. For
+            // out-of-modal patch paths (drag-and-drop, programmatic moves) this
+            // is what makes the conflict reachable instead of silently failing.
+            setSelectedTicketId(ticketId);
+            setActiveModal("ticket");
+            updateUrlParams({
+              ticketId: payload.currentState.ticketNumber,
+              modal: "ticket",
+            });
           }
-        | undefined;
-      if (payload?.__typename === "ConflictError") {
-        setConflictError({
-          ticketId,
-          currentState: payload.currentState,
-          conflictedFields: payload.conflictedFields,
-          message: payload.message,
-          pendingPatch: patch,
-        });
-        // Surface the resolution banner. For modal-internal edits (typing,
-        // dropdowns) the modal is already open and this is a no-op. For
-        // out-of-modal patch paths (drag-and-drop, programmatic moves) this
-        // is what makes the conflict reachable instead of silently failing.
-        setSelectedTicketId(ticketId);
-        setActiveModal("ticket");
-        updateUrlParams({
-          ticketId: payload.currentState.ticketNumber,
-          modal: "ticket",
-        });
-      }
+        })
+        .catch(() => {});
+      queues.set(ticketId, next);
+      return next;
     };
 
     return {

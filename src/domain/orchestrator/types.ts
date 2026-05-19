@@ -52,6 +52,40 @@ export type ProposalLabel = "developer" | "ux" | "qa" | "po";
 export type ProposalStoryPoints = 1 | 2 | 3 | 5 | 8 | 13;
 
 /**
+ * A single acceptance criterion on a ticket. The AI picks `kind` per AC:
+ *
+ *  - `gherkin`: structured Given/When/Then. Optional one-line `and` only after `when`
+ *    (per `feedback_ac_format_rule.md`). Used for verifiable behavior changes.
+ *  - `narrative`: free-form sentence. Used when Gherkin doesn't fit (spike tickets,
+ *    pure-backend infrastructure work, copy changes).
+ *
+ * Schema enforcement makes the format deterministic — if the AI commits to `gherkin`,
+ * Zod rejects payloads missing `given`/`when`/`then`. This was a regression from a
+ * prior `string[]` shape where the AI was free to write non-Gherkin AC inline in
+ * `description` and there was nothing to reject it.
+ */
+export type AcceptanceCriterion =
+  | {
+      kind: "gherkin";
+      /** Optional short scenario label, e.g. "Happy path" or "Empty cart". */
+      title?: string;
+      given: string;
+      when: string;
+      /**
+       * The Gherkin "THEN" clause — the observable outcome. Named `outcome`
+       * (not `then`) so the object cannot be mistaken for a Promise thenable
+       * by any code path that uses duck-typed Promise detection.
+       */
+      outcome: string;
+      /** Optional single `and` clause — strictly post-`when`. */
+      and?: string;
+    }
+  | {
+      kind: "narrative";
+      text: string;
+    };
+
+/**
  * Typed link between two tickets / proposals. Same enum drives both
  * `Ticket.links` (post-commit, see analyst/types.ts) and
  * `TicketProposal.dependencies` (pre-commit, within-draft scope).
@@ -74,9 +108,15 @@ export interface TicketProposal {
   title: string;
   /** Single-line summary set in phase 2; full description filled in phase 3. */
   oneLiner: string;
+  /** "What & why" prose only. Acceptance criteria live on `acceptanceCriteria`. */
   description: string;
+  /**
+   * Structured acceptance criteria. Optional during rollout — drafts created before
+   * this field landed have AC embedded in `description` instead. Empty/absent means
+   * "no structured AC yet"; the refinement flow populates it.
+   */
+  acceptanceCriteria?: AcceptanceCriterion[];
   label: ProposalLabel;
-  acceptanceCriteria: string[];
   storyPoints: ProposalStoryPoints | null;
   risks: string[];
   refined: boolean;
@@ -164,7 +204,7 @@ export interface ControllerInput {
 
 export interface ControllerOutput {
   description: string;
-  acceptanceCriteria: string[];
+  acceptanceCriteria: AcceptanceCriterion[];
   storyPoints: ProposalStoryPoints;
   risks: string[];
 }
@@ -235,6 +275,7 @@ export interface RefinementChatInput {
  */
 export type RefinementMutation =
   | { kind: "setDescription"; description: string }
+  | { kind: "setAcceptanceCriteria"; acceptanceCriteria: AcceptanceCriterion[] }
   | { kind: "setStoryPoints"; storyPoints: ProposalStoryPoints }
   | { kind: "setLabel"; label: ProposalLabel }
   | { kind: "setDiscipline"; discipline: OrgMemberRole }
@@ -525,6 +566,51 @@ export const proposalDependencySchema = z.object({
 
 const orgMemberRoleSchema = z.enum(["developer", "ux", "tester", "po"]);
 
+// GraphQL emits a flat shape for AC (variant-specific fields are nullable list
+// columns alongside the discriminator), so the wire payload arrives with `null`
+// in the unselected-variant slots. We use a permissive flat schema and a
+// transform to narrow into the discriminated-union domain shape, instead of
+// `discriminatedUnion` directly which would reject `null` on the optionals.
+const flatAcceptanceCriterionSchema = z.object({
+  kind: z.enum(["gherkin", "narrative"]),
+  title: z.string().nullish(),
+  given: z.string().nullish(),
+  when: z.string().nullish(),
+  outcome: z.string().nullish(),
+  and: z.string().nullish(),
+  text: z.string().nullish(),
+});
+
+export const acceptanceCriterionSchema = flatAcceptanceCriterionSchema.transform(
+  (v, ctx): AcceptanceCriterion => {
+    if (v.kind === "gherkin") {
+      if (!v.given || !v.when || !v.outcome) {
+        ctx.addIssue({
+          code: "custom",
+          message: "gherkin acceptance criteria require given, when, and outcome",
+        });
+        return z.NEVER;
+      }
+      return {
+        kind: "gherkin",
+        title: v.title ?? undefined,
+        given: v.given,
+        when: v.when,
+        outcome: v.outcome,
+        and: v.and ?? undefined,
+      };
+    }
+    if (!v.text) {
+      ctx.addIssue({
+        code: "custom",
+        message: "narrative acceptance criteria require non-empty text",
+      });
+      return z.NEVER;
+    }
+    return { kind: "narrative", text: v.text };
+  },
+);
+
 export const ticketProposalSchema = z.object({
   id: z.string().min(1),
   hierarchyType: z.enum(["story", "task"]),
@@ -532,7 +618,6 @@ export const ticketProposalSchema = z.object({
   oneLiner: z.string(),
   description: z.string(),
   label: proposalLabelSchema,
-  acceptanceCriteria: z.array(z.string()),
   storyPoints: proposalStoryPointsSchema.nullable(),
   risks: z.array(z.string()),
   refined: z.boolean(),
@@ -546,6 +631,10 @@ export const ticketProposalSchema = z.object({
     .transform((v) => v ?? undefined),
   dependencies: z
     .array(proposalDependencySchema)
+    .nullish()
+    .transform((v) => v ?? undefined),
+  acceptanceCriteria: z
+    .array(acceptanceCriterionSchema)
     .nullish()
     .transform((v) => v ?? undefined),
 });
@@ -563,7 +652,7 @@ export const analystTurnOutputSchema = z.object({
 
 export const controllerOutputSchema = z.object({
   description: z.string().min(1),
-  acceptanceCriteria: z.array(z.string()).min(1),
+  acceptanceCriteria: z.array(acceptanceCriterionSchema).default([]),
   storyPoints: proposalStoryPointsSchema,
   risks: z.array(z.string()),
 });
@@ -627,6 +716,10 @@ export const refinementMutationSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("setDescription"),
     description: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("setAcceptanceCriteria"),
+    acceptanceCriteria: z.array(acceptanceCriterionSchema).min(1),
   }),
   z.object({
     kind: z.literal("setStoryPoints"),
@@ -828,4 +921,37 @@ export function draftDisplayTitle(draft: EpicDraft): string {
 
 export function isTerminalPhase(phase: OrchestratorPhase): boolean {
   return phase === "committed" || phase === "abandoned";
+}
+
+/**
+ * Render a single AC as a one-paragraph string.
+ * Gherkin AC: "GIVEN … WHEN … [AND …] THEN …" with optional "Scenario: title" prefix.
+ * Narrative AC: free text as-is.
+ *
+ * Used at commit time to compose `Ticket.description` from structured AC, and
+ * by the Phase 3 read-only renderer.
+ */
+export function renderAcceptanceCriterion(ac: AcceptanceCriterion): string {
+  if (ac.kind === "narrative") return ac.text;
+  const head = ac.title ? `Scenario: ${ac.title}\n` : "";
+  const andClause = ac.and ? ` AND ${ac.and}` : "";
+  return `${head}GIVEN ${ac.given}, WHEN ${ac.when}${andClause}, THEN ${ac.outcome}`;
+}
+
+/**
+ * Compose a ticket's description block with its structured AC appended as a
+ * markdown list. Returns `description` as-is when there are no structured AC
+ * — back-compat path for legacy proposals that still have AC embedded inline.
+ */
+export function composeDescriptionWithAcceptanceCriteria(
+  description: string,
+  acceptanceCriteria: AcceptanceCriterion[] | undefined,
+): string {
+  if (!acceptanceCriteria || acceptanceCriteria.length === 0) return description;
+  const rendered = acceptanceCriteria
+    .map((ac) => `- ${renderAcceptanceCriterion(ac)}`)
+    .join("\n");
+  const body = description.trim();
+  const sep = body.length ? "\n\n" : "";
+  return `${body}${sep}## Acceptance Criteria\n${rendered}`;
 }

@@ -11,7 +11,6 @@ function mkProposal(id: string, overrides: Partial<TicketProposal> = {}): Ticket
     oneLiner: "",
     description: "",
     label: "developer",
-    acceptanceCriteria: [],
     storyPoints: 3,
     risks: [],
     refined: true,

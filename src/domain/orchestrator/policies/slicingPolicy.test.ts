@@ -27,7 +27,6 @@ function mkTicket(
     oneLiner: "",
     description: "",
     label: opts.label ?? "developer",
-    acceptanceCriteria: [],
     storyPoints: opts.points ?? 3,
     risks: [],
     refined: true,
