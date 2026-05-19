@@ -1,4 +1,6 @@
-We need to ensure programatically that the AI is responding with gerkhin, it is not doing it most of the time. Maybe spike on this to see solutions, maybe use a tool for it, or some programatic way to make this deterministic, maybe what we are sending it from the previous phase isnt good enough? maybe it should ask the PO questions so that it has more info to create gherkin? It seems to try to ask these as i try to make it write AC's on tickets where it hadnt. Before when we had the separate AC array, we didnt have this issue, so i wonder if thats an interesting insight.
+**DONE** We need to ensure programatically that the AI is responding with gerkhin, it is not doing it most of the time. Maybe spike on this to see solutions, maybe use a tool for it, or some programatic way to make this deterministic, maybe what we are sending it from the previous phase isnt good enough? maybe it should ask the PO questions so that it has more info to create gherkin? It seems to try to ask these as i try to make it write AC's on tickets where it hadnt. Before when we had the separate AC array, we didnt have this issue, so i wonder if thats an interesting insight.
+
+Anytime for any reason a user message is left unnanwered, there needs to be a programatically added "AI message" saying that something went wrong, and a button to try again. Like in gemini or chatgpt
 
 If the AI already generated ticket 5, then i leave and come back, it generates ticket 5 again. It needs to remember it already generated it.
 
@@ -22,3 +24,5 @@ No way to edit the sprint names that the AI proposes, its also not proposing the
 
 Make orchestrator UI timeline be clickable, to be able to move between phases much quicker.
 Show Ticket type label in the deep dive phase as well. As well as if its a story or not.
+
+Im getting run out of context error a lot.

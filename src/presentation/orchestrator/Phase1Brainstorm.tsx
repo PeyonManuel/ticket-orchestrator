@@ -19,13 +19,22 @@ interface Props {
 }
 
 function uid(prefix: string): string {
-  if (typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto) {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    "randomUUID" in globalThis.crypto
+  ) {
     return `${prefix}-${globalThis.crypto.randomUUID().slice(0, 8)}`;
   }
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function Phase1Brainstorm({ draft, isThinking, canAdvance, error, send }: Props) {
+export function Phase1Brainstorm({
+  draft,
+  isThinking,
+  canAdvance,
+  error,
+  send,
+}: Props) {
   const [draftMessage, setDraftMessage] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -74,9 +83,9 @@ export function Phase1Brainstorm({ draft, isThinking, canAdvance, error, send }:
               Tell me about your Epic
             </h2>
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400 max-w-md mx-auto leading-relaxed">
-              Describe the problem, the user, and roughly what success looks like. The
-              Analyst will ask follow-ups, then summarize so the Architect can plan the
-              backlog.
+              Describe the problem, the user, and roughly what success looks
+              like. The Analyst will ask follow-ups, then summarize so the
+              Architect can plan the backlog.
             </p>
           </div>
         )}
@@ -94,7 +103,10 @@ export function Phase1Brainstorm({ draft, isThinking, canAdvance, error, send }:
                 {turn.role === "user" ? (
                   <UserBubble text={turn.text} className="text-sm" />
                 ) : (
-                  <ProseTurn text={turn.text} className="max-w-[80%] text-sm leading-relaxed" />
+                  <ProseTurn
+                    text={turn.text}
+                    className="max-w-[80%] text-sm leading-relaxed"
+                  />
                 )}
               </motion.div>
             ))}
@@ -110,20 +122,28 @@ export function Phase1Brainstorm({ draft, isThinking, canAdvance, error, send }:
             </div>
           )}
 
-          {error && draft.transcript.length > 0 && draft.transcript[draft.transcript.length - 1]?.role === "user" && (
-            <div className="flex justify-start">
-              <div className="flex items-start gap-2 text-xs text-zinc-500 dark:text-zinc-400 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/30 rounded-lg px-3 py-2.5 max-w-[80%]">
-                <span className="text-rose-500 dark:text-rose-400 flex-shrink-0 mt-0.5">⚠</span>
-                <span className="flex-1">{error || "Something went wrong. Please try again."}</span>
-                <button
-                  onClick={() => send({ type: "RETRY", now: new Date().toISOString() })}
-                  className="text-indigo-500 hover:text-indigo-600 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium flex-shrink-0 whitespace-nowrap ml-2"
-                >
-                  Retry ↺
-                </button>
+          {draft.transcript.length > 0 &&
+            draft.transcript[draft.transcript.length - 1]?.role === "user" &&
+            !isThinking && (
+              <div className="flex justify-start">
+                <div className="flex items-start gap-2 text-xs text-zinc-500 dark:text-zinc-400 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/30 rounded-lg px-3 py-2.5 max-w-[80%]">
+                  <span className="text-rose-500 dark:text-rose-400 flex-shrink-0 mt-0.5">
+                    ⚠
+                  </span>
+                  <span className="flex-1">
+                    {error || "No response. Try again."}
+                  </span>
+                  <button
+                    onClick={() =>
+                      send({ type: "RETRY", now: new Date().toISOString() })
+                    }
+                    className="text-indigo-500 hover:text-indigo-600 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium flex-shrink-0 whitespace-nowrap ml-2"
+                  >
+                    Retry ↺
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {draft.brainstormSummary && (
             <motion.div
@@ -139,7 +159,9 @@ export function Phase1Brainstorm({ draft, isThinking, canAdvance, error, send }:
                 {draft.brainstormSummary.summary}
               </p>
               <div className="mt-3">
-                <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">Goals</p>
+                <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+                  Goals
+                </p>
                 <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-0.5 list-disc list-inside">
                   {draft.brainstormSummary.goals.map((g, i) => (
                     <li key={i}>{g}</li>
@@ -159,7 +181,11 @@ export function Phase1Brainstorm({ draft, isThinking, canAdvance, error, send }:
               onChange={(e) => setDraftMessage(e.target.value)}
               onKeyDown={handleKey}
               rows={1}
-              placeholder={isThinking ? "Analyst is thinking — keep typing your next message…" : "Describe your Epic, or reply…"}
+              placeholder={
+                isThinking
+                  ? "Analyst is thinking — keep typing your next message…"
+                  : "Describe your Epic, or reply…"
+              }
               className="flex-1 resize-none rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500"
               style={{ minHeight: "42px", maxHeight: "160px" }}
             />
@@ -179,7 +205,12 @@ export function Phase1Brainstorm({ draft, isThinking, canAdvance, error, send }:
                 : "Tip: type “ready” when you've shared enough context."}
             </p>
             <button
-              onClick={() => send({ type: "STRUCTURE_REQUESTED", now: new Date().toISOString() })}
+              onClick={() =>
+                send({
+                  type: "STRUCTURE_REQUESTED",
+                  now: new Date().toISOString(),
+                })
+              }
               disabled={!canAdvance}
               className="rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 disabled:from-zinc-300 disabled:to-zinc-300 dark:disabled:from-zinc-700 dark:disabled:to-zinc-700 px-4 py-2 text-sm font-semibold text-white disabled:text-zinc-500 transition-all"
             >

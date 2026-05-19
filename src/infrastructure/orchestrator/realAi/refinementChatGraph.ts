@@ -11,8 +11,8 @@ import type {
   RefinementMutation,
 } from "@/domain/orchestrator/types";
 import {
-  refinementMutationSchema,
   refinementMutationWireSchema,
+  acceptanceCriterionSchema,
 } from "@/domain/orchestrator/types";
 import { createOrchestratorLLM } from "../llm";
 import { toolsForPhase } from "../tools";
@@ -65,12 +65,6 @@ Pushback: For cosmetic asks comply immediately. For structural asks push back at
 const responseWireSchema = z.object({
   reply: z.string().min(1),
   mutations: z.array(refinementMutationWireSchema).default([]),
-});
-
-// Domain schema for post-LLM validation (applies AC transforms)
-const responseDomainSchema = z.object({
-  reply: z.string().min(1),
-  mutations: z.array(refinementMutationSchema).default([]),
 });
 
 function buildSystemPrompt(input: RefinementChatInput): string {
@@ -201,8 +195,30 @@ export async function runRefinementChat(
 
   const wireResult = await structured.invoke(messages, { signal });
 
-  // Transform wire schema to domain schema (validates AC gherkin/narrative structure)
-  const result = responseDomainSchema.parse(wireResult);
+  // Transform wire schema to domain schema. For mutations with AC, filter out any
+  // gherkin AC missing required fields instead of rejecting the whole response.
+  const transformedMutations = (wireResult.mutations ?? [])
+    .map((mutation) => {
+      if (
+        mutation.kind === "setAcceptanceCriteria" &&
+        Array.isArray(mutation.acceptanceCriteria)
+      ) {
+        const validAC = mutation.acceptanceCriteria
+          .map((ac) => acceptanceCriterionSchema.safeParse(ac))
+          .filter((r) => r.success)
+          .map((r) => r.data);
+        return {
+          ...mutation,
+          acceptanceCriteria: validAC,
+        };
+      }
+      return mutation;
+    });
+
+  const result = {
+    reply: wireResult.reply,
+    mutations: transformedMutations,
+  };
 
   const { valid, failed } = validateRefinementMutations(
     result.mutations as RefinementMutation[],

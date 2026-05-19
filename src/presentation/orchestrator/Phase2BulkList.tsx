@@ -408,9 +408,9 @@ function BlueprintChatPanel({
           </div>
         )}
 
-        {error && transcript.length > 0 && transcript[transcript.length - 1]?.role === "user" && (
+        {transcript.length > 0 && transcript[transcript.length - 1]?.role === "user" && !isThinking && (
           <ErrorMessage
-            message={error || "Something went wrong."}
+            message={error || "No response. Try again."}
             onRetry={onRetry}
           />
         )}

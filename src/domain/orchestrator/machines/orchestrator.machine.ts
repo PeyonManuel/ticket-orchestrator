@@ -434,6 +434,15 @@ export const orchestratorMachine = setup({
       const t = currentRefinementTicket(context.draft);
       return t?.refined === true;
     },
+    // True when the controller has already analyzed this ticket but the user hasn't
+    // approved yet. storyPoints is null on architect output (explicitly typed as
+    // nullable in the schema, set null by mock architect) and always set to a
+    // non-null Fibonacci value by the controller — making it the most reliable
+    // "controller ran" signal regardless of AC content.
+    currentTicketHasControllerData: ({ context }) => {
+      const t = currentRefinementTicket(context.draft);
+      return t !== null && t.storyPoints !== null;
+    },
     cursorAtStart: ({ context }) => context.draft.refinementCursor === 0,
     allTicketsApproved: ({ context }) => {
       const tickets = context.draft.backlog?.tickets ?? [];
@@ -1072,6 +1081,12 @@ export const orchestratorMachine = setup({
                   actions: { type: "captureError", params: { message: "Analyst timed out — AI didn't respond. Try again." } },
                 },
               },
+              on: {
+                RETRY: {
+                  target: "awaitingAnalyst",
+                  actions: "clearError",
+                },
+              },
               invoke: {
                 src: "analystActor",
                 input: ({ context }) => {
@@ -1190,6 +1205,12 @@ export const orchestratorMachine = setup({
                   actions: { type: "captureError", params: { message: "Blueprint assistant timed out. Try again." } },
                 },
               },
+              on: {
+                RETRY: {
+                  target: "awaitingBlueprintReply",
+                  actions: "clearError",
+                },
+              },
               invoke: {
                 src: "blueprintChatActor",
                 input: ({ context }) => {
@@ -1245,6 +1266,10 @@ export const orchestratorMachine = setup({
                 { guard: "cursorAtEnd", target: "readyToCommit" },
                 {
                   guard: "currentTicketAlreadyRefined",
+                  target: "awaitingTicketApproval",
+                },
+                {
+                  guard: "currentTicketHasControllerData",
                   target: "awaitingTicketApproval",
                 },
                 { target: "refiningTicket" },
@@ -1316,6 +1341,12 @@ export const orchestratorMachine = setup({
                 25000: {
                   target: "#orchestrator.workflow.error",
                   actions: { type: "captureError", params: { message: "Refinement assistant timed out. Try again." } },
+                },
+              },
+              on: {
+                RETRY: {
+                  target: "awaitingRefinementReply",
+                  actions: "clearError",
                 },
               },
               invoke: {
@@ -1444,6 +1475,12 @@ export const orchestratorMachine = setup({
                   actions: { type: "captureError", params: { message: "Planner chat timed out. Try again." } },
                 },
               },
+              on: {
+                RETRY: {
+                  target: "awaitingPlannerReply",
+                  actions: "clearError",
+                },
+              },
               invoke: {
                 src: "plannerChatActor",
                 input: ({ context }) => ({
@@ -1469,7 +1506,7 @@ export const orchestratorMachine = setup({
                   },
                 },
                 onError: {
-                  target: "reviewingPlan",
+                  target: "#orchestrator.workflow.error",
                   actions: {
                     type: "captureError",
                     params: ({ event }) => ({
@@ -1508,25 +1545,25 @@ export const orchestratorMachine = setup({
               {
                 guard: ({ context }) =>
                   context.draft.phase === "phase1Brainstorming",
-                target: "phase1Brainstorming.awaitingUser",
+                target: "phase1Brainstorming.awaitingAnalyst",
                 actions: "clearError",
               },
               {
                 guard: ({ context }) =>
                   context.draft.phase === "phase2Structuring",
-                target: "phase2Structuring.generatingBacklog",
+                target: "phase2Structuring.awaitingBlueprintReply",
                 actions: "clearError",
               },
               {
                 guard: ({ context }) =>
                   context.draft.phase === "phase3Refining",
-                target: "phase3Refining.decideTicket",
+                target: "phase3Refining.awaitingRefinementReply",
                 actions: "clearError",
               },
               {
                 guard: ({ context }) =>
                   context.draft.phase === "phase4SprintPlanning",
-                target: "phase4SprintPlanning.generatingPlan",
+                target: "phase4SprintPlanning.awaitingPlannerReply",
                 actions: "clearError",
               },
               {

@@ -100,7 +100,7 @@ function ActiveSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { state, send, forceFlush, commitDraft, draft, error, saveStatus } =
+  const { state, send, flush, forceFlush, commitDraft, draft, error, saveStatus } =
     useOrchestrator(initialDraft, initialCapacities);
   const saving = saveStatus !== "idle";
 
@@ -237,7 +237,7 @@ function ActiveSession({
         title={draftDisplayTitle(draft)}
         saving={saving}
         onClose={onClose}
-        onBackToPicker={onBackToPicker}
+        onBackToPicker={() => flush().then(onBackToPicker)}
       />
 
       {(error || commitError) && (

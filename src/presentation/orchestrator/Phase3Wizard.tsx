@@ -324,10 +324,10 @@ function RefinementPanel({
             </div>
           )}
 
-          {error && ticket.transcript.length > 0 && ticket.transcript[ticket.transcript.length - 1]?.role === "user" && (
+          {ticket.transcript.length > 0 && ticket.transcript[ticket.transcript.length - 1]?.role === "user" && !isThinking && (
             <div className="scale-75 origin-left">
               <ErrorMessage
-                message={error || "Something went wrong."}
+                message={error || "No response. Try again."}
                 onRetry={onRetry}
               />
             </div>

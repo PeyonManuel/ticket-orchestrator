@@ -641,10 +641,10 @@ function PlannerChatPanel({
           </div>
         )}
 
-        {error && transcript.length > 0 && transcript[transcript.length - 1]?.role === "user" && (
+        {transcript.length > 0 && transcript[transcript.length - 1]?.role === "user" && !isThinking && (
           <div className="scale-75 origin-left">
             <ErrorMessage
-              message={error || "Something went wrong."}
+              message={error || "No response. Try again."}
               onRetry={onRetry}
             />
           </div>
