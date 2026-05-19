@@ -42,7 +42,6 @@ export function createGetOtherTicketProposalTool(
         label: hit.label,
         discipline: hit.discipline,
         storyPoints: hit.storyPoints,
-        acceptanceCriteria: hit.acceptanceCriteria,
         risks: hit.risks,
       });
     },
