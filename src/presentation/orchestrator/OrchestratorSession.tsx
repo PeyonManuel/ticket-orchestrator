@@ -286,6 +286,7 @@ function ActiveSession({
                 aiMode={state.context.aiMode}
                 aiTouchedTicketIds={state.context.aiTouchedTicketIds}
                 pendingBlueprintMutations={state.context.pendingBlueprintMutations}
+                error={state.matches({ workflow: "error" }) ? error : null}
                 send={send}
               />
             </PhasePane>
@@ -300,6 +301,7 @@ function ActiveSession({
                 aiMode={state.context.aiMode}
                 aiTouchedTicketIds={state.context.aiTouchedTicketIds}
                 pendingRefinementMutations={state.context.pendingRefinementMutations}
+                error={state.matches({ workflow: "error" }) ? error : null}
                 send={send}
                 onAdvanceToPlan={handleAdvanceToPlan}
               />
@@ -312,6 +314,7 @@ function ActiveSession({
                 capacities={state.context.capacities}
                 isGeneratingPlan={isPhase4Generating}
                 isAwaitingPlannerReply={isAwaitingPlannerReply}
+                error={state.matches({ workflow: "error" }) ? error : null}
                 send={send}
                 onCommit={handleCommit}
                 isCommitting={isCommitting}

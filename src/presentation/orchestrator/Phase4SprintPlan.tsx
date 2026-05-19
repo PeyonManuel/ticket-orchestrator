@@ -12,6 +12,7 @@ import {
   Info,
 } from "lucide-react";
 import { ProseTurn } from "./shared/ProseTurn";
+import { ErrorMessage } from "./shared/ErrorMessage";
 import type {
   BrainstormTurn,
   EpicDraft,
@@ -35,6 +36,7 @@ interface Props {
   capacities: TeamMemberCapacity[];
   isGeneratingPlan: boolean;
   isAwaitingPlannerReply: boolean;
+  error?: string | null;
   send: (event: OrchestratorEvent) => void;
   onCommit: () => void;
   isCommitting?: boolean;
@@ -73,6 +75,7 @@ export function Phase4SprintPlan({
   capacities,
   isGeneratingPlan,
   isAwaitingPlannerReply,
+  error,
   send,
   onCommit,
   isCommitting,
@@ -249,6 +252,8 @@ export function Phase4SprintPlan({
       <PlannerChatPanel
         transcript={plannerTranscript}
         isThinking={isAwaitingPlannerReply}
+        error={error}
+        onRetry={() => send({ type: "RETRY", now: now() })}
         send={send}
       />
 
@@ -555,10 +560,14 @@ function TicketRow({
 function PlannerChatPanel({
   transcript,
   isThinking,
+  error,
+  onRetry,
   send,
 }: {
   transcript: BrainstormTurn[];
   isThinking: boolean;
+  error?: string | null;
+  onRetry: () => void;
   send: (event: OrchestratorEvent) => void;
 }) {
   const [input, setInput] = useState("");
@@ -631,6 +640,16 @@ function PlannerChatPanel({
             </div>
           </div>
         )}
+
+        {error && transcript.length > 0 && transcript[transcript.length - 1]?.role === "user" && (
+          <div className="scale-75 origin-left">
+            <ErrorMessage
+              message={error || "Something went wrong."}
+              onRetry={onRetry}
+            />
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 

@@ -10,7 +10,10 @@ import type {
   RefinementChatOutput,
   RefinementMutation,
 } from "@/domain/orchestrator/types";
-import { refinementMutationSchema } from "@/domain/orchestrator/types";
+import {
+  refinementMutationSchema,
+  refinementMutationWireSchema,
+} from "@/domain/orchestrator/types";
 import { createOrchestratorLLM } from "../llm";
 import { toolsForPhase } from "../tools";
 import { createGetOtherTicketProposalTool } from "../tools/getOtherTicketProposal";
@@ -58,7 +61,14 @@ Reply: 2-4 sentences. Narrate what changed and why. When proposing mutations, me
 
 Pushback: For cosmetic asks comply immediately. For structural asks push back at most twice with a reason, then comply while voicing disagreement. For out-of-scope asks state plainly that it's outside this ticket.`;
 
-const responseSchema = z.object({
+// Wire schema for Gemini structured output (no transforms — JSON Schema compatible)
+const responseWireSchema = z.object({
+  reply: z.string().min(1),
+  mutations: z.array(refinementMutationWireSchema).default([]),
+});
+
+// Domain schema for post-LLM validation (applies AC transforms)
+const responseDomainSchema = z.object({
   reply: z.string().min(1),
   mutations: z.array(refinementMutationSchema).default([]),
 });
@@ -185,11 +195,14 @@ export async function runRefinementChat(
       ? await runAgentLoop(llm, tools, initialMessages, 3, signal)
       : initialMessages;
 
-  const structured = llm.withStructuredOutput(responseSchema, {
+  const structured = llm.withStructuredOutput(responseWireSchema, {
     name: "refinement_chat_response",
   });
 
-  const result = await structured.invoke(messages, { signal });
+  const wireResult = await structured.invoke(messages, { signal });
+
+  // Transform wire schema to domain schema (validates AC gherkin/narrative structure)
+  const result = responseDomainSchema.parse(wireResult);
 
   const { valid, failed } = validateRefinementMutations(
     result.mutations as RefinementMutation[],

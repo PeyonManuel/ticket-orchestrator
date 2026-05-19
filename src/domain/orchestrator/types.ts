@@ -581,7 +581,11 @@ const flatAcceptanceCriterionSchema = z.object({
   text: z.string().nullish(),
 });
 
-export const acceptanceCriterionSchema = flatAcceptanceCriterionSchema.transform(
+// Wire schema for JSON Schema generation (no transforms — used by LLM structured output)
+export const acceptanceCriterionWireSchema = flatAcceptanceCriterionSchema;
+
+// Domain schema with validation transform (used for GraphQL response validation, not LLM)
+export const acceptanceCriterionSchema = acceptanceCriterionWireSchema.transform(
   (v, ctx): AcceptanceCriterion => {
     if (v.kind === "gherkin") {
       if (!v.given || !v.when || !v.outcome) {
@@ -712,6 +716,35 @@ export const blueprintMutationSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+// Wire schema for JSON Schema generation (no transforms — used by LLM structured output)
+export const refinementMutationWireSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("setDescription"),
+    description: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("setAcceptanceCriteria"),
+    acceptanceCriteria: z.array(acceptanceCriterionWireSchema).min(1),
+  }),
+  z.object({
+    kind: z.literal("setStoryPoints"),
+    storyPoints: proposalStoryPointsSchema,
+  }),
+  z.object({
+    kind: z.literal("setLabel"),
+    label: proposalLabelSchema,
+  }),
+  z.object({
+    kind: z.literal("setDiscipline"),
+    discipline: orgMemberRoleSchema,
+  }),
+  z.object({
+    kind: z.literal("replaceRisks"),
+    risks: z.array(z.string().min(1)),
+  }),
+]);
+
+// Domain schema (used for post-LLM validation + GraphQL parsing, applies AC transforms)
 export const refinementMutationSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("setDescription"),

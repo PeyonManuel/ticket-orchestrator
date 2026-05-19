@@ -16,6 +16,7 @@ import type { OrchestratorEvent } from "@/domain/orchestrator";
 import { BackNavigationModal } from "./BackNavigationModal";
 import { ProseTurn } from "./shared/ProseTurn";
 import { RichMarkdownEditor } from "./shared/RichMarkdownEditor";
+import { ErrorMessage } from "./shared/ErrorMessage";
 
 interface Props {
   draft: EpicDraft;
@@ -26,6 +27,7 @@ interface Props {
   aiMode: "execute" | "confirm";
   aiTouchedTicketIds: ProposalId[];
   pendingRefinementMutations: RefinementMutation[];
+  error?: string | null;
   send: (event: OrchestratorEvent) => void;
   onAdvanceToPlan: () => void;
 }
@@ -47,6 +49,7 @@ export function Phase3Wizard({
   aiMode,
   aiTouchedTicketIds,
   pendingRefinementMutations,
+  error,
   send,
   onAdvanceToPlan,
 }: Props) {
@@ -123,6 +126,7 @@ export function Phase3Wizard({
                 isThinking={isAwaitingRefinementReply}
                 aiMode={aiMode}
                 pendingMutations={pendingRefinementMutations}
+                error={error}
                 onModeChange={(mode) => send({ type: "SET_AI_MODE", mode })}
                 onApplyPending={() =>
                   send({ type: "APPLY_PENDING_REFINEMENT_MUTATIONS", now: now() })
@@ -130,6 +134,7 @@ export function Phase3Wizard({
                 onDiscardPending={() =>
                   send({ type: "DISCARD_PENDING_REFINEMENT_MUTATIONS" })
                 }
+                onRetry={() => send({ type: "RETRY", now: now() })}
                 onSend={(text) =>
                   send({
                     type: "REFINEMENT_USER_MESSAGE",
@@ -233,18 +238,22 @@ function RefinementPanel({
   isThinking,
   aiMode,
   pendingMutations,
+  error,
   onModeChange,
   onApplyPending,
   onDiscardPending,
+  onRetry,
   onSend,
 }: {
   ticket: TicketProposal;
   isThinking: boolean;
   aiMode: "execute" | "confirm";
   pendingMutations: RefinementMutation[];
+  error?: string | null;
   onModeChange: (mode: "execute" | "confirm") => void;
   onApplyPending: () => void;
   onDiscardPending: () => void;
+  onRetry: () => void;
   onSend: (text: string) => void;
 }) {
   const [input, setInput] = useState("");
@@ -314,6 +323,16 @@ function RefinementPanel({
               ))}
             </div>
           )}
+
+          {error && ticket.transcript.length > 0 && ticket.transcript[ticket.transcript.length - 1]?.role === "user" && (
+            <div className="scale-75 origin-left">
+              <ErrorMessage
+                message={error || "Something went wrong."}
+                onRetry={onRetry}
+              />
+            </div>
+          )}
+
           <div ref={bottomRef} />
         </div>
 

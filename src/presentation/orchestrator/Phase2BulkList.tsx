@@ -17,6 +17,7 @@ import { detectCycles } from "@/domain/orchestrator/policies/dependencyPolicy";
 import { BackNavigationModal } from "./BackNavigationModal";
 import { DependencyGraphView } from "./DependencyGraphView";
 import { ProseTurn } from "./shared/ProseTurn";
+import { ErrorMessage } from "./shared/ErrorMessage";
 
 interface Props {
   draft: EpicDraft;
@@ -25,6 +26,7 @@ interface Props {
   aiMode: "execute" | "confirm";
   aiTouchedTicketIds: ProposalId[];
   pendingBlueprintMutations: BlueprintMutation[];
+  error?: string | null;
   send: (event: OrchestratorEvent) => void;
 }
 
@@ -63,6 +65,7 @@ export function Phase2BulkList({
   aiMode,
   aiTouchedTicketIds,
   pendingBlueprintMutations,
+  error,
   send,
 }: Props) {
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -285,9 +288,11 @@ export function Phase2BulkList({
         aiMode={aiMode}
         pendingMutations={pendingBlueprintMutations}
         backlog={backlog}
+        error={error}
         onModeChange={(mode) => send({ type: "SET_AI_MODE", mode })}
         onApplyPending={() => send({ type: "APPLY_PENDING_BLUEPRINT_MUTATIONS", now: now() })}
         onDiscardPending={() => send({ type: "DISCARD_PENDING_BLUEPRINT_MUTATIONS" })}
+        onRetry={() => send({ type: "RETRY", now: now() })}
         onSend={(text) =>
           send({
             type: "BLUEPRINT_USER_MESSAGE",
@@ -318,9 +323,11 @@ function BlueprintChatPanel({
   aiMode,
   pendingMutations,
   backlog,
+  error,
   onModeChange,
   onApplyPending,
   onDiscardPending,
+  onRetry,
   onSend,
 }: {
   transcript: BrainstormTurn[];
@@ -328,9 +335,11 @@ function BlueprintChatPanel({
   aiMode: "execute" | "confirm";
   pendingMutations: BlueprintMutation[];
   backlog: { tickets: TicketProposal[]; epicTitle: string; epicDescription: string };
+  error?: string | null;
   onModeChange: (mode: "execute" | "confirm") => void;
   onApplyPending: () => void;
   onDiscardPending: () => void;
+  onRetry: () => void;
   onSend: (text: string) => void;
 }) {
   const [input, setInput] = useState("");
@@ -397,6 +406,13 @@ function BlueprintChatPanel({
               />
             ))}
           </div>
+        )}
+
+        {error && transcript.length > 0 && transcript[transcript.length - 1]?.role === "user" && (
+          <ErrorMessage
+            message={error || "Something went wrong."}
+            onRetry={onRetry}
+          />
         )}
 
         <div ref={bottomRef} />
