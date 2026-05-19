@@ -40,6 +40,7 @@ import {
   epicMemorySchema,
   epicSnapshotSchema,
   inspectorTranscriptSchema,
+  composeDescriptionWithAcceptanceCriteria,
 } from "@/domain/orchestrator/types";
 import clientPromise from "./mongo";
 import {
@@ -1682,7 +1683,10 @@ export async function commitEpicDraft(
       hierarchyType: proposal.hierarchyType,
       parentTicketId: epicTicket.id,
       title: proposal.title,
-      description: proposal.description,
+      description: composeDescriptionWithAcceptanceCriteria(
+        proposal.description,
+        proposal.acceptanceCriteria,
+      ),
       label: proposal.label,
       fixVersion: "",
       workflowState: backlogColumn.states[0] ?? "backlog",
