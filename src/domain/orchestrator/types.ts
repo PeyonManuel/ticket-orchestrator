@@ -141,6 +141,29 @@ export interface BacklogProposal {
   tickets: TicketProposal[];
 }
 
+/**
+ * Dependency inference actor input — infers blockedBy relationships from ticket
+ * titles + descriptions after the architect has generated the backlog. Deterministic
+ * (temperature 0, structured output).
+ */
+export interface DependencyInferenceInput {
+  /** Tickets from the backlog, complete with titles and descriptions. */
+  tickets: TicketProposal[];
+  /** Existing dependencies from architect, used as a baseline. */
+  currentDependencies: ProposalDependency[];
+  /** Epic summary for context (optional). */
+  epicSummary?: BrainstormSummary;
+}
+
+/**
+ * Dependency inference output — refined list of dependencies to apply to backlog.
+ * Each ticket appears once in this list with its inferred dependencies.
+ */
+export interface DependencyInferenceOutput {
+  ticketId: ProposalId;
+  dependencies: ProposalDependency[];
+}
+
 // ── Draft ────────────────────────────────────────────────────────────
 
 export interface EpicDraft {
@@ -296,6 +319,16 @@ export interface SprintSnapshot {
   endDate: string;
   capacityPoints: number;
   status: "planning" | "active" | "completed";
+  /** Story points already consumed by existing board tickets (not from this epic). */
+  usedPoints?: number;
+}
+
+/** Pre-existing allocation entry for a sprint slot, derived from board tickets at plan time. */
+export interface SprintPreAllocation {
+  sprintId: string;
+  memberId: string;
+  discipline: OrgMemberRole;
+  points: number;
 }
 
 export interface MemberSnapshot {
@@ -320,10 +353,10 @@ export interface SprintPlanBufferRule {
 }
 
 /**
- * A sprint the planner proposes to create on commit so the overflow can be
- * scheduled. `id` is a temporary client-generated UUID; the real sprint is
- * created server-side by `commitEpicDraft` which substitutes the real Mongo id
- * into the matching `TicketAssignment.sprintId` values.
+ * A sprint the planner proposes to create on commit to fit tickets beyond the
+ * current planning horizon. `id` is a temporary client-generated UUID; the real
+ * sprint is created server-side by `commitEpicDraft` which substitutes the real
+ * Mongo id into the matching `TicketAssignment.sprintId` values.
  */
 export interface ProposedSprint {
   id: string;
@@ -335,12 +368,6 @@ export interface ProposedSprint {
 
 export interface SprintPlan {
   assignments: TicketAssignment[];
-  reasoning: string;
-  /**
-   * Tickets the planner couldn't fit even into the proposed sprints (truly
-   * unschedulable, e.g. discipline missing entirely). Populated by slicingPolicy.
-   */
-  overflow?: TicketProposal[];
   /**
    * New sprints the planner suggests creating to accommodate tickets that
    * didn't fit into the existing planning horizon. Created server-side at commit.
@@ -361,6 +388,12 @@ export interface PlannerInput {
    * instead of re-deriving defaults from `members`.
    */
   capacities: TeamMemberCapacity[];
+  /** Pre-existing story-point allocations from board tickets already in these sprints. */
+  initialAllocations?: SprintPreAllocation[];
+  /** Board name — used to name proposed sprints `{boardName} {N+1}` per the codebase convention. */
+  boardName?: string;
+  /** Next sprint number on the board, so proposed sprints extend the existing numbering. */
+  nextSprintNumber?: number;
 }
 
 export type PlannerOutput = SprintPlan;
@@ -374,6 +407,7 @@ export interface PlannerChatInput {
   /** Same capacity context as `PlannerInput` so revisions stay budget-aware. */
   capacities: TeamMemberCapacity[];
   userMessage: string;
+  initialAllocations?: SprintPreAllocation[];
 }
 
 export interface PlannerChatOutput {
@@ -649,6 +683,17 @@ export const backlogProposalSchema = z.object({
   tickets: z.array(ticketProposalSchema).min(1),
 });
 
+export const dependencyInferenceInputSchema = z.object({
+  tickets: z.array(ticketProposalSchema).min(1),
+  currentDependencies: z.array(proposalDependencySchema).default([]),
+  epicSummary: brainstormSummarySchema.optional(),
+});
+
+export const dependencyInferenceOutputSchema = z.object({
+  ticketId: z.string().min(1),
+  dependencies: z.array(proposalDependencySchema).default([]),
+});
+
 export const analystTurnOutputSchema = z.object({
   reply: z.string().min(1),
   summary: brainstormSummarySchema.nullable(),
@@ -780,6 +825,7 @@ const sprintSnapshotSchema = z.object({
   endDate: z.string(),
   capacityPoints: z.number(),
   status: z.enum(["planning", "active", "completed"]),
+  usedPoints: z.number().optional(),
 });
 
 const memberSnapshotSchema = z.object({
@@ -809,9 +855,6 @@ const proposedSprintSchema = z.object({
 
 const sprintPlanSchema = z.object({
   assignments: z.array(ticketAssignmentSchema),
-  reasoning: z.string(),
-  // Slice A.1 additions — optional so existing plans still parse.
-  overflow: z.array(ticketProposalSchema).optional(),
   proposedSprints: z.array(proposedSprintSchema).optional(),
   bufferRule: sprintPlanBufferRuleSchema.optional(),
 });

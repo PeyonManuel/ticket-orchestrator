@@ -1190,15 +1190,7 @@ function parseEpicSnapshot(d: EpicSnapshotDoc): EpicSnapshot {
     brainstormSummary: d.brainstormSummary ?? null,
     backlog,
     plannerTranscript: d.plannerTranscript ?? [],
-    sprintPlan: d.sprintPlan
-      ? {
-          ...d.sprintPlan,
-          overflow: (d.sprintPlan.overflow ?? []).map((t) => ({
-            ...t,
-            label: normalizeLabel(t.label as string),
-          })),
-        }
-      : null,
+    sprintPlan: d.sprintPlan ?? null,
     planningSprints: d.planningSprints ?? [],
     planningMembers: d.planningMembers ?? [],
     ticketIds: d.ticketIds ?? [],

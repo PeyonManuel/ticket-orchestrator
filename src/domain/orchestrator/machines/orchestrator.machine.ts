@@ -21,6 +21,8 @@ import type {
   BrainstormTurn,
   ControllerInput,
   ControllerOutput,
+  DependencyInferenceInput,
+  DependencyInferenceOutput,
   EpicDraft,
   MemberSnapshot,
   PlannerChatInput,
@@ -33,6 +35,7 @@ import type {
   RefinementChatInput,
   RefinementChatOutput,
   RefinementMutation,
+  SprintPreAllocation,
   SprintSnapshot,
   TeamMemberCapacity,
   TicketProposal,
@@ -94,10 +97,15 @@ export type OrchestratorEvent =
       sprints: SprintSnapshot[];
       members: MemberSnapshot[];
       capacities: TeamMemberCapacity[];
+      initialAllocations: SprintPreAllocation[];
+      boardName: string;
+      nextSprintNumber: number;
     }
   | { type: "REFRESH_CAPACITIES"; capacities: TeamMemberCapacity[] }
   | { type: "PLANNER_USER_MESSAGE"; text: string; now: string; turnId: string }
   | { type: "BACK_TO_REFINE"; now: string }
+  | { type: "REGENERATE_PLAN" }
+  | { type: "RENAME_PROPOSED_SPRINT"; proposedSprintId: string; name: string; now: string }
   // Commit / lifecycle
   | { type: "COMMIT_EPIC"; now: string }
   | { type: "ABANDON_DRAFT"; now: string }
@@ -126,6 +134,11 @@ export interface OrchestratorContext {
    * would risk planning against stale numbers across long-lived sessions.
    */
   capacities: TeamMemberCapacity[];
+  /** Pre-existing SP allocations from board tickets already in planning sprints. Ephemeral. */
+  initialAllocations: SprintPreAllocation[];
+  /** Board name + next sprint number for naming proposed sprints `{boardName} {N+1}`. Ephemeral. */
+  boardName: string;
+  nextSprintNumber: number;
   /**
    * UI-controlled mode for how AI-proposed mutations are handled:
    * - "execute" (default): mutations apply immediately on chat reply.
@@ -405,6 +418,9 @@ export const orchestratorMachine = setup({
     architectActor: fromPromise<ArchitectOutput, ArchitectInput>(async () => {
       throw new Error("architectActor not provided");
     }),
+    dependencyInferenceActor: fromPromise<DependencyInferenceOutput[], DependencyInferenceInput>(async () => {
+      throw new Error("dependencyInferenceActor not provided");
+    }),
     controllerActor: fromPromise<ControllerOutput, ControllerInput>(async () => {
       throw new Error("controllerActor not provided");
     }),
@@ -612,6 +628,9 @@ export const orchestratorMachine = setup({
           planningMembers: event.members,
         }, event.now),
         capacities: event.capacities,
+        initialAllocations: event.initialAllocations,
+        boardName: event.boardName,
+        nextSprintNumber: event.nextSprintNumber,
       };
     }),
 
@@ -684,6 +703,27 @@ export const orchestratorMachine = setup({
       };
       return { draft: withBacklog(context.draft, normalized, params.now), error: null };
     }),
+
+    applyInferredDependencies: assign(
+      ({ context, event }, params: { inferredDependencies: Array<{ ticketId: ProposalId; dependencies: any[] }>; now: string }) => {
+        void event;
+        if (!context.draft.backlog) return {};
+
+        const depsByTicketId = new Map(
+          params.inferredDependencies.map((d) => [d.ticketId, d.dependencies]),
+        );
+
+        const updatedBacklog: BacklogProposal = {
+          ...context.draft.backlog,
+          tickets: context.draft.backlog.tickets.map((t) => ({
+            ...t,
+            dependencies: depsByTicketId.get(t.id) ?? t.dependencies ?? [],
+          })),
+        };
+
+        return { draft: withBacklog(context.draft, updatedBacklog, params.now), error: null };
+      },
+    ),
 
     addTicket: assign(({ context, event }) => {
       if (event.type !== "ADD_TICKET" || !context.draft.backlog) return {};
@@ -904,13 +944,45 @@ export const orchestratorMachine = setup({
 
     enterPhase3FromPhase4: assign(({ context, event }) => {
       if (event.type !== "BACK_TO_REFINE") return {};
-      // Clear the stale sprint plan — re-entering Phase 4 will regenerate it
-      // against whatever refinements the PO changes. plannerTranscript is
-      // kept as a record of the prior planning conversation.
+      // Keep the sprint plan — the PO may tweak one ticket and come back, in
+      // which case re-planning every time is wasteful. An explicit REGENERATE_PLAN
+      // event (via the "Regenerate" button in Phase 4) clears it on demand.
       return {
         draft: patchDraft(
           context.draft,
-          { phase: "phase3Refining", sprintPlan: null },
+          { phase: "phase3Refining" },
+          event.now,
+        ),
+      };
+    }),
+
+    clearPlan: assign(({ context, event }) => {
+      void event;
+      return {
+        draft: patchDraft(context.draft, { sprintPlan: null }, new Date().toISOString()),
+      };
+    }),
+
+    renameProposedSprint: assign(({ context, event }) => {
+      if (event.type !== "RENAME_PROPOSED_SPRINT") return {};
+      if (!context.draft.sprintPlan) return {};
+      const name = event.name.trim();
+      if (!name) return {};
+      const proposed = context.draft.sprintPlan.proposedSprints ?? [];
+      const next = proposed.map((s) =>
+        s.id === event.proposedSprintId ? { ...s, name } : s,
+      );
+      // No-op when the id doesn't match anything (defensive — avoid spurious save).
+      if (next.every((s, i) => s.name === proposed[i].name)) return {};
+      return {
+        draft: patchDraft(
+          context.draft,
+          {
+            sprintPlan: {
+              ...context.draft.sprintPlan,
+              proposedSprints: next,
+            },
+          },
           event.now,
         ),
       };
@@ -1004,6 +1076,9 @@ export const orchestratorMachine = setup({
     draft: input.draft,
     error: null,
     capacities: input.capacities ?? [],
+    initialAllocations: [],
+    boardName: "",
+    nextSprintNumber: 1,
     aiMode: "execute",
     pendingBlueprintMutations: [],
     pendingRefinementMutations: [],
@@ -1129,7 +1204,7 @@ export const orchestratorMachine = setup({
             generatingBacklog: {
               always: [
                 // Resuming a draft that already has a backlog skips regeneration.
-                { guard: "backlogNonEmpty", target: "reviewingBulk" },
+                { guard: "backlogNonEmpty", target: "inferringDependencies" },
               ],
               after: {
                 120000: {
@@ -1149,7 +1224,7 @@ export const orchestratorMachine = setup({
                   };
                 },
                 onDone: {
-                  target: "reviewingBulk",
+                  target: "inferringDependencies",
                   actions: {
                     type: "storeBacklog",
                     params: ({ event }) => ({
@@ -1164,6 +1239,52 @@ export const orchestratorMachine = setup({
                     type: "captureError",
                     params: ({ event }) => ({
                       message: extractErrorMessage(event.error, "Architect failed to generate backlog"),
+                    }),
+                  },
+                },
+              },
+            },
+
+            inferringDependencies: {
+              after: {
+                30000: {
+                  target: "#orchestrator.workflow.error",
+                  actions: { type: "captureError", params: { message: "Dependency inference timed out. Try again." } },
+                },
+              },
+              invoke: {
+                src: "dependencyInferenceActor",
+                input: ({ context }) => {
+                  if (!context.draft.backlog) {
+                    throw new Error("No backlog to infer dependencies on");
+                  }
+                  return {
+                    tickets: context.draft.backlog.tickets,
+                    currentDependencies: context.draft.backlog.tickets
+                      .flatMap((t) => (t.dependencies ?? []).map((d) => ({ ...d, sourceTicketId: t.id })))
+                      .map((d) => ({
+                        kind: d.kind,
+                        targetProposalId: d.targetProposalId,
+                      })),
+                    epicSummary: context.draft.brainstormSummary ?? undefined,
+                  };
+                },
+                onDone: {
+                  target: "reviewingBulk",
+                  actions: {
+                    type: "applyInferredDependencies",
+                    params: ({ event }) => ({
+                      inferredDependencies: event.output,
+                      now: new Date().toISOString(),
+                    }),
+                  },
+                },
+                onError: {
+                  target: "reviewingBulk",
+                  actions: {
+                    type: "captureError",
+                    params: ({ event }) => ({
+                      message: `Dependency inference failed gracefully: ${extractErrorMessage(event.error, "continuing with existing dependencies")}`,
                     }),
                   },
                 },
@@ -1428,6 +1549,9 @@ export const orchestratorMachine = setup({
                   sprints: context.draft.planningSprints,
                   members: context.draft.planningMembers,
                   capacities: context.capacities,
+                  initialAllocations: context.initialAllocations,
+                  boardName: context.boardName,
+                  nextSprintNumber: context.nextSprintNumber,
                 }),
                 onDone: {
                   target: "reviewingPlan",
@@ -1465,6 +1589,11 @@ export const orchestratorMachine = setup({
                   target: "#orchestrator.workflow.phase3Refining.readyToCommit",
                   actions: "enterPhase3FromPhase4",
                 },
+                REGENERATE_PLAN: {
+                  target: "generatingPlan",
+                  actions: "clearPlan",
+                },
+                RENAME_PROPOSED_SPRINT: { actions: "renameProposedSprint" },
               },
             },
 
@@ -1490,6 +1619,7 @@ export const orchestratorMachine = setup({
                   sprints: context.draft.planningSprints,
                   members: context.draft.planningMembers,
                   capacities: context.capacities,
+                  initialAllocations: context.initialAllocations,
                   userMessage:
                     context.draft.plannerTranscript
                       .filter((t) => t.role === "user")

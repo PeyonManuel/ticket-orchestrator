@@ -42,6 +42,9 @@ export function useOrchestrator(
         actors: {
           analystActor: fromPromise(({ input }) => ai.runAnalystTurn(input)),
           architectActor: fromPromise(({ input }) => ai.runArchitectBacklog(input)),
+          dependencyInferenceActor: fromPromise(({ input }) =>
+            ai.runDependencyInference(input),
+          ),
           controllerActor: fromPromise(({ input }) => ai.runControllerRefinement(input)),
           blueprintChatActor: fromPromise(({ input }) => ai.runBlueprintChat(input)),
           refinementChatActor: fromPromise(({ input }) => ai.runRefinementChat(input)),
@@ -96,7 +99,10 @@ export function useOrchestrator(
         clearTimeout(pendingSaveTimer.current);
         pendingSaveTimer.current = null;
       }
-      const draft = state.context.draft;
+      // Read the live snapshot so a flush triggered right after a machine transition
+      // (e.g. storePlan on planner completion) saves the NEW draft even if React
+      // hasn't re-rendered yet and `state` in the outer closure is still stale.
+      const draft = actorRef.getSnapshot().context.draft;
       const serialized = JSON.stringify(draft);
       if (serialized === lastSavedSerialized.current) {
         setSaveStatus("idle");

@@ -7,6 +7,7 @@ import {
   RUN_ARCHITECT_BACKLOG,
   RUN_CONTROLLER_REFINEMENT,
   RUN_BLUEPRINT_CHAT,
+  RUN_DEPENDENCY_INFERENCE,
   RUN_REFINEMENT_CHAT,
   RUN_PLANNER_CHAT,
   RUN_INSPECTOR_TURN,
@@ -17,6 +18,7 @@ import {
   backlogProposalSchema,
   blueprintMutationSchema,
   controllerOutputSchema,
+  dependencyInferenceOutputSchema,
   inspectorTurnOutputSchema,
   plannerChatOutputSchema,
   refinementMutationSchema,
@@ -28,6 +30,8 @@ import {
   type BlueprintChatOutput,
   type ControllerInput,
   type ControllerOutput,
+  type DependencyInferenceInput,
+  type DependencyInferenceOutput,
   type InspectorTurnInput,
   type InspectorTurnOutput,
   type PlannerChatInput,
@@ -87,6 +91,21 @@ export function createRealAi(apollo: ApolloClient) {
         throw new Error("runArchitectBacklog returned no data");
       }
       return backlogProposalSchema.parse(result.data.runArchitectBacklog);
+    },
+
+    runDependencyInference: async (
+      input: DependencyInferenceInput,
+    ): Promise<DependencyInferenceOutput[]> => {
+      const result = await apollo.mutate<{
+        runDependencyInference: DependencyInferenceOutput[];
+      }>({
+        mutation: RUN_DEPENDENCY_INFERENCE,
+        variables: { input: stripTypename(input) },
+      });
+      if (!result.data?.runDependencyInference) {
+        throw new Error("runDependencyInference returned no data");
+      }
+      return z.array(dependencyInferenceOutputSchema).parse(result.data.runDependencyInference);
     },
 
     runControllerRefinement: async (

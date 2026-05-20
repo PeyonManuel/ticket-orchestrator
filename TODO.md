@@ -4,23 +4,24 @@ Anytime for any reason a user message is left unnanwered, there needs to be a pr
 
 **DONE** If the AI already generated ticket 5, then i leave and come back, it generates ticket 5 again. It needs to remember it already generated it.
 
-Now the Architect/blueprint is creating tickets that are duplicated, or at least its setting two tickets as duplications of each other, what is this?
+**DONE** Now the Architect/blueprint is creating tickets that are duplicated, or at least its setting two tickets as duplications of each other, what is this?
+
+Sprint plan cant see individual tickets / this is breaking our plan of having the ai be able to ask for anything that it needs. We need to make this more robust, this is a base idea thats failing.
+On phase 5 the AI should know about the tickets that where removed, all the information of them and know when they where removed.
+No way to edit the sprint names that the AI proposes, its also not proposing them starting from the logical next sprint name, since all the sprints should be labeled as "Board name - {incremental number}".
+
+Check that the planner works as we want
 
 If i open a new epic, dont write anything and leave, that epic didnt start so it shouldnt be saved as anything.
 
 If i send a message to a chat, immediatly leave, then next time i get into the chat i should see that the AI is still thinking or the answer it already had, right now it drops the thinking and no output is sent and nothing is saved.
 
 When the AI updates a ticket, the reverse button of the description isnt allowing to revert its changes, see to fix this.
-
 So we have to first, need a button to retry the planning phase.
-
-On phase 5 the AI should know about the tickets that where removed, all the information of them and know when they where removed.
 
 When creating an epic from the orchestrator, it is setting already tickets as deleted when no tickets where deleted, investigate on this.
 
 When the orchestrator creates the sprints, its showing like a full date 2026-06-03T00:00:00.000Z instead of just 2026-06-03.
-
-No way to edit the sprint names that the AI proposes, its also not proposing them starting from the logical next sprint name, since all the sprints should be labeled as "Board name - {incremental number}".
 
 Make orchestrator UI timeline be clickable, to be able to move between phases much quicker.
 Show Ticket type label in the deep dive phase as well. As well as if its a story or not.

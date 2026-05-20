@@ -844,3 +844,15 @@ export const RUN_INSPECTOR_TURN = gql`
     }
   }
 `;
+
+export const RUN_DEPENDENCY_INFERENCE = gql`
+  mutation RunDependencyInference($input: DependencyInferenceGqlInput!) {
+    runDependencyInference(input: $input) {
+      ticketId
+      dependencies {
+        kind
+        targetProposalId
+      }
+    }
+  }
+`;

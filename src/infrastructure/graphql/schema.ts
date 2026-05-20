@@ -703,6 +703,20 @@ export const typeDefs = /* GraphQL */ `
 
     """Phase 5 Inspector turn. Server-side LLM call; loads the EpicSnapshot context from the snapshotId."""
     runInspectorTurn(input: InspectorTurnLlmInput!): InspectorTurnLlmOutput!
+
+    """Phase 2 dependency inference. Reads ticket titles + descriptions, returns inferred blockedBy edges."""
+    runDependencyInference(input: DependencyInferenceGqlInput!): [DependencyInferenceGqlResult!]!
+  }
+
+  input DependencyInferenceGqlInput {
+    tickets: [TicketProposalInput!]!
+    currentDependencies: [ProposalDependencyInput!]!
+    epicSummary: BrainstormSummaryInput
+  }
+
+  type DependencyInferenceGqlResult {
+    ticketId: ID!
+    dependencies: [ProposalDependency!]!
   }
 
   input AnalystTurnInput {

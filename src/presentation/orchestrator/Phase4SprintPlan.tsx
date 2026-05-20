@@ -7,9 +7,9 @@ import {
   Zap,
   Send,
   Loader2,
-  AlertTriangle,
   Gauge,
   Info,
+  RefreshCw,
 } from "lucide-react";
 import { ProseTurn } from "./shared/ProseTurn";
 import { ErrorMessage } from "./shared/ErrorMessage";
@@ -20,7 +20,6 @@ import type {
   ProposedSprint,
   TeamMemberCapacity,
   TicketAssignment,
-  TicketProposal,
 } from "@/domain/orchestrator/types";
 import type { OrchestratorEvent } from "@/domain/orchestrator";
 import type { OrgMemberRole } from "@/domain/analyst";
@@ -94,7 +93,6 @@ export function Phase4SprintPlan({
   }
 
   const assignments = sprintPlan.assignments;
-  const overflow: TicketProposal[] = sprintPlan.overflow ?? [];
   const proposedSprints: ProposedSprint[] = sprintPlan.proposedSprints ?? [];
   const bufferPercent = sprintPlan.bufferRule?.percent ?? DEFAULT_BUFFER_PERCENT;
 
@@ -107,7 +105,7 @@ export function Phase4SprintPlan({
       })
       .filter(Boolean) as Array<{ ticket: NonNullable<typeof backlog>["tickets"][number]; assignment: TicketAssignment }>;
 
-  const sprintUsedSP = (sprintId: string) =>
+  const epicSPForSprint = (sprintId: string) =>
     ticketsForSprint(sprintId).reduce((sum, { ticket }) => sum + (ticket.storyPoints ?? 0), 0);
 
   const backlogTickets = ticketsForSprint(null);
@@ -134,22 +132,29 @@ export function Phase4SprintPlan({
                 )}
               </p>
             </div>
-            <button
-              onClick={() => setBackModalOpen(true)}
-              className="text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
-            >
-              ← Back to Deep Dive
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => send({ type: "REGENERATE_PLAN" })}
+                disabled={isAwaitingPlannerReply}
+                className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={
+                  isAwaitingPlannerReply
+                    ? "Wait for the planner to finish before regenerating"
+                    : "Recalculate the sprint plan (algorithmic — works without AI)"
+                }
+              >
+                <RefreshCw size={12} />
+                Regenerate
+              </button>
+              <button
+                onClick={() => setBackModalOpen(true)}
+                className="text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+              >
+                ← Back to Deep Dive
+              </button>
+            </div>
           </div>
         </div>
-
-        {/* Reasoning banner */}
-        {sprintPlan.reasoning && (
-          <div className="mx-6 mt-4 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/40 px-4 py-2.5 text-xs text-indigo-800 dark:text-indigo-300 max-w-3xl self-center w-full">
-            <span className="font-medium">AI reasoning: </span>
-            {sprintPlan.reasoning}
-          </div>
-        )}
 
         {/* Sprint lanes */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
@@ -157,21 +162,23 @@ export function Phase4SprintPlan({
             {/* Capacity panel — per-discipline budget at the buffer rule */}
             <CapacityPanel capacities={capacities} bufferPercent={bufferPercent} />
 
-            {/* Overflow callout — tickets the planner couldn't fit */}
-            {overflow.length > 0 && <OverflowBanner overflow={overflow} />}
-
             {planningSprints.map((sprint) => {
-              const used = sprintUsedSP(sprint.id);
-              const pct = sprint.capacityPoints > 0 ? Math.min((used / sprint.capacityPoints) * 100, 100) : 0;
-              const over = used > sprint.capacityPoints;
+              const epicSP = epicSPForSprint(sprint.id);
+              const existingSP = sprint.usedPoints ?? 0;
+              const totalUsed = epicSP + existingSP;
+              const epicPct = sprint.capacityPoints > 0 ? Math.min((epicSP / sprint.capacityPoints) * 100, 100) : 0;
+              const existingPct = sprint.capacityPoints > 0 ? Math.min((existingSP / sprint.capacityPoints) * 100, 100) : 0;
+              const over = totalUsed > sprint.capacityPoints;
               const tickets = ticketsForSprint(sprint.id);
               return (
                 <SprintLane
                   key={sprint.id}
                   sprint={sprint}
                   tickets={tickets}
-                  usedSP={used}
-                  pct={pct}
+                  epicSP={epicSP}
+                  existingSP={existingSP}
+                  epicPct={epicPct}
+                  existingPct={existingPct}
                   over={over}
                   memberById={memberById}
                   capacities={capacities}
@@ -188,22 +195,32 @@ export function Phase4SprintPlan({
               </div>
             )}
             {proposedSprints.map((sprint) => {
-              const used = sprintUsedSP(sprint.id);
-              const pct = sprint.capacityPoints > 0 ? Math.min((used / sprint.capacityPoints) * 100, 100) : 0;
-              const over = used > sprint.capacityPoints;
+              const epicSP = epicSPForSprint(sprint.id);
+              const epicPct = sprint.capacityPoints > 0 ? Math.min((epicSP / sprint.capacityPoints) * 100, 100) : 0;
+              const over = epicSP > sprint.capacityPoints;
               const tickets = ticketsForSprint(sprint.id);
               return (
                 <SprintLane
                   key={sprint.id}
                   sprint={sprint}
                   tickets={tickets}
-                  usedSP={used}
-                  pct={pct}
+                  epicSP={epicSP}
+                  existingSP={0}
+                  epicPct={epicPct}
+                  existingPct={0}
                   over={over}
                   memberById={memberById}
                   capacities={capacities}
                   bufferPercent={bufferPercent}
                   proposed
+                  onRenameProposed={(name) =>
+                    send({
+                      type: "RENAME_PROPOSED_SPRINT",
+                      proposedSprintId: sprint.id,
+                      name,
+                      now: now(),
+                    })
+                  }
                 />
               );
             })}
@@ -229,11 +246,9 @@ export function Phase4SprintPlan({
         <div className="border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-6 py-4 shrink-0">
           <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {overflow.length > 0
-                ? `${overflow.length} ticket${overflow.length === 1 ? "" : "s"} couldn't be scheduled — review before approving.`
-                : proposedSprints.length > 0
-                  ? `${proposedSprints.length} new sprint${proposedSprints.length === 1 ? "" : "s"} will be created on commit.`
-                  : "Tickets will be created and assigned to sprints."}
+              {proposedSprints.length > 0
+                ? `${proposedSprints.length} new sprint${proposedSprints.length === 1 ? "" : "s"} will be created on commit.`
+                : "Tickets will be created and assigned to sprints."}
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -348,64 +363,38 @@ function CapacityPanel({
   );
 }
 
-function OverflowBanner({ overflow }: { overflow: TicketProposal[] }) {
-  const totalSP = overflow.reduce((sum, t) => sum + (t.storyPoints ?? 0), 0);
-  return (
-    <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 overflow-hidden">
-      <div className="px-4 py-3 border-b border-amber-200 dark:border-amber-900/40 flex items-center gap-2">
-        <AlertTriangle size={13} className="text-amber-600 dark:text-amber-400 shrink-0" />
-        <span className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-          Sliding to later sprints
-        </span>
-        <span className="text-[11px] text-amber-700 dark:text-amber-400 ml-auto tabular-nums">
-          {overflow.length} ticket{overflow.length === 1 ? "" : "s"} · {totalSP} SP
-        </span>
-      </div>
-      <ul className="divide-y divide-amber-200/60 dark:divide-amber-900/40">
-        {overflow.map((t) => (
-          <li
-            key={t.id}
-            className="flex items-center gap-3 px-4 py-2 text-xs text-amber-900 dark:text-amber-200"
-          >
-            <span className="flex-1 truncate">{t.title}</span>
-            <span className="text-amber-700 dark:text-amber-400 tabular-nums shrink-0">
-              {t.storyPoints ?? "—"} SP
-            </span>
-            {t.discipline && (
-              <span
-                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${ROLE_BADGE[t.discipline]}`}
-              >
-                {ROLE_LABEL[t.discipline]}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 function SprintLane({
   sprint,
   tickets,
-  usedSP,
-  pct,
+  epicSP,
+  existingSP,
+  epicPct,
+  existingPct,
   over,
   memberById,
   capacities,
   bufferPercent,
   proposed,
+  onRenameProposed,
 }: {
   sprint: { id: string; name: string; startDate: string; endDate: string; capacityPoints: number };
   tickets: Array<{ ticket: NonNullable<EpicDraft["backlog"]>["tickets"][number]; assignment: TicketAssignment }>;
-  usedSP: number;
-  pct: number;
+  epicSP: number;
+  existingSP: number;
+  epicPct: number;
+  existingPct: number;
   over: boolean;
   memberById: (id: string | null) => MemberSnapshot | undefined;
   capacities: TeamMemberCapacity[];
   bufferPercent: number;
   proposed?: boolean;
+  /** When set (only for proposed sprints), enables click-to-edit on the name. */
+  onRenameProposed?: (name: string) => void;
 }) {
+  const totalUsed = epicSP + existingSP;
+  const sprintFull = existingSP > 0 && epicSP === 0 && existingSP >= sprint.capacityPoints;
+
   return (
     <div
       className={`rounded-xl border bg-white dark:bg-zinc-900 overflow-hidden ${
@@ -418,7 +407,11 @@ function SprintLane({
       <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
         <div className="flex items-center gap-3 mb-2">
           <CalendarDays size={13} className={`shrink-0 ${proposed ? "text-violet-500" : "text-indigo-500"}`} />
-          <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{sprint.name}</span>
+          {proposed && onRenameProposed ? (
+            <EditableSprintName name={sprint.name} onCommit={onRenameProposed} />
+          ) : (
+            <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{sprint.name}</span>
+          )}
           {proposed && (
             <span className="text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
               Proposed
@@ -428,17 +421,34 @@ function SprintLane({
             {sprint.startDate.slice(0, 10)} → {sprint.endDate.slice(0, 10)}
           </span>
           <span className={`ml-auto text-[11px] font-semibold tabular-nums ${over ? "text-rose-500" : "text-zinc-500 dark:text-zinc-400"}`}>
-            {usedSP} / {sprint.capacityPoints} SP{over ? " ⚠" : ""}
+            {totalUsed} / {sprint.capacityPoints} SP{over ? " ⚠" : ""}
           </span>
         </div>
-        <div className="h-1 w-full rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+
+        {/* Two-segment capacity bar: existing (zinc) behind, epic (indigo/violet) in front */}
+        <div className="h-1.5 w-full rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden relative">
+          {existingSP > 0 && (
+            <div
+              className="absolute inset-y-0 left-0 bg-zinc-400 dark:bg-zinc-500"
+              style={{ width: `${existingPct}%` }}
+            />
+          )}
           <div
-            className={`h-full rounded-full transition-all ${
+            className={`absolute inset-y-0 bg-opacity-90 ${
               over ? "bg-rose-500" : proposed ? "bg-violet-500" : "bg-indigo-500"
             }`}
-            style={{ width: `${pct}%` }}
+            style={{ left: `${existingPct}%`, width: `${epicPct}%` }}
           />
         </div>
+
+        {/* Existing-tickets legend — only when there's pre-existing load */}
+        {existingSP > 0 && (
+          <p className="mt-1.5 text-[10px] text-zinc-400 dark:text-zinc-500 flex items-center gap-1">
+            <span className="inline-block h-1.5 w-3 rounded-full bg-zinc-400 dark:bg-zinc-500 shrink-0" />
+            {existingSP} SP from other epics · {epicSP} SP from this epic
+          </p>
+        )}
+
         <DisciplineUsageRow
           tickets={tickets}
           capacities={capacities}
@@ -447,7 +457,11 @@ function SprintLane({
       </div>
 
       {tickets.length === 0 ? (
-        <p className="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-600 italic">No tickets assigned to this sprint.</p>
+        <p className="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-600 italic">
+          {sprintFull
+            ? "Sprint is full — all capacity is used by existing tickets from other epics."
+            : "No tickets from this epic assigned to this sprint."}
+        </p>
       ) : (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {tickets.map(({ ticket, assignment }) => (
@@ -520,6 +534,73 @@ function DisciplineUsageRow({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Click-to-edit sprint name for proposed sprints only. Mirrors the inline-edit
+ * pattern used elsewhere in the orchestrator (no separate "edit" affordance —
+ * the name itself is the click target). Commit on blur or Enter; Esc reverts.
+ */
+function EditableSprintName({
+  name,
+  onCommit,
+}: {
+  name: string;
+  onCommit: (name: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!editing) setDraftName(name);
+  }, [name, editing]);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 hover:text-violet-600 dark:hover:text-violet-400 cursor-text text-left"
+        title="Click to rename this proposed sprint"
+      >
+        {name}
+      </button>
+    );
+  }
+
+  const commit = () => {
+    const trimmed = draftName.trim();
+    if (trimmed && trimmed !== name) onCommit(trimmed);
+    setEditing(false);
+  };
+  const cancel = () => {
+    setDraftName(name);
+    setEditing(false);
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      value={draftName}
+      onChange={(e) => setDraftName(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          cancel();
+        }
+      }}
+      className="text-sm font-semibold rounded border border-violet-300 dark:border-violet-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 px-1.5 py-0.5 focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+    />
   );
 }
 

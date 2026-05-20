@@ -76,24 +76,44 @@ const responseSchema = z.object({
 function summariseContext(input: InspectorTurnInput): string {
   const lines: string[] = [];
   const title = input.snapshot.backlog?.epicTitle ?? "(untitled Epic)";
+  const commitDate = new Date(input.snapshot.createdAt).toLocaleDateString();
   lines.push(`Epic: ${title}`);
-  lines.push(
-    `Snapshot committed: ${new Date(input.snapshot.createdAt).toLocaleDateString()}`,
-  );
+  lines.push(`Snapshot committed: ${commitDate}`);
+
+  const removedIds = new Set(input.drift.removedTickets.map((t) => t.id));
 
   if (input.snapshot.backlog) {
     lines.push("");
     lines.push("Frozen ticket plan:");
     for (const t of input.snapshot.backlog.tickets) {
+      const removedTag = removedIds.has(t.id) ? " [REMOVED since commit]" : "";
       lines.push(
-        `- ${t.title} [${t.label}, ${t.storyPoints ?? "?"} pts]`,
+        `- ${t.title} [${t.label}, ${t.storyPoints ?? "?"} pts]${removedTag}`,
       );
     }
   }
 
-  if (input.snapshot.sprintPlan?.reasoning) {
+  // Full info on removed tickets: the PO may ask "why did we drop X" or
+  // "what was X about" — without the description here the AI can only echo
+  // the title. Removal timestamp is the snapshot date (best diff-only
+  // approximation: we know they existed at commit and don't exist now).
+  if (input.drift.removedTickets.length > 0 && input.snapshot.backlog) {
     lines.push("");
-    lines.push(`Plan reasoning: ${input.snapshot.sprintPlan.reasoning}`);
+    lines.push(`Removed since commit (${commitDate}) — full ticket info:`);
+    for (const removed of input.drift.removedTickets) {
+      const full = input.snapshot.backlog.tickets.find((t) => t.id === removed.id);
+      if (!full) {
+        lines.push(`- ${removed.title} (no snapshot record)`);
+        continue;
+      }
+      const sketch =
+        full.oneLiner?.trim() ||
+        full.description?.trim().split("\n").slice(0, 2).join(" ") ||
+        "(no description captured)";
+      lines.push(
+        `- ${full.title} [${full.label}, ${full.storyPoints ?? "?"} pts] — ${sketch}`,
+      );
+    }
   }
 
   lines.push("");

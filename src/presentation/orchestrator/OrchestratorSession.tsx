@@ -7,6 +7,7 @@ import { GET_EPIC_DRAFT } from "@/infrastructure/graphql/operations";
 import type {
   EpicDraft,
   MemberSnapshot,
+  SprintPreAllocation,
   SprintSnapshot,
   TeamMemberCapacity,
 } from "@/domain/orchestrator/types";
@@ -74,7 +75,7 @@ function ActiveSession({
   onClose: () => void;
   onBackToPicker: () => void;
 }) {
-  const { sprints, orgMembers, allTickets, boardColumns } = useBoardData();
+  const { sprints, orgMembers, allTickets, boardColumns, boards, activeBoardId } = useBoardData();
 
   /**
    * Seed capacities at machine init for resumed Phase 4+ drafts so the planner
@@ -121,6 +122,10 @@ function ActiveSession({
   );
   const isPhase2Generating = useMemo(
     () => state.matches({ workflow: { phase2Structuring: "generatingBacklog" } }),
+    [state],
+  );
+  const isPhase2Inferring = useMemo(
+    () => state.matches({ workflow: { phase2Structuring: "inferringDependencies" } }),
     [state],
   );
   const isAwaitingBlueprintReply = useMemo(
@@ -172,6 +177,20 @@ function ActiveSession({
   };
 
   const handleAdvanceToPlan = () => {
+    const targetSprintIds = new Set(
+      sprints.filter((s) => s.status !== "completed").map((s) => s.id),
+    );
+
+    // Compute how many SP each non-completed sprint already has from existing tickets.
+    const usedPointsBySprint = new Map<string, number>();
+    for (const ticket of allTickets) {
+      if (!ticket.storyPoints) continue;
+      for (const sprintId of ticket.sprintIds) {
+        if (!targetSprintIds.has(sprintId)) continue;
+        usedPointsBySprint.set(sprintId, (usedPointsBySprint.get(sprintId) ?? 0) + ticket.storyPoints);
+      }
+    }
+
     const sprintSnapshots: SprintSnapshot[] = sprints
       .filter((s) => s.status !== "completed")
       .map((s) => ({
@@ -181,6 +200,7 @@ function ActiveSession({
         endDate: s.endDate,
         capacityPoints: s.capacityPoints,
         status: s.status,
+        usedPoints: usedPointsBySprint.get(s.id) ?? 0,
       }));
 
     const memberSnapshots: MemberSnapshot[] = orgMembers
@@ -191,6 +211,29 @@ function ActiveSession({
         role: m.role as MemberSnapshot["role"],
       }));
 
+    // Build per-sprint per-discipline allocations from existing assignees so the
+    // slicing policy doesn't treat these sprints as empty.
+    const memberRoleMap = new Map(
+      memberSnapshots.map((m) => [m.userId, m.role]),
+    );
+    const initialAllocations: SprintPreAllocation[] = [];
+    for (const ticket of allTickets) {
+      if (!ticket.storyPoints) continue;
+      for (const sprintId of ticket.sprintIds) {
+        if (!targetSprintIds.has(sprintId)) continue;
+        for (const assigneeId of ticket.assigneeIds) {
+          const discipline = memberRoleMap.get(assigneeId);
+          if (!discipline) continue;
+          initialAllocations.push({
+            sprintId,
+            memberId: assigneeId,
+            discipline,
+            points: ticket.storyPoints,
+          });
+        }
+      }
+    }
+
     const capacities = computeCapacities({
       members: memberSnapshots,
       sprints,
@@ -198,12 +241,31 @@ function ActiveSession({
       columns: boardColumns,
     });
 
+    // Derive boardName + nextSprintNumber so proposed sprints extend the existing
+    // numbering line. nextSprintNumber = (max parseable "{boardName} N" + 1) so
+    // gaps are tolerated but collisions aren't. Fallback: total sprint count + 1.
+    const boardName =
+      boards.find((b) => b.id === activeBoardId)?.name ?? "Sprint";
+    const escapedName = boardName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const prefixRe = new RegExp(`^${escapedName}\\s+(\\d+)\\b`);
+    const numberedNs = sprints
+      .map((s) => {
+        const m = s.name.match(prefixRe);
+        return m ? Number(m[1]) : null;
+      })
+      .filter((n): n is number => Number.isFinite(n));
+    const nextSprintNumber =
+      numberedNs.length > 0 ? Math.max(...numberedNs) + 1 : sprints.length + 1;
+
     send({
       type: "ADVANCE_TO_PLANNING",
       now: new Date().toISOString(),
       sprints: sprintSnapshots,
       members: memberSnapshots,
       capacities,
+      initialAllocations,
+      boardName,
+      nextSprintNumber,
     });
   };
 
@@ -282,6 +344,7 @@ function ActiveSession({
               <Phase2BulkList
                 draft={draft}
                 isGenerating={isPhase2Generating}
+                isInferringDependencies={isPhase2Inferring}
                 isAwaitingBlueprintReply={isAwaitingBlueprintReply}
                 aiMode={state.context.aiMode}
                 aiTouchedTicketIds={state.context.aiTouchedTicketIds}

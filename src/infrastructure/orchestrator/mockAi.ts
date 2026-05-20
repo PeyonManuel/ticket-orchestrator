@@ -25,6 +25,8 @@ import type {
   BrainstormSummary,
   ControllerInput,
   ControllerOutput,
+  DependencyInferenceInput,
+  DependencyInferenceOutput,
   InspectorTurnInput,
   InspectorTurnOutput,
   PlannerChatInput,
@@ -211,52 +213,51 @@ const TICKET_TEMPLATES: Array<{
 }> = [
   {
     hierarchyType: "story",
-    title: (kw) => `Define data model for ${kw || "the feature"}`,
-    oneLiner: () => "Set up the core schema and validation layer.",
-    label: "developer",
-  },
-  {
-    hierarchyType: "task",
-    title: () => "Add API endpoints for create / list / update",
-    oneLiner: () => "Wire GraphQL schema, resolvers, and Zod validation.",
+    title: (kw) => `Create ${kw || "item"}`,
+    oneLiner: (kw) => `Allow users to add new ${kw || "items"} to the system with required fields and validation.`,
     label: "developer",
   },
   {
     hierarchyType: "story",
-    title: (kw) => `Build primary UI for ${kw || "the user flow"}`,
-    oneLiner: () => "List + detail + create form with optimistic updates.",
+    title: (kw) => `${kw || "Item"} list and discovery`,
+    oneLiner: (kw) => `View all ${kw || "items"} with search, filtering, and sorting capabilities.`,
     label: "developer",
   },
   {
-    hierarchyType: "task",
-    title: () => "Add empty / loading / error states",
-    oneLiner: () =>
-      "Cover the three boundary states explicitly, no spinners over content.",
+    hierarchyType: "story",
+    title: (kw) => `Edit ${kw || "item"} details`,
+    oneLiner: (kw) => `Update ${kw || "item"} properties with validation and change persistence.`,
+    label: "developer",
+  },
+  {
+    hierarchyType: "story",
+    title: (kw) => `Remove ${kw || "item"} safely`,
+    oneLiner: () => "Delete with confirmation and recovery options to prevent accidental loss.",
+    label: "developer",
+  },
+  {
+    hierarchyType: "story",
+    title: () => `Handle empty and error states`,
+    oneLiner: () => "Guide users when data is unavailable and help them recover from failures gracefully.",
     label: "ux",
   },
   {
-    hierarchyType: "task",
-    title: () => "Persist user preferences across sessions",
-    oneLiner: () => "Store the relevant client-side state per user.",
+    hierarchyType: "story",
+    title: (kw) => `Alert users about important ${kw || "events"}`,
+    oneLiner: () => "Notify users of key updates and state changes through in-app or email channels.",
     label: "developer",
   },
   {
     hierarchyType: "story",
-    title: () => "Set up observability and structured logs",
-    oneLiner: () => "Log key transitions with correlation IDs for debugging.",
+    title: (kw) => `Export ${kw || "data"} to file`,
+    oneLiner: () => "Enable users to download information in standard formats for external use.",
     label: "developer",
   },
   {
     hierarchyType: "task",
-    title: () => "Write E2E tests for the happy path and a failure path",
-    oneLiner: () => "Playwright coverage required by the engineering contract.",
+    title: () => `Test coverage for core flows`,
+    oneLiner: () => "Automated tests validating primary user journey and common error paths.",
     label: "qa",
-  },
-  {
-    hierarchyType: "task",
-    title: () => "Wire feature flag + rollout plan",
-    oneLiner: () => "Default off; enable for the org running the pilot.",
-    label: "developer",
   },
 ];
 
@@ -294,6 +295,36 @@ export async function runArchitectBacklog(
   };
 
   return backlog;
+}
+
+// ─── Dependency Inference ───────────────────────────────────────────
+
+export async function runDependencyInference(
+  input: DependencyInferenceInput,
+): Promise<DependencyInferenceOutput[]> {
+  await delay();
+
+  // Conservative inference: only add blockedBy for the single most obvious
+  // hard prerequisite. Default is no dependencies — prefer parallel work.
+  const schemaTicket = input.tickets.find((t) =>
+    /^(db|database|data)\s*(schema|model|migration)|schema migration|data model/i.test(t.title),
+  );
+
+  return input.tickets.map((ticket) => {
+    // Only: an API/endpoint ticket is blocked by its schema ticket,
+    // but only when a schema ticket exists AND is a different ticket.
+    const blockedBySchema =
+      schemaTicket &&
+      schemaTicket.id !== ticket.id &&
+      /\bapi\b|\bendpoint\b/i.test(ticket.title);
+
+    return {
+      ticketId: ticket.id,
+      dependencies: blockedBySchema
+        ? [{ kind: "blockedBy" as const, targetProposalId: schemaTicket.id }]
+        : [],
+    };
+  });
 }
 
 // ─── Controller ─────────────────────────────────────────────────────
@@ -535,6 +566,9 @@ export async function runSprintPlanner(
     backlog,
     sprints,
     capacities: resolvedCapacities,
+    initialAllocations: input.initialAllocations,
+    boardName: input.boardName,
+    nextSprintNumber: input.nextSprintNumber,
   });
   return plan;
 }
@@ -591,7 +625,7 @@ export async function runPlannerChat(
 
   const memberNames = members.map((m) => m.fullName).join(", ");
   return {
-    reply: `The current plan distributes ${backlog.tickets.length} tickets across ${input.sprints.length} sprint(s) with team members: ${memberNames || "none assigned"}. ${currentPlan.reasoning} Let me know if you'd like to adjust priorities, redistribute work, or change sprint assignments.`,
+    reply: `The current plan distributes ${backlog.tickets.length} tickets across ${input.sprints.length} sprint(s) with team members: ${memberNames || "none assigned"}. Let me know if you'd like to adjust priorities, redistribute work, or change sprint assignments.`,
     updatedPlan: null,
   };
 }
@@ -765,9 +799,8 @@ export async function runInspectorTurn(
   }
 
   if (wantsRisks) {
-    const reasoning = snapshot.sprintPlan?.reasoning?.slice(0, 240) ?? "no planning narrative captured";
     return {
-      reply: `From the original plan: "${reasoning}". If a specific blocker has emerged that wasn't anticipated, paste the details and I'll persist it as an insight so it surfaces on future turns.`,
+      reply: `If a specific blocker has emerged that wasn't anticipated, paste the details and I'll persist it as an insight so it surfaces on future turns.`,
       insightsToSave: [],
     };
   }

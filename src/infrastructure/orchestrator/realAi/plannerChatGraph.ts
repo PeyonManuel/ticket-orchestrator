@@ -13,6 +13,7 @@ import { createOrchestratorLLM } from "../llm";
 import { toolsForPhase } from "../tools";
 import { createFindSimilarEpicsTool } from "../tools/findSimilarEpics";
 import { createFindSimilarTicketsTool } from "../tools/findSimilarTickets";
+import { createGetProposalDetailsTool } from "../tools/getProposalDetails";
 import { countEpicEmbeddings, countTicketEmbeddings } from "../rag/store";
 import { runAgentLoop } from "./agentLoop";
 
@@ -33,15 +34,16 @@ Stay grounded in the actual numbers provided. If a sprint is over capacity, name
 
 The CURRENT PLAN STATE below is the live state you see right now — the PO may have reassigned tickets between turns. Treat it as authoritative for this turn. If the PO says they moved something, look at the current plan rather than asking them to describe the change.
 
+When the PO references a ticket by name, position, or topic, find the matching \`prop-xxxxxxxx\` id in the plan listing. Use that id to call tools — never invent ids, never use "#N" display numbers.
+
 You do NOT mutate the plan. updatedPlan must always be null in your response. Plan edits happen via the UI.
 
 ==== ON-DEMAND CONTEXT (TOOLS) ====
-You may have tools to anchor your reasoning in past work. Call only when the answer materially depends on the result.
+The plan listing above gives you each ticket's id, title, label, points, sprint, and assignee — enough to answer most capacity/sequencing questions directly. For deeper questions (scope, risks, AC, dependencies on a specific ticket), call a tool. Tool results are visible only to you — paraphrase them in plain language for the PO; never dump JSON. If empty, acknowledge it rather than pretending.
 
+- \`get_proposal_details(ticketId)\` — full field block (description, oneLiner, acceptance criteria, risks, dependencies) for any ticket in the current backlog. Use when the PO asks "what does X involve?", "what are the risks on X?", "does X depend on anything?", or you're suggesting a sequence change and want to verify blockers before answering. Skip for pure capacity math.
 - \`find_similar_tickets(query, topK)\` — past committed tickets with their stored points. Use when the PO asks "is X really 5 points?" or "did similar work usually take that long?". Skip for capacity-math questions answerable from the plan above.
 - \`find_similar_epics(query, topK)\` — past Epics this team committed. Use when the PO asks "how did we plan a similar Epic?" or "did sprint sequencing like this work before?". Skip for routine plan explanation.
-
-Tool results are visible only to you — paraphrase them in plain language for the PO; never dump JSON. If empty, acknowledge it rather than pretending.
 
 Keep replies 2-5 sentences. Use a short list only if comparing multiple sprints.`;
 
@@ -51,25 +53,49 @@ const responseSchema = z.object({
 
 function summarisePlan(input: PlannerChatInput): string {
   const lines: string[] = [];
-  lines.push(`Plan reasoning: ${input.currentPlan.reasoning}`);
-  lines.push("");
+  const memberById = new Map(input.members.map((m) => [m.userId, m]));
+  const ticketLine = (a: { ticketId: string; assigneeUserId: string | null }) => {
+    const t = input.backlog.tickets.find((tk) => tk.id === a.ticketId);
+    if (!t) return `  - ${a.ticketId} (ticket missing from backlog)`;
+    const discipline = t.discipline ?? t.label ?? "?";
+    const assignee = a.assigneeUserId
+      ? (memberById.get(a.assigneeUserId)?.fullName ?? a.assigneeUserId)
+      : "unassigned";
+    return `  - ${t.id} "${t.title}" [${discipline}, ${t.storyPoints ?? "?"} pts] → ${assignee}`;
+  };
+
   for (const s of input.sprints) {
     const assigned = input.currentPlan.assignments.filter((a) => a.sprintId === s.id);
-    const points = assigned.reduce((sum, a) => {
+    const epicPoints = assigned.reduce((sum, a) => {
       const t = input.backlog.tickets.find((tk) => tk.id === a.ticketId);
       return sum + (t?.storyPoints ?? 3);
     }, 0);
+    const existingPoints = s.usedPoints ?? 0;
+    const totalUsed = epicPoints + existingPoints;
+    const existingNote = existingPoints > 0 ? `, ${existingPoints} pts already from other tickets` : "";
     lines.push(
-      `Sprint "${s.name}": ${assigned.length} tickets, ${points} pts (capacity ${s.capacityPoints}).`,
+      `Sprint "${s.name}" (id=${s.id}): ${assigned.length} new tickets, ${epicPoints} epic pts + ${existingPoints} existing = ${totalUsed} total used (capacity ${s.capacityPoints})${existingNote}.`,
     );
+    for (const a of assigned) lines.push(ticketLine(a));
   }
+
+  // Tickets the planner created proposed sprints for, or that landed assignment-only
+  // (sprintId set to a sprint not in the list — defensive). The proposed sprints'
+  // assignments still surface here as "unassigned to listed sprint", which is fine
+  // for chat reasoning.
+  const listedSprintIds = new Set(input.sprints.map((s) => s.id));
+  const otherAssigned = input.currentPlan.assignments.filter(
+    (a) => a.sprintId && !listedSprintIds.has(a.sprintId),
+  );
+  if (otherAssigned.length > 0) {
+    lines.push(`Assigned to proposed/extra sprints: ${otherAssigned.length} ticket(s).`);
+    for (const a of otherAssigned) lines.push(ticketLine(a));
+  }
+
   const unassigned = input.currentPlan.assignments.filter((a) => !a.sprintId);
   if (unassigned.length > 0) {
     lines.push(`Unassigned to any sprint: ${unassigned.length} ticket(s).`);
-  }
-  const overflow = input.currentPlan.overflow ?? [];
-  if (overflow.length > 0) {
-    lines.push(`Overflow (unschedulable): ${overflow.length} ticket(s).`);
+    for (const a of unassigned) lines.push(ticketLine(a));
   }
   return lines.join("\n");
 }
@@ -80,15 +106,18 @@ export async function runPlannerChat(
 ): Promise<PlannerChatOutput> {
   const llm = createOrchestratorLLM({ temperature: 0.4 });
 
-  // Slice T: tool-calling pre-step. Planner chat is informational, not
-  // mutational — RAG tools let the AI ground "is X really 5 points" type
-  // questions in past committed work. Gated on corpus availability.
+  // Tool-calling pre-step (Slice T, extended). Planner chat is informational,
+  // not mutational. `get_proposal_details` lets the AI fetch deep ticket info
+  // on demand — the plan summary only carries title/label/points/assignee so
+  // the prompt stays small. RAG tools are gated on corpus availability so
+  // first-run orgs skip them.
   const hasEpicCorpus =
     !!ctx?.orgId && (await countEpicEmbeddings(ctx.orgId)) > 0;
   const hasTicketCorpus =
     !!ctx?.orgId && (await countTicketEmbeddings(ctx.orgId)) > 0;
   const tools = [
     ...toolsForPhase("plannerChat"),
+    createGetProposalDetailsTool(input.backlog.tickets),
     ...(hasEpicCorpus ? [createFindSimilarEpicsTool(ctx!.orgId!)] : []),
     ...(hasTicketCorpus ? [createFindSimilarTicketsTool(ctx!.orgId!)] : []),
   ];

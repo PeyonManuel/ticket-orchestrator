@@ -22,6 +22,7 @@ import { ErrorMessage } from "./shared/ErrorMessage";
 interface Props {
   draft: EpicDraft;
   isGenerating: boolean;
+  isInferringDependencies?: boolean;
   isAwaitingBlueprintReply: boolean;
   aiMode: "execute" | "confirm";
   aiTouchedTicketIds: ProposalId[];
@@ -61,6 +62,7 @@ function uid(prefix: string): string {
 export function Phase2BulkList({
   draft,
   isGenerating,
+  isInferringDependencies = false,
   isAwaitingBlueprintReply,
   aiMode,
   aiTouchedTicketIds,
@@ -117,15 +119,23 @@ export function Phase2BulkList({
               />
               <textarea
                 value={backlog.epicDescription}
-                onChange={(e) =>
+                onChange={(e) => {
+                  e.target.style.height = "auto";
+                  e.target.style.height = `${e.target.scrollHeight}px`;
                   send({
                     type: "EDIT_EPIC_DESCRIPTION",
                     description: e.target.value,
                     now: now(),
-                  })
-                }
-                rows={2}
-                className="mt-2 w-full bg-transparent text-sm text-zinc-600 dark:text-zinc-400 focus:outline-none resize-none"
+                  });
+                }}
+                ref={(el) => {
+                  if (el) {
+                    el.style.height = "auto";
+                    el.style.height = `${el.scrollHeight}px`;
+                  }
+                }}
+                rows={3}
+                className="mt-2 w-full bg-transparent text-sm text-zinc-600 dark:text-zinc-400 focus:outline-none resize-y overflow-hidden"
                 placeholder="One-paragraph description"
               />
 
@@ -203,6 +213,17 @@ export function Phase2BulkList({
                 </div>
               </div>
             </div>
+
+            {isInferringDependencies && (
+              <div className="rounded-lg border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50 dark:bg-indigo-950/20 p-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-4 w-4 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 animate-pulse" />
+                  <span className="text-sm text-indigo-700 dark:text-indigo-300">
+                    Analyzing dependencies…
+                  </span>
+                </div>
+              </div>
+            )}
 
             {view === "graph" ? (
               <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden" style={{ height: 400 }}>

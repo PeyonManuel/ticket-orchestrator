@@ -15,12 +15,15 @@ import type {
   ProposalId,
   ProposedSprint,
   SprintPlan,
+  SprintPreAllocation,
   SprintSnapshot,
   TicketAssignment,
   TicketProposal,
 } from "../types";
 import {
   DEFAULT_BUFFER_PERCENT,
+  DEFAULT_VELOCITY_BY_ROLE,
+  applyBuffer,
   disciplineCapacity,
   membersByDiscipline,
   type TeamMemberCapacity,
@@ -50,13 +53,23 @@ export function ticketDiscipline(t: TicketProposal): OrgMemberRole {
   return t.discipline ?? ROLE_FOR_LABEL[t.label] ?? "developer";
 }
 
-const ALL_DISCIPLINES: OrgMemberRole[] = ["developer", "ux", "tester", "po"];
 
 export interface SlicingInput {
   backlog: BacklogProposal;
   sprints: SprintSnapshot[];
   capacities: TeamMemberCapacity[];
   bufferPercent?: number;
+  /** Story-point allocations already committed by existing board tickets. Pre-seeds capacity maps. */
+  initialAllocations?: SprintPreAllocation[];
+  /** Board name, used to name proposed sprints `{boardName} {N+1}` matching the convention used by `createSprint`. */
+  boardName?: string;
+  /**
+   * Next sprint number to use when naming proposed sprints. Should equal
+   * `(max parseable sprint number on this board) + 1` so proposed sprints
+   * extend the existing numbering without collisions. When omitted, falls
+   * back to the slot-relative `Proposed Sprint N` naming.
+   */
+  nextSprintNumber?: number;
 }
 
 export interface SlicingResult {
@@ -70,14 +83,15 @@ export interface SlicingResult {
  *
  * Algorithm:
  *  1. Topologically sort tickets by `blockedBy`. Cyclic graphs fall back to
- *     insertion order with a note in `reasoning`; cycles are also returned for UI.
+ *     insertion order; cycles are returned for UI highlighting.
  *  2. For each ticket in order, walk sprints chronologically and place it into
  *     the first sprint where:
  *       - the discipline still has post-buffer capacity for this ticket's points
- *       - all of the ticket's `blockedBy` deps are already placed in same-or-earlier
- *         sprint (or unplaced — they overflowed too).
+ *       - all of the ticket's `blockedBy` deps are already placed in same-or-earlier sprint
  *  3. Picks the least-loaded member of the matching discipline as the assignee.
- *  4. Tickets that don't fit anywhere become `overflow` (`sprintId: null`).
+ *  4. If no existing sprint fits, proposed sprints are created until the ticket can be placed.
+ *     Oversized tickets (points > per-sprint discipline cap) are force-placed in their own
+ *     proposed sprint rather than left unscheduled. Every ticket is always scheduled.
  */
 /**
  * Build a proposed sprint that picks up where the previous sprint ends.
@@ -87,6 +101,7 @@ export interface SlicingResult {
 function buildProposedSprint(
   previous: SprintSnapshot | ProposedSprint,
   index: number,
+  opts: { boardName?: string; nextSprintNumber?: number } = {},
 ): ProposedSprint {
   const prevStart = new Date(previous.startDate);
   const prevEnd = new Date(previous.endDate);
@@ -99,9 +114,16 @@ function buildProposedSprint(
     : Date.now() + 14 * 24 * 60 * 60 * 1000;
   const start = new Date(startMs);
   const end = new Date(startMs + durationMs);
+  // Match `createSprint`'s `{boardName} {N+1}` convention so existing + proposed
+  // sprints share a single numbering line. Fallback (no boardName/nextNumber):
+  // a generic "Proposed Sprint N" — slot-relative, not board-relative.
+  const name =
+    opts.boardName && typeof opts.nextSprintNumber === "number"
+      ? `${opts.boardName} ${opts.nextSprintNumber + index - 1}`
+      : `Proposed Sprint ${index}`;
   return {
     id: `proposed-${index}-${Math.random().toString(36).slice(2, 10)}`,
-    name: `Proposed Sprint ${index}`,
+    name,
     startDate: start.toISOString(),
     endDate: end.toISOString(),
     capacityPoints: previous.capacityPoints > 0 ? previous.capacityPoints : 30,
@@ -109,7 +131,15 @@ function buildProposedSprint(
 }
 
 export function produceSprintPlan(input: SlicingInput): SlicingResult {
-  const { backlog, sprints, capacities, bufferPercent = DEFAULT_BUFFER_PERCENT } = input;
+  const {
+    backlog,
+    sprints,
+    capacities,
+    bufferPercent = DEFAULT_BUFFER_PERCENT,
+    initialAllocations,
+    boardName,
+    nextSprintNumber,
+  } = input;
 
   const targetSprints = sprints
     .filter((s) => s.status !== "completed")
@@ -119,20 +149,25 @@ export function produceSprintPlan(input: SlicingInput): SlicingResult {
 
   let ordered: TicketProposal[];
   let cycles: ProposalId[][] = [];
-  let cycleNote = "";
   try {
     ordered = topologicalSort(backlog.tickets);
   } catch (err) {
     const cycle = (err as { cycle?: ProposalId[] }).cycle;
     if (cycle) cycles = [cycle];
-    cycleNote = ` Note: dependency cycle detected (${cycle?.join(" → ") ?? "unknown"}); fell back to insertion order.`;
     ordered = backlog.tickets;
   }
 
-  // sprintId + discipline → committed points
+  // sprintId + discipline → committed points (pre-seeded with existing board tickets)
   const committedByDiscipline = new Map<string, number>();
-  // sprintId + memberId → committed points (for least-loaded assignee pick)
+  // sprintId + memberId → committed points (pre-seeded with existing board tickets)
   const committedByMember = new Map<string, number>();
+
+  for (const alloc of initialAllocations ?? []) {
+    const dk = `${alloc.sprintId}|${alloc.discipline}`;
+    committedByDiscipline.set(dk, (committedByDiscipline.get(dk) ?? 0) + alloc.points);
+    const mk = `${alloc.sprintId}|${alloc.memberId}`;
+    committedByMember.set(mk, (committedByMember.get(mk) ?? 0) + alloc.points);
+  }
 
   // Unified slot list: real sprints first, then proposed sprints appended on demand.
   // Each entry carries enough info for capacity tracking + the assignment.
@@ -187,86 +222,63 @@ export function produceSprintPlan(input: SlicingInput): SlicingResult {
   };
 
   const assignments: TicketAssignment[] = [];
-  const overflow: TicketProposal[] = [];
 
   for (const ticket of ordered) {
     const discipline = ticketDiscipline(ticket);
     const points = ticket.storyPoints ?? 3;
-    const capForDiscipline = disciplineCapacity(capacities, discipline, bufferPercent);
+    // When the team has no members for this discipline, fall back to the
+    // role's cold-start default so the ticket can still be placed.
+    const rawCap = disciplineCapacity(capacities, discipline, bufferPercent);
+    const effectiveCap =
+      rawCap > 0 ? rawCap : applyBuffer(DEFAULT_VELOCITY_BY_ROLE[discipline], bufferPercent);
 
-    // If the discipline has no capacity at all (no members of that role),
-    // we can't schedule this ticket — even a new sprint won't help.
-    if (capForDiscipline <= 0) {
-      assignments.push({ ticketId: ticket.id, sprintId: null, assigneeUserId: null });
-      overflow.push(ticket);
-      continue;
-    }
+    let result = tryPlace(ticket, discipline, points, effectiveCap);
 
-    let result = tryPlace(ticket, discipline, points, capForDiscipline);
-
-    // Doesn't fit in any existing slot — propose a new sprint and retry.
-    // Bounded attempts so we can't blow up if the ticket is larger than a whole sprint.
-    let attempts = 0;
-    while (!result && attempts < 8) {
+    // No existing slot fits — keep proposing new sprints until the ticket lands.
+    // A fresh proposed sprint always has zero committed points, so tryPlace will
+    // succeed as long as points ≤ effectiveCap. For oversized tickets (points >
+    // effectiveCap), force-place into the new sprint after one failed attempt.
+    while (!result) {
       const previous = slots[slots.length - 1]?.ref;
       if (!previous) break;
-      const proposed = buildProposedSprint(previous, proposedSprints.length + 1);
+      const proposed = buildProposedSprint(previous, proposedSprints.length + 1, {
+        boardName,
+        nextSprintNumber,
+      });
       proposedSprints.push(proposed);
       slots.push({ kind: "proposed", ref: proposed });
-      result = tryPlace(ticket, discipline, points, capForDiscipline);
-      attempts++;
+      result = tryPlace(ticket, discipline, points, effectiveCap);
+
+      if (!result) {
+        // Oversized ticket: force-place into this new proposed sprint.
+        const sprintId = proposed.id;
+        const dk = `${sprintId}|${discipline}`;
+        committedByDiscipline.set(dk, (committedByDiscipline.get(dk) ?? 0) + points);
+        const candidates = [...membersByDiscipline(capacities, discipline)].sort(
+          (a, b) =>
+            (committedByMember.get(`${sprintId}|${a.memberId}`) ?? 0) -
+            (committedByMember.get(`${sprintId}|${b.memberId}`) ?? 0),
+        );
+        const assignee = candidates[0] ?? null;
+        if (assignee) {
+          const mk = `${sprintId}|${assignee.memberId}`;
+          committedByMember.set(mk, (committedByMember.get(mk) ?? 0) + points);
+        }
+        result = { sprintIdx: slots.length - 1, assignee };
+        break;
+      }
     }
 
-    if (result) {
-      assignments.push({
-        ticketId: ticket.id,
-        sprintId: slots[result.sprintIdx].ref.id,
-        assigneeUserId: result.assignee?.memberId ?? null,
-      });
-    } else {
-      assignments.push({ ticketId: ticket.id, sprintId: null, assigneeUserId: null });
-      overflow.push(ticket);
-    }
+    assignments.push({
+      ticketId: ticket.id,
+      sprintId: result ? slots[result.sprintIdx].ref.id : null,
+      assigneeUserId: result?.assignee?.memberId ?? null,
+    });
   }
-
-  const placedCount = backlog.tickets.length - overflow.length;
-  const sprintBreakdown = slots
-    .map((slot) => {
-      const s = slot.ref;
-      const parts = ALL_DISCIPLINES.map((d) => {
-        const used = committedByDiscipline.get(`${s.id}|${d}`) ?? 0;
-        if (used === 0) return null;
-        const cap = disciplineCapacity(capacities, d, bufferPercent);
-        return `${d} ${used}/${cap}`;
-      })
-        .filter((x): x is string => x !== null)
-        .join(", ");
-      const label = slot.kind === "proposed" ? `${s.name} (proposed)` : s.name;
-      return parts.length > 0 ? `${label} [${parts}]` : `${label} [empty]`;
-    })
-    .join("; ");
-
-  const proposedNote =
-    proposedSprints.length > 0
-      ? ` Proposed ${proposedSprints.length} new sprint(s) to schedule overflow — these will be created when you commit the epic.`
-      : "";
-  const overflowNote =
-    overflow.length > 0
-      ? ` ${overflow.length} ticket(s) still couldn't be scheduled (missing discipline coverage).`
-      : "";
-
-  const usingDefaults = capacities.some((c) => c.isDefaultVelocity);
-  const defaultsNote = usingDefaults
-    ? " Capacity is based on cold-start defaults (no completed-sprint history yet); refine after the first sprint completes."
-    : "";
 
   return {
     plan: {
       assignments,
-      reasoning:
-        `Allocated ${placedCount} of ${backlog.tickets.length} tickets across ${slots.length} sprint(s). ${sprintBreakdown}.` +
-        `${proposedNote}${overflowNote}${defaultsNote}${cycleNote} Sequenced by blockedBy dependencies with a ${bufferPercent}% per-discipline buffer.`,
-      overflow,
       proposedSprints,
       bufferRule,
     },

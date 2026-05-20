@@ -533,6 +533,18 @@ export const resolvers = {
       return runArchitectBacklog(input, { orgId: ctx.orgId });
     },
 
+    runDependencyInference: async (
+      _p: unknown,
+      { input }: { input: { tickets: any[]; currentDependencies: any[]; epicSummary?: any } },
+      ctx: GraphQLContext,
+    ) => {
+      requireAuth(ctx);
+      const { inferDependencies } = await import(
+        "@/infrastructure/orchestrator/realAi/dependencyInferenceGraph"
+      );
+      return inferDependencies(input.tickets, input.currentDependencies, input.epicSummary);
+    },
+
     runControllerRefinement: async (
       _p: unknown,
       { input }: { input: Parameters<typeof runControllerRefinement>[0] },
